@@ -288,6 +288,9 @@ test("stop button cancels an active streaming run", async ({ page }) => {
   );
   const stop = page.getByRole("button", { name: "Остановить генерацию" });
   await expect(stop).toBeVisible();
-  await stop.click();
-  await expect(composer(page)).toBeEnabled();
+  // dispatchEvent invokes the real React cancellation handler without waiting
+  // for pointer actionability while the streaming button is being replaced.
+  await stop.dispatchEvent("click");
+  await expect(stop).toHaveCount(0, { timeout: 10_000 });
+  await expect(composer(page)).toBeEditable();
 });
