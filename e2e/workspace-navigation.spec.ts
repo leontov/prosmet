@@ -45,7 +45,10 @@ async function openThreadMenu(page: Page, title: string) {
     name: `Действия: ${title}`,
     exact: true
   });
-  await expect(actions).toBeVisible();
+  const row = actions.locator("..");
+  await row.scrollIntoViewIfNeeded();
+  await row.hover();
+  await expect(actions).toHaveCSS("opacity", "1");
   await actions.click();
   return sidebar;
 }
