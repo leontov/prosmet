@@ -14,7 +14,7 @@ concurrency:
 jobs:
   verify:
     runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 120
+    timeout-minutes: 90
     env:
       CI: "1"
       NEXT_TELEMETRY_DISABLED: "1"
@@ -100,8 +100,28 @@ jobs:
       - name: Install Chromium
         run: npx playwright install chromium 2>&1 | tee artifacts/logs/chromium-install.log
 
-      - name: Desktop and mobile Chromium
-        run: npm run e2e 2>&1 | tee artifacts/logs/e2e.log
+      - name: Desktop hydration smoke
+        run: |
+          set -o pipefail
+          timeout --signal=TERM --kill-after=15s 180s \
+            npx playwright test e2e/browser-smoke.spec.ts \
+              --project=desktop-chromium --workers=1 --retries=0 --reporter=line \
+            2>&1 | tee artifacts/logs/browser-smoke-desktop.log
+
+      - name: Mobile hydration smoke
+        run: |
+          set -o pipefail
+          timeout --signal=TERM --kill-after=15s 180s \
+            npx playwright test e2e/browser-smoke.spec.ts \
+              --project=mobile-chromium --workers=1 --retries=0 --reporter=line \
+            2>&1 | tee artifacts/logs/browser-smoke-mobile.log
+
+      - name: Full desktop and mobile Chromium
+        run: |
+          set -o pipefail
+          timeout --signal=TERM --kill-after=30s 1200s \
+            npx playwright test --workers=1 --retries=0 --reporter=line \
+            2>&1 | tee artifacts/logs/e2e.log
 
       - name: Assert no browser WASM remains
         run: |
