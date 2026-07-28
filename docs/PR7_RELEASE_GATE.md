@@ -11,3 +11,5 @@ This branch may be merged only after the trusted `prosmet-primary` gate proves a
 - no production dependency or CSP permission for browser SQL/WASM remains.
 
 Status-reporting API calls are informational and must never block the technical gate.
+
+Gate re-triggered after removing duplicate push-trigger cancellation and granting the workflow token explicit pull-request write permission.
