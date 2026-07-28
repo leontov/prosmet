@@ -1,0 +1,121 @@
+name: primary-ci
+
+on:
+  push:
+    branches: [main, feature/chat-first-estimating-office]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prosmet-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Quality gate on prosmet-primary
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 60
+    env:
+      CI: "1"
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - name: Verify runner identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Runner: ${{ runner.name }}"
+          test "${{ runner.name }}" = "prosmet-primary"
+
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.16.0"
+
+      - name: Generate bootstrap lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f package-lock.json ]; then
+            npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          fi
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: assistant-ui info
+        run: npm run assistant-ui:info
+      - name: Source contract
+        run: npm run source:contract
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Unit and integration tests
+        run: npm run test
+      - name: Production build
+        run: npm run build
+      - name: Install Playwright Chromium
+        run: npm run test:e2e:install
+      - name: Desktop and mobile E2E
+        run: npm run test:e2e
+
+      - name: Upload quality evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: primary-quality-${{ github.sha }}
+          path: |
+            package-lock.json
+            artifacts
+            playwright-report
+            test-results
+          if-no-files-found: ignore
+          retention-days: 30
+
+  canary:
+    needs: quality
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 25
+    environment: canary
+    env:
+      PROSMET_DEPLOY_DIR: ${{ vars.PROSMET_DEPLOY_DIR }}
+      PROSMET_CANARY_PORT: ${{ vars.PROSMET_CANARY_PORT }}
+    steps:
+      - name: Verify runner identity
+        shell: bash
+        run: test "${{ runner.name }}" = "prosmet-primary"
+      - uses: actions/checkout@v4
+      - name: Require deployment configuration
+        shell: bash
+        run: |
+          test -n "${PROSMET_DEPLOY_DIR:-}" || { echo "PROSMET_DEPLOY_DIR is not configured"; exit 1; }
+          test -n "${PROSMET_CANARY_PORT:-}" || { echo "PROSMET_CANARY_PORT is not configured"; exit 1; }
+          test -f "${PROSMET_DEPLOY_DIR}/.env" || { echo "Missing ${PROSMET_DEPLOY_DIR}/.env"; exit 1; }
+      - name: Build immutable image
+        run: docker build --label org.opencontainers.image.revision=${{ github.sha }} -t prosmet:${{ github.sha }} .
+      - name: Replace canary
+        shell: bash
+        run: |
+          docker rm -f prosmet-chat-first-canary >/dev/null 2>&1 || true
+          docker run -d \
+            --name prosmet-chat-first-canary \
+            --restart unless-stopped \
+            --read-only \
+            --tmpfs /tmp:rw,noexec,nosuid,size=128m \
+            -p "127.0.0.1:${PROSMET_CANARY_PORT}:3000" \
+            --env-file "${PROSMET_DEPLOY_DIR}/.env" \
+            prosmet:${{ github.sha }}
+      - name: Health gate
+        shell: bash
+        run: |
+          for attempt in $(seq 1 30); do
+            curl -fsS "http://127.0.0.1:${PROSMET_CANARY_PORT}/api/health" && exit 0
+            sleep 2
+          done
+          docker logs prosmet-chat-first-canary
+          exit 1
