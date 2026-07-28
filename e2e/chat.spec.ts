@@ -10,6 +10,14 @@ async function openMenuIfMobile(page: import("@playwright/test").Page) {
   if (await button.isVisible()) await button.click();
 }
 
+function visibleSidebar(page: import("@playwright/test").Page) {
+  return page.locator('[data-testid="app-sidebar"]:visible');
+}
+
+function visibleInspector(page: import("@playwright/test").Page) {
+  return page.locator('[data-testid="right-inspector"]:visible');
+}
+
 function watchRuntimeErrors(page: import("@playwright/test").Page) {
   const errors: string[] = [];
   page.on("console", (message) => {
@@ -122,9 +130,9 @@ test("Codex desktop shell hydrates without eval and exposes both sidebars", asyn
   expect(csp).not.toContain("'wasm-unsafe-eval'");
 
   if (testInfo.project.name === "desktop-chromium") {
-    await expect(page.getByTestId("app-sidebar")).toBeVisible();
-    const inspector = page.getByTestId("right-inspector");
-    await expect(inspector).toBeVisible();
+    await expect(visibleSidebar(page)).toHaveCount(1);
+    const inspector = visibleInspector(page);
+    await expect(inspector).toHaveCount(1);
     await expect(inspector.getByText("Рабочий контекст", { exact: true })).toBeVisible();
     await expect(inspector.getByText("PostgreSQL", { exact: true })).toBeVisible();
     await expect(inspector.getByText("IndexedDB", { exact: true })).toBeVisible();
@@ -194,7 +202,7 @@ test("streaming chat creates a technology card and editable estimate", async ({
   expect(relevantRuntimeErrors(runtimeErrors)).toEqual([]);
 
   await openMenuIfMobile(page);
-  await expect(page.getByTestId("app-sidebar")).toHaveCount(1);
+  await expect(visibleSidebar(page)).toHaveCount(1);
   await page.screenshot({
     path: `artifacts/screenshots/estimate-${testInfo.project.name}.png`,
     fullPage: true
