@@ -111,14 +111,14 @@ jobs:
           docker build --pull -t "prosmet:${GITHUB_SHA}" .
           docker tag "prosmet:${GITHUB_SHA}" prosmet:latest
 
-      - name: Deploy canary container
+      - name: Deploy and probe canary frontend and backend
         id: canary
         if: steps.image.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p /opt/prosmet
+          mkdir -p /opt/prosmet artifacts
           if [ ! -f /opt/prosmet/.env ]; then
             cat > /opt/prosmet/.env <<'ENV'
           NODE_ENV=production
@@ -127,6 +127,19 @@ jobs:
           ENV
             chmod 600 /opt/prosmet/.env
           fi
+
+          probe_backend() {
+            local base_url="$1"
+            local output="$2"
+            curl --fail --silent --show-error --no-buffer --max-time 45 \
+              -H 'content-type: application/json' \
+              -H 'accept: text/event-stream' \
+              -d '{"threadId":"deployment-probe","runId":"deployment-probe","messages":[{"id":"probe-user","role":"user","content":[{"type":"text","text":"Проверка backend Просметчика"}]}],"tools":[],"context":{},"state":{}}' \
+              "${base_url}/api/agent" | tee "$output"
+            grep -q '"type":"RUN_STARTED"' "$output"
+            grep -q '"type":"TEXT_MESSAGE_CONTENT"' "$output"
+            grep -q '"type":"RUN_FINISHED"' "$output"
+          }
 
           docker rm -f prosmet-canary >/dev/null 2>&1 || true
           docker run -d \
@@ -141,22 +154,38 @@ jobs:
             "prosmet:${GITHUB_SHA}"
 
           for attempt in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:13100/api/health >/tmp/prosmet-canary-health.json; then
-              cat /tmp/prosmet-canary-health.json
-              exit 0
+            if curl -fsS http://127.0.0.1:13100/api/health >artifacts/canary-health.json; then
+              if probe_backend http://127.0.0.1:13100 artifacts/canary-agent.sse; then
+                cat artifacts/canary-health.json
+                exit 0
+              fi
             fi
             sleep 2
           done
           docker logs prosmet-canary
           exit 1
 
-      - name: Promote canary to Primary
+      - name: Promote canary and start Primary frontend and backend
         id: deploy
         if: steps.canary.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
+
+          probe_backend() {
+            local base_url="$1"
+            local output="$2"
+            curl --fail --silent --show-error --no-buffer --max-time 45 \
+              -H 'content-type: application/json' \
+              -H 'accept: text/event-stream' \
+              -d '{"threadId":"deployment-probe","runId":"deployment-probe","messages":[{"id":"probe-user","role":"user","content":[{"type":"text","text":"Проверка backend Просметчика"}]}],"tools":[],"context":{},"state":{}}' \
+              "${base_url}/api/agent" | tee "$output"
+            grep -q '"type":"RUN_STARTED"' "$output"
+            grep -q '"type":"TEXT_MESSAGE_CONTENT"' "$output"
+            grep -q '"type":"RUN_FINISHED"' "$output"
+          }
+
           docker rm -f prosmet >/dev/null 2>&1 || true
 
           if command -v ss >/dev/null 2>&1 && ss -H -ltn "sport = :${DEPLOY_PORT}" | grep -q .; then
@@ -176,13 +205,17 @@ jobs:
             "prosmet:${GITHUB_SHA}"
 
           for attempt in $(seq 1 30); do
-            if curl -fsS "http://127.0.0.1:${DEPLOY_PORT}/api/health" >/tmp/prosmet-health.json; then
-              break
+            if curl -fsS "http://127.0.0.1:${DEPLOY_PORT}/api/health" >artifacts/primary-health.json; then
+              if probe_backend "http://127.0.0.1:${DEPLOY_PORT}" artifacts/primary-agent.sse; then
+                cat artifacts/primary-health.json
+                docker rm -f prosmet-canary >/dev/null 2>&1 || true
+                exit 0
+              fi
             fi
             sleep 2
           done
-          curl -fsS "http://127.0.0.1:${DEPLOY_PORT}/api/health"
-          docker rm -f prosmet-canary >/dev/null 2>&1 || true
+          docker logs prosmet
+          exit 1
 
       - name: Write release evidence
         if: always()
@@ -197,6 +230,7 @@ jobs:
             "deployedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "url": "http://78.17.4.108:${DEPLOY_PORT}/",
             "health": "http://78.17.4.108:${DEPLOY_PORT}/api/health",
+            "backend": "http://78.17.4.108:${DEPLOY_PORT}/api/agent",
             "image": "prosmet:${GITHUB_SHA}",
             "gate": "${{ steps.deploy.outcome }}"
           }
@@ -247,8 +281,8 @@ jobs:
               ["Chromium", process.env.CHROMIUM_GATE],
               ["desktop/mobile E2E", process.env.E2E_GATE],
               ["Docker image", process.env.IMAGE_GATE],
-              ["canary", process.env.CANARY_GATE],
-              ["Primary deploy", process.env.DEPLOY_GATE]
+              ["canary frontend/backend", process.env.CANARY_GATE],
+              ["Primary frontend/backend", process.env.DEPLOY_GATE]
             ];
             const icon = (value) => value === "success" ? "✅" : value === "skipped" ? "⏭️" : "❌";
             const body = [
@@ -262,7 +296,7 @@ jobs:
               ...checks.map(([name, value]) => `| ${name} | ${icon(value)} ${value || "not-run"} |`),
               "",
               process.env.DEPLOY_GATE === "success"
-                ? "**LIVE:** http://78.17.4.108:3200/"
+                ? "**LIVE:** http://78.17.4.108:3200/\n\n**BACKEND:** http://78.17.4.108:3200/api/agent"
                 : "Deployment is blocked until every required gate passes."
             ].join("\n");
             const issues = await github.paginate(github.rest.issues.listForRepo, {
