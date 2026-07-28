@@ -68,6 +68,40 @@ button:disabled {
   background: rgba(15, 23, 42, 0.045);
 }
 
+/*
+ * The chat canvas stays mounted underneath workspace overlays so the active
+ * assistant thread never loses state. That canvas must never paint above the
+ * navigation rail. Keep the sidebar in a higher stacking context and expose
+ * the thread action button on touch devices where hover does not exist.
+ */
+[data-testid="app-sidebar"] {
+  position: relative;
+  z-index: 80;
+  isolation: isolate;
+}
+
+[data-thread-menu] {
+  position: relative;
+  z-index: 1;
+}
+
+[data-thread-menu] > button[aria-label^="Действия:"] {
+  z-index: 2;
+  opacity: 1 !important;
+  pointer-events: auto;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  [data-thread-menu] > button[aria-label^="Действия:"]:not([aria-expanded="true"]) {
+    opacity: 0.55 !important;
+  }
+
+  [data-thread-menu]:hover > button[aria-label^="Действия:"],
+  [data-thread-menu] > button[aria-label^="Действия:"][aria-expanded="true"] {
+    opacity: 1 !important;
+  }
+}
+
 .prosmet-scrollbar {
   scrollbar-width: thin;
   scrollbar-color: rgba(32, 33, 35, 0.18) transparent;
