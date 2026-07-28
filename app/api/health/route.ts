@@ -12,7 +12,8 @@ export async function GET() {
     {
       ok,
       service: "prosmet",
-      version: "2.1.0",
+      version: "2.2.0",
+      releaseSha: process.env.PROSMET_RELEASE_SHA || "development",
       time: new Date().toISOString(),
       frontend: {
         framework: "Next.js",
@@ -48,7 +49,7 @@ export async function GET() {
     },
     {
       status: ok ? 200 : 503,
-      headers: { "Cache-Control": "no-store" }
+      headers: { "Cache-Control": "no-store, no-cache, must-revalidate" }
     }
   );
 }
