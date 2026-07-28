@@ -1,0 +1,176 @@
+name: Prosmet Primary
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prosmet-primary-production
+  cancel-in-progress: true
+
+jobs:
+  verify-and-deploy:
+    name: Verify and deploy on prosmet-primary
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 60
+    env:
+      CI: "1"
+      NEXT_TELEMETRY_DISABLED: "1"
+      PROSMET_DEFAULT_PROVIDER: "rules"
+      DEPLOY_PORT: "3100"
+    steps:
+      - name: Verify runner identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Runner: ${{ runner.name }}"
+          echo "OS: ${{ runner.os }} / ${{ runner.arch }}"
+          test "${{ runner.name }}" = "prosmet-primary"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.16.0"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Create lockfile when repository is freshly initialized
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f package-lock.json ]; then
+            npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          fi
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Source contract
+        run: npm run source:contract
+
+      - name: TypeScript
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm run test
+
+      - name: Production build
+        run: npm run build
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Desktop and mobile E2E
+        run: npm run e2e
+
+      - name: Build immutable production image
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --pull -t "prosmet:${GITHUB_SHA}" .
+          docker tag "prosmet:${GITHUB_SHA}" prosmet:latest
+
+      - name: Deploy canary container
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /opt/prosmet
+          if [ ! -f /opt/prosmet/.env ]; then
+            cat > /opt/prosmet/.env <<'ENV'
+          NODE_ENV=production
+          PROSMET_DEFAULT_PROVIDER=rules
+          NEXT_PUBLIC_AGUI_AGENT_URL=/api/agent
+          ENV
+            chmod 600 /opt/prosmet/.env
+          fi
+
+          docker rm -f prosmet-canary >/dev/null 2>&1 || true
+          docker run -d \
+            --name prosmet-canary \
+            --restart unless-stopped \
+            --env-file /opt/prosmet/.env \
+            -p 127.0.0.1:13100:3100 \
+            --health-cmd='node -e "fetch(\"http://127.0.0.1:3100/api/health\").then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"' \
+            --health-interval=10s \
+            --health-timeout=5s \
+            --health-retries=12 \
+            "prosmet:${GITHUB_SHA}"
+
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:13100/api/health >/tmp/prosmet-canary-health.json; then
+              cat /tmp/prosmet-canary-health.json
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs prosmet-canary
+          exit 1
+
+      - name: Promote canary to Primary
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker rm -f prosmet >/dev/null 2>&1 || true
+          docker run -d \
+            --name prosmet \
+            --restart unless-stopped \
+            --env-file /opt/prosmet/.env \
+            -p "${DEPLOY_PORT}:3100" \
+            --health-cmd='node -e "fetch(\"http://127.0.0.1:3100/api/health\").then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"' \
+            --health-interval=10s \
+            --health-timeout=5s \
+            --health-retries=12 \
+            "prosmet:${GITHUB_SHA}"
+
+          for attempt in $(seq 1 30); do
+            if curl -fsS "http://127.0.0.1:${DEPLOY_PORT}/api/health" >/tmp/prosmet-health.json; then
+              break
+            fi
+            sleep 2
+          done
+          curl -fsS "http://127.0.0.1:${DEPLOY_PORT}/api/health"
+          docker rm -f prosmet-canary >/dev/null 2>&1 || true
+
+      - name: Write release evidence
+        if: success()
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          cat > artifacts/release.json <<JSON
+          {
+            "repository": "${GITHUB_REPOSITORY}",
+            "commit": "${GITHUB_SHA}",
+            "runner": "${{ runner.name }}",
+            "deployedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "url": "http://78.17.4.108:${DEPLOY_PORT}/",
+            "health": "http://78.17.4.108:${DEPLOY_PORT}/api/health",
+            "image": "prosmet:${GITHUB_SHA}",
+            "gate": "passed"
+          }
+          JSON
+
+      - name: Upload browser and release evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prosmet-primary-${{ github.run_id }}
+          path: |
+            artifacts
+            playwright-report
+            test-results
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: Show logs on failure
+        if: failure()
+        shell: bash
+        run: |
+          docker logs prosmet-canary 2>/dev/null || true
+          docker logs prosmet 2>/dev/null || true
