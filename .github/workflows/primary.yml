@@ -17,11 +17,13 @@ jobs:
   verify-and-deploy:
     name: Verify and deploy on prosmet-primary
     runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 100
+    timeout-minutes: 90
     env:
       CI: "1"
       NEXT_TELEMETRY_DISABLED: "1"
-      PROSMET_DEFAULT_PROVIDER: ${{ vars.PROSMET_DEFAULT_PROVIDER || 'rules' }}
+      PROSMET_DEFAULT_PROVIDER: "rules"
+      PROSMET_DATABASE_DRIVER: "pglite"
+      PROSMET_PGLITE_DIR: ${{ runner.temp }}/prosmet-e2e-${{ github.run_id }}-pg
       DEPLOY_PORT: "3200"
       MIMO_API_KEY: ${{ secrets.MIMO_API_KEY }}
       MIMO_BASE_URL: ${{ vars.MIMO_BASE_URL }}
@@ -54,13 +56,20 @@ jobs:
         with:
           node-version: "22.16.0"
 
-      - name: Prepare evidence
+      - name: Prepare evidence and embedded PostgreSQL
+        id: database
         if: steps.node.outcome == 'success'
-        run: mkdir -p artifacts/logs artifacts/screenshots
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -rf "$PROSMET_PGLITE_DIR"
+          mkdir -p artifacts/logs artifacts/screenshots "$PROSMET_PGLITE_DIR"
+          echo "PGlite data: $PROSMET_PGLITE_DIR"
 
       - name: Create lockfile when repository is freshly initialized
         id: lockfile
-        if: steps.node.outcome == 'success'
+        if: steps.database.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
@@ -114,59 +123,9 @@ jobs:
           set -o pipefail
           npm run build 2>&1 | tee artifacts/logs/build.log
 
-      - name: Prepare Docker and verification PostgreSQL
-        id: verification_database
-        if: steps.build.outcome == 'success'
-        continue-on-error: true
-        shell: bash
-        run: |
-          set -o pipefail
-          (
-            set -Eeuo pipefail
-            if ! command -v docker >/dev/null 2>&1; then
-              sudo -n apt-get update
-              sudo -n DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io
-              sudo -n systemctl enable --now docker
-            fi
-            if docker info >/dev/null 2>&1; then
-              DOCKER=(docker)
-            elif sudo -n docker info >/dev/null 2>&1; then
-              DOCKER=(sudo -n docker)
-            else
-              echo "Runner cannot access Docker" >&2
-              exit 1
-            fi
-            "${DOCKER[@]}" rm -f prosmet-e2e-postgres >/dev/null 2>&1 || true
-            "${DOCKER[@]}" pull postgres:16-alpine
-            "${DOCKER[@]}" run -d \
-              --name prosmet-e2e-postgres \
-              -e POSTGRES_DB=prosmet \
-              -e POSTGRES_USER=prosmet \
-              -e POSTGRES_PASSWORD=prosmet-e2e \
-              -p 127.0.0.1::5432 \
-              --health-cmd='pg_isready -U prosmet -d prosmet' \
-              --health-interval=3s \
-              --health-timeout=3s \
-              --health-retries=20 \
-              postgres:16-alpine
-            PORT="$("${DOCKER[@]}" port prosmet-e2e-postgres 5432/tcp | awk -F: 'END {print $NF}')"
-            test -n "$PORT"
-            echo "DATABASE_URL=postgresql://prosmet:prosmet-e2e@127.0.0.1:${PORT}/prosmet" >> "$GITHUB_ENV"
-            for attempt in $(seq 1 40); do
-              STATUS="$("${DOCKER[@]}" inspect -f '{{.State.Health.Status}}' prosmet-e2e-postgres 2>/dev/null || true)"
-              if [ "$STATUS" = healthy ]; then
-                echo "Verification PostgreSQL healthy on port ${PORT}"
-                exit 0
-              fi
-              sleep 2
-            done
-            "${DOCKER[@]}" logs prosmet-e2e-postgres || true
-            exit 1
-          ) 2>&1 | tee artifacts/logs/verification-postgres.log
-
       - name: Install Playwright Chromium
         id: chromium
-        if: steps.verification_database.outcome == 'success'
+        if: steps.build.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
@@ -175,76 +134,53 @@ jobs:
 
       - name: Desktop and mobile Chromium E2E
         id: e2e
-        if: steps.build.outcome == 'success' && steps.verification_database.outcome == 'success' && steps.chromium.outcome == 'success'
+        if: steps.chromium.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
           set -o pipefail
           npm run e2e 2>&1 | tee artifacts/logs/e2e.log
 
-      - name: Stop verification PostgreSQL
-        if: always()
-        shell: bash
-        run: |
-          if docker info >/dev/null 2>&1; then
-            docker rm -f prosmet-e2e-postgres >/dev/null 2>&1 || true
-          elif sudo -n docker info >/dev/null 2>&1; then
-            sudo -n docker rm -f prosmet-e2e-postgres >/dev/null 2>&1 || true
-          fi
-
-      - name: Build immutable production image
-        id: image
+      - name: Verify standalone production bundle
+        id: bundle
         if: steps.source_contract.outcome == 'success' && steps.typecheck.outcome == 'success' && steps.unit_tests.outcome == 'success' && steps.build.outcome == 'success' && steps.e2e.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
           set -Eeuo pipefail
-          if docker info >/dev/null 2>&1; then
-            DOCKER=(docker)
-          elif sudo -n docker info >/dev/null 2>&1; then
-            DOCKER=(sudo -n docker)
-          else
-            echo "Runner cannot access Docker" >&2
-            exit 1
-          fi
-          "${DOCKER[@]}" build --pull -t "prosmet:${GITHUB_SHA}" .
-          "${DOCKER[@]}" tag "prosmet:${GITHUB_SHA}" prosmet:latest
+          test -f .next/standalone/server.js
+          test -d .next/static
+          test -f public/sql-wasm.wasm
+          node -e 'const p=require("./.next/standalone/package.json"); console.log("standalone", p.name || "prosmet")'
 
-      - name: Deploy canary app, backend and PostgreSQL
+      - name: Start and probe standalone canary
         id: canary
-        if: steps.image.outcome == 'success'
+        if: steps.bundle.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
           set -Eeuo pipefail
-          bash deployment/primary-stack.sh canary "prosmet:${GITHUB_SHA}" 13100
-          cp /opt/prosmet/prosmet-canary-health.json artifacts/canary-health.json
-          cp /opt/prosmet/prosmet-canary-backend.json artifacts/canary-backend.json
-          cp /opt/prosmet/prosmet-canary-agent.sse artifacts/canary-agent.sse
+          CANARY_HOME="$RUNNER_TEMP/prosmet-canary-${GITHUB_RUN_ID}"
+          rm -rf "$CANARY_HOME"
+          mkdir -p "$CANARY_HOME"
+          HOME="$CANARY_HOME" bash deployment/direct-primary.sh "$GITHUB_SHA" 13100
+          cp "$CANARY_HOME/.prosmet/primary-health.json" artifacts/canary-health.json
+          cp "$CANARY_HOME/.prosmet/primary-backend.json" artifacts/canary-backend.json
+          cp "$CANARY_HOME/.prosmet/primary-agent.sse" artifacts/canary-agent.sse
+          CANARY_PID="$(cat "$CANARY_HOME/.prosmet/prosmet.pid")"
+          kill "$CANARY_PID" 2>/dev/null || true
 
-      - name: Promote frontend, backend and PostgreSQL to Primary
+      - name: Promote app, AG-UI backend and embedded PostgreSQL to Primary
         id: deploy
         if: steps.canary.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
           set -Eeuo pipefail
-          if docker info >/dev/null 2>&1; then
-            DOCKER=(docker)
-          else
-            DOCKER=(sudo -n docker)
-          fi
-          if command -v ss >/dev/null 2>&1 && ss -H -ltn "sport = :${DEPLOY_PORT}" | grep -q .; then
-            if ! "${DOCKER[@]}" inspect prosmet >/dev/null 2>&1; then
-              echo "Port ${DEPLOY_PORT} is occupied by another service. Prosmet will not replace it."
-              exit 1
-            fi
-          fi
-          bash deployment/primary-stack.sh primary "prosmet:${GITHUB_SHA}" "${DEPLOY_PORT}"
-          "${DOCKER[@]}" rm -f prosmet-canary >/dev/null 2>&1 || true
-          cp /opt/prosmet/prosmet-health.json artifacts/primary-health.json
-          cp /opt/prosmet/prosmet-backend.json artifacts/primary-backend.json
-          cp /opt/prosmet/prosmet-agent.sse artifacts/primary-agent.sse
+          bash deployment/direct-primary.sh "$GITHUB_SHA" "$DEPLOY_PORT"
+          cp "$HOME/.prosmet/primary-health.json" artifacts/primary-health.json
+          cp "$HOME/.prosmet/primary-backend.json" artifacts/primary-backend.json
+          cp "$HOME/.prosmet/primary-agent.sse" artifacts/primary-agent.sse
 
       - name: Write release evidence
         if: always()
@@ -262,10 +198,14 @@ jobs:
             "backendStatus": "http://78.17.4.108:${DEPLOY_PORT}/api/backend/status",
             "agent": "http://78.17.4.108:${DEPLOY_PORT}/api/agent",
             "sync": "http://78.17.4.108:${DEPLOY_PORT}/api/sync",
-            "image": "prosmet:${GITHUB_SHA}",
+            "databaseDriver": "pglite",
             "gate": "${{ steps.deploy.outcome }}"
           }
           JSON
+
+      - name: Clean verification database
+        if: always()
+        run: rm -rf "$PROSMET_PGLITE_DIR"
 
       - name: Upload browser, logs and release evidence
         if: always()
@@ -286,16 +226,15 @@ jobs:
           RUNNER_NAME: ${{ runner.name }}
           RUNNER_GATE: ${{ steps.runner.outcome }}
           CHECKOUT_GATE: ${{ steps.checkout.outcome }}
-          LOCKFILE_GATE: ${{ steps.lockfile.outcome }}
+          DATABASE_GATE: ${{ steps.database.outcome }}
           INSTALL_GATE: ${{ steps.install.outcome }}
           SOURCE_GATE: ${{ steps.source_contract.outcome }}
           TYPE_GATE: ${{ steps.typecheck.outcome }}
           UNIT_GATE: ${{ steps.unit_tests.outcome }}
           BUILD_GATE: ${{ steps.build.outcome }}
-          POSTGRES_GATE: ${{ steps.verification_database.outcome }}
           CHROMIUM_GATE: ${{ steps.chromium.outcome }}
           E2E_GATE: ${{ steps.e2e.outcome }}
-          IMAGE_GATE: ${{ steps.image.outcome }}
+          BUNDLE_GATE: ${{ steps.bundle.outcome }}
           CANARY_GATE: ${{ steps.canary.outcome }}
           DEPLOY_GATE: ${{ steps.deploy.outcome }}
         with:
@@ -304,18 +243,17 @@ jobs:
             const checks = [
               ["runner prosmet-primary", process.env.RUNNER_GATE],
               ["checkout", process.env.CHECKOUT_GATE],
-              ["lockfile", process.env.LOCKFILE_GATE],
+              ["embedded PostgreSQL", process.env.DATABASE_GATE],
               ["npm ci", process.env.INSTALL_GATE],
               ["source contract", process.env.SOURCE_GATE],
               ["typecheck", process.env.TYPE_GATE],
               ["unit tests", process.env.UNIT_GATE],
               ["production build", process.env.BUILD_GATE],
-              ["verification PostgreSQL", process.env.POSTGRES_GATE],
               ["Chromium", process.env.CHROMIUM_GATE],
               ["desktop/mobile Chromium E2E", process.env.E2E_GATE],
-              ["Docker image", process.env.IMAGE_GATE],
-              ["canary app/backend/PostgreSQL", process.env.CANARY_GATE],
-              ["Primary app/backend/PostgreSQL", process.env.DEPLOY_GATE]
+              ["standalone bundle", process.env.BUNDLE_GATE],
+              ["canary app/backend/database", process.env.CANARY_GATE],
+              ["Primary app/backend/database", process.env.DEPLOY_GATE]
             ];
             const icon = (value) => value === "success" ? "✅" : value === "skipped" ? "⏭️" : "❌";
             const body = [
@@ -355,48 +293,37 @@ jobs:
               });
             }
 
-      - name: Show logs on failure
+      - name: Show direct deployment log on failure
         if: always() && steps.deploy.outcome != 'success'
-        shell: bash
-        run: |
-          if docker info >/dev/null 2>&1; then
-            DOCKER=(docker)
-          elif sudo -n docker info >/dev/null 2>&1; then
-            DOCKER=(sudo -n docker)
-          else
-            exit 0
-          fi
-          "${DOCKER[@]}" logs prosmet-canary 2>/dev/null || true
-          "${DOCKER[@]}" logs prosmet 2>/dev/null || true
-          "${DOCKER[@]}" logs prosmet-postgres 2>/dev/null || true
+        run: tail -n 250 "$HOME/.prosmet/prosmet.log" 2>/dev/null || true
 
       - name: Enforce green release gate
         if: always()
         shell: bash
         env:
           RUNNER_GATE: ${{ steps.runner.outcome }}
+          DATABASE_GATE: ${{ steps.database.outcome }}
           INSTALL_GATE: ${{ steps.install.outcome }}
           SOURCE_GATE: ${{ steps.source_contract.outcome }}
           TYPE_GATE: ${{ steps.typecheck.outcome }}
           UNIT_GATE: ${{ steps.unit_tests.outcome }}
           BUILD_GATE: ${{ steps.build.outcome }}
-          POSTGRES_GATE: ${{ steps.verification_database.outcome }}
           CHROMIUM_GATE: ${{ steps.chromium.outcome }}
           E2E_GATE: ${{ steps.e2e.outcome }}
-          IMAGE_GATE: ${{ steps.image.outcome }}
+          BUNDLE_GATE: ${{ steps.bundle.outcome }}
           CANARY_GATE: ${{ steps.canary.outcome }}
           DEPLOY_GATE: ${{ steps.deploy.outcome }}
         run: |
           set -Eeuo pipefail
           test "$RUNNER_GATE" = success
+          test "$DATABASE_GATE" = success
           test "$INSTALL_GATE" = success
           test "$SOURCE_GATE" = success
           test "$TYPE_GATE" = success
           test "$UNIT_GATE" = success
           test "$BUILD_GATE" = success
-          test "$POSTGRES_GATE" = success
           test "$CHROMIUM_GATE" = success
           test "$E2E_GATE" = success
-          test "$IMAGE_GATE" = success
+          test "$BUNDLE_GATE" = success
           test "$CANARY_GATE" = success
           test "$DEPLOY_GATE" = success
