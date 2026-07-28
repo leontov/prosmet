@@ -96,7 +96,7 @@ const localDb = await read("lib/local/database.ts");
 for (const token of [
   'import("sql.js")',
   "BEGIN IMMEDIATE",
-  "database.export",
+  "this.db.export()",
   "CREATE TABLE IF NOT EXISTS threads",
   "CREATE TABLE IF NOT EXISTS estimates",
   "CREATE TABLE IF NOT EXISTS documents",
