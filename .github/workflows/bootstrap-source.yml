@@ -6,7 +6,7 @@ on:
       - feature/chat-first-estimating-office
   pull_request:
     branches:
-      - main
+      - bootstrap-base/chat-first-estimating-office
 
 permissions:
   contents: write
