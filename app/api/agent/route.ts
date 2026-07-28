@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { runRulesAgent } from "@/lib/server/rules-agent";
+import { resolveServerIdentity } from "@/lib/server/identity";
+import { beginAgentRun, finishAgentRun } from "@/lib/server/postgres";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -67,6 +69,22 @@ function latestUserText(body: Record<string, unknown>) {
     if (message.role === "user") return textParts(message.content).join("\n").trim();
   }
   return "";
+}
+
+function requestSummary(body: Record<string, unknown>, prompt: string) {
+  const messages = Array.isArray(body.messages) ? body.messages : [];
+  const tools = Array.isArray(body.tools)
+    ? body.tools
+        .map((tool) => asRecord(tool).name)
+        .filter((name): name is string => typeof name === "string")
+    : [];
+  return {
+    prompt: prompt.slice(0, 16_000),
+    messageCount: messages.length,
+    tools,
+    hasState: Boolean(body.state && typeof body.state === "object"),
+    receivedAt: new Date().toISOString()
+  };
 }
 
 function splitText(value: string) {
@@ -137,6 +155,31 @@ export async function POST(request: Request) {
   const runId =
     typeof body.runId === "string" && body.runId ? body.runId : randomUUID();
   const prompt = latestUserText(body);
+  const provider = process.env.PROSMET_DEFAULT_PROVIDER || "rules";
+  const identity = resolveServerIdentity(request);
+
+  try {
+    await beginAgentRun({
+      tenantId: identity.ownerId,
+      runId,
+      threadId,
+      provider,
+      model: provider === "rules" ? "prosmet-rules-v1" : undefined,
+      request: requestSummary(body, prompt)
+    });
+  } catch (error) {
+    return Response.json(
+      {
+        error: "agent_backend_unavailable",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Серверная база запусков недоступна."
+      },
+      { status: 503 }
+    );
+  }
+
   const result = runRulesAgent(prompt);
 
   const stream = new ReadableStream<Uint8Array>({
@@ -153,8 +196,8 @@ export async function POST(request: Request) {
             documents: [],
             priceContext: {},
             workTrace: [],
-            sync: { status: "local-ready" },
-            provider: { id: "prosmet-rules", status: "available" },
+            sync: { status: "server-connected" },
+            provider: { id: provider, status: "available" },
             validation: {}
           }
         });
@@ -219,20 +262,42 @@ export async function POST(request: Request) {
           }
         });
         send({ type: "RUN_FINISHED", threadId, runId });
+        await finishAgentRun({
+          tenantId: identity.ownerId,
+          runId,
+          status: "completed",
+          result: {
+            textLength: result.text.length,
+            tools: result.tools.map((tool) => tool.name),
+            stateKeys: Object.keys(result.state)
+          }
+        });
       } catch (error) {
         if (request.signal.aborted) {
           send({ type: "RUN_CANCELLED", threadId, runId });
+          await finishAgentRun({
+            tenantId: identity.ownerId,
+            runId,
+            status: "cancelled"
+          }).catch(() => undefined);
         } else {
+          const message =
+            error instanceof Error
+              ? error.message
+              : "Не удалось выполнить запрос Просметчика.";
           send({
             type: "RUN_ERROR",
             threadId,
             runId,
             code: "agent_run_failed",
-            message:
-              error instanceof Error
-                ? error.message
-                : "Не удалось выполнить запрос Просметчика."
+            message
           });
+          await finishAgentRun({
+            tenantId: identity.ownerId,
+            runId,
+            status: "failed",
+            error: message
+          }).catch(() => undefined);
         }
       } finally {
         controller.close();
@@ -240,13 +305,14 @@ export async function POST(request: Request) {
     }
   });
 
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream; charset=utf-8",
-      "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
-      "X-Accel-Buffering": "no",
-      "X-Prosmet-Provider": "prosmet-rules"
-    }
+  const headers = new Headers({
+    "Content-Type": "text/event-stream; charset=utf-8",
+    "Cache-Control": "no-cache, no-transform",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+    "X-Prosmet-Provider": provider
   });
+  if (identity.setCookie) headers.append("Set-Cookie", identity.setCookie);
+
+  return new Response(stream, { headers });
 }
