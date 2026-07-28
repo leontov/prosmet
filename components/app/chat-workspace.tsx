@@ -19,6 +19,7 @@ import {
   MoreHorizontalIcon,
   PanelLeftCloseIcon,
   PanelRightOpenIcon,
+  PencilLineIcon,
   PinIcon,
   SearchIcon,
   Settings2Icon,
@@ -27,12 +28,18 @@ import {
   Trash2Icon,
   XIcon
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { prosmetToolkit } from "@/app/toolkit";
 import { RightInspector } from "@/components/app/right-inspector";
 import { useRuntimeStatus } from "@/components/app/runtime-status";
+import {
+  WorkspaceLibrary,
+  type LibraryView,
+  type WorkspaceView
+} from "@/components/app/workspace-library";
 import { ProsmetThread } from "@/components/chat/prosmet-thread";
 import { useLocalWorkspace } from "@/lib/local/context";
+import type { LocalThread } from "@/lib/local/repository";
 import { cn } from "@/lib/utils";
 
 const suggestions = Suggestions([
@@ -62,9 +69,19 @@ const suggestions = Suggestions([
   }
 ]);
 
+const viewLabels: Record<Exclude<WorkspaceView, "chat">, string> = {
+  objects: "Объекты",
+  estimates: "Сметы",
+  documents: "Документы",
+  prices: "Каталог цен",
+  settings: "Настройки",
+  profile: "Профиль и организация"
+};
+
 export function ChatWorkspace() {
   const workspace = useLocalWorkspace();
   const runtime = useRuntimeStatus();
+  const [view, setView] = useState<WorkspaceView>("chat");
   const [leftOpen, setLeftOpen] = useState(true);
   const [leftMobileOpen, setLeftMobileOpen] = useState(false);
   const [rightOpen, setRightOpen] = useState(true);
@@ -72,6 +89,9 @@ export function ChatWorkspace() {
   const [query, setQuery] = useState("");
   const [showArchive, setShowArchive] = useState(false);
   const [menuId, setMenuId] = useState<string | null>(null);
+  const [renameTarget, setRenameTarget] = useState<LocalThread | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<LocalThread | null>(null);
 
   const aui = useAui({
     tools: Tools({ toolkit: prosmetToolkit }),
@@ -83,22 +103,94 @@ export function ChatWorkspace() {
     [workspace.currentThreadId, workspace.threads]
   );
 
-  const filtered = useMemo(() => {
-    const search = query.trim().toLocaleLowerCase("ru-RU");
-    return workspace.threads.filter((thread) => {
-      if (showArchive ? thread.status !== "archived" : thread.status !== "active") return false;
-      return (
-        !search ||
-        `${thread.title ?? "Новая задача"} ${thread.objectName}`
-          .toLocaleLowerCase("ru-RU")
-          .includes(search)
-      );
-    });
-  }, [query, showArchive, workspace.threads]);
+  const search = query.trim().toLocaleLowerCase("ru-RU");
+  const matchesSearch = (thread: LocalThread) =>
+    !search ||
+    `${thread.title ?? "Новая задача"} ${thread.objectName}`
+      .toLocaleLowerCase("ru-RU")
+      .includes(search);
+
+  const pinnedThreads = useMemo(
+    () =>
+      workspace.threads.filter(
+        (thread) => thread.status === "active" && thread.pinned && matchesSearch(thread)
+      ),
+    [search, workspace.threads]
+  );
+
+  const historyThreads = useMemo(
+    () =>
+      workspace.threads.filter((thread) => {
+        if (!matchesSearch(thread)) return false;
+        if (showArchive) return thread.status === "archived";
+        return thread.status === "active" && !thread.pinned;
+      }),
+    [search, showArchive, workspace.threads]
+  );
+
+  useEffect(() => {
+    const closeMenu = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest("[data-thread-menu]")) return;
+      setMenuId(null);
+    };
+    document.addEventListener("pointerdown", closeMenu);
+    return () => document.removeEventListener("pointerdown", closeMenu);
+  }, []);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setMenuId(null);
+      setRenameTarget(null);
+      setDeleteTarget(null);
+      setLeftMobileOpen(false);
+      setRightMobileOpen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  const navigate = (next: WorkspaceView) => {
+    setView(next);
+    setMenuId(null);
+    setLeftMobileOpen(false);
+  };
 
   const startNew = async () => {
+    setView("chat");
+    setShowArchive(false);
+    setMenuId(null);
     await aui.threads().switchToNewThread();
     setLeftMobileOpen(false);
+  };
+
+  const openThread = async (threadId: string) => {
+    const thread = workspace.threads.find((item) => item.id === threadId);
+    if (thread?.status === "archived") await workspace.restoreThread(threadId);
+    await aui.threads().switchToThread(threadId);
+    setView("chat");
+    setShowArchive(false);
+    setMenuId(null);
+    setLeftMobileOpen(false);
+  };
+
+  const beginRename = (thread: LocalThread) => {
+    setMenuId(null);
+    setRenameTarget(thread);
+    setRenameValue(thread.title || "Новая задача");
+  };
+
+  const saveRename = async () => {
+    if (!renameTarget) return;
+    await workspace.renameThread(renameTarget.id, renameValue);
+    setRenameTarget(null);
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    await workspace.deleteThread(deleteTarget.id);
+    setDeleteTarget(null);
   };
 
   const leftSidebar = (
@@ -127,7 +219,7 @@ export function ChatWorkspace() {
       <div className="flex items-center justify-between px-4 pb-3 pt-1">
         <button
           type="button"
-          onClick={() => void startNew()}
+          onClick={() => navigate("chat")}
           className="flex min-w-0 items-center gap-2 text-[18px] font-semibold tracking-[-0.03em]"
         >
           <span className="truncate">Просметчик</span>
@@ -147,25 +239,83 @@ export function ChatWorkspace() {
         <button type="button" onClick={() => void startNew()} className="prosmet-nav-row">
           <SquarePenIcon className="size-[18px]" /> Новая задача
         </button>
-        <NavItem icon={<CalculatorIcon />} label="Сметы и чаты" active />
-        <NavItem icon={<FolderKanbanIcon />} label="Объекты" />
-        <NavItem icon={<FileSpreadsheetIcon />} label="Сметы" />
-        <NavItem icon={<FileTextIcon />} label="Документы" />
-        <NavItem icon={<TagIcon />} label="Каталог цен" />
+        <NavItem
+          icon={<CalculatorIcon />}
+          label="Сметы и чаты"
+          active={view === "chat"}
+          onClick={() => navigate("chat")}
+        />
+        <NavItem
+          icon={<FolderKanbanIcon />}
+          label="Объекты"
+          active={view === "objects"}
+          onClick={() => navigate("objects")}
+        />
+        <NavItem
+          icon={<FileSpreadsheetIcon />}
+          label="Сметы"
+          active={view === "estimates"}
+          onClick={() => navigate("estimates")}
+        />
+        <NavItem
+          icon={<FileTextIcon />}
+          label="Документы"
+          active={view === "documents"}
+          onClick={() => navigate("documents")}
+        />
+        <NavItem
+          icon={<TagIcon />}
+          label="Каталог цен"
+          active={view === "prices"}
+          onClick={() => navigate("prices")}
+        />
       </nav>
 
-      <div className="mt-5 px-4 text-[12px] font-medium text-[#858a99]">Закреплённые</div>
-      <div className="mx-2 mt-2 rounded-xl bg-[#dfe4f6] px-3 py-2.5">
-        <div className="flex items-center gap-2 text-sm font-medium">
-          <FolderOpenIcon className="size-4" />
-          Сметная контора
-        </div>
-        <div className="mt-1 pl-6 text-[11px] text-[#747a8a]">Чаты, сметы и документы</div>
-      </div>
+      {!showArchive ? (
+        <>
+          <div className="mt-5 flex items-center justify-between px-4 text-[12px] font-medium text-[#858a99]">
+            <span>Закреплённые</span>
+            <span>{pinnedThreads.length}</span>
+          </div>
+          <div className="px-2 pt-2">
+            {pinnedThreads.length ? (
+              <div className="grid gap-1">
+                {pinnedThreads.map((thread) => (
+                  <ThreadRow
+                    key={thread.id}
+                    thread={thread}
+                    active={thread.id === workspace.currentThreadId && view === "chat"}
+                    pinned
+                    menuOpen={menuId === thread.id}
+                    onOpen={() => void openThread(thread.id)}
+                    onMenu={() => setMenuId((current) => (current === thread.id ? null : thread.id))}
+                    onRename={() => beginRename(thread)}
+                    onPin={() =>
+                      void workspace.togglePin(thread.id, false).then(() => setMenuId(null))
+                    }
+                    onArchive={() =>
+                      void workspace.archiveThread(thread.id).then(() => setMenuId(null))
+                    }
+                    onRestore={() => undefined}
+                    onDelete={() => {
+                      setMenuId(null);
+                      setDeleteTarget(thread);
+                    }}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-xl border border-dashed border-[#cfd5e7] px-3 py-3 text-[11px] leading-5 text-[#7b8190]">
+                Закрепите важный чат через меню <strong>•••</strong> — он появится здесь.
+              </div>
+            )}
+          </div>
+        </>
+      ) : null}
 
       <div className="mt-4 flex items-center justify-between px-4 text-[12px] font-medium text-[#858a99]">
-        <span>{showArchive ? "Архив" : "Чаты"}</span>
-        <span>{filtered.length}</span>
+        <span>{showArchive ? "Архив" : "История чатов"}</span>
+        <span>{historyThreads.length}</span>
       </div>
 
       <div className="px-2 pt-2">
@@ -182,88 +332,32 @@ export function ChatWorkspace() {
       </div>
 
       <div className="prosmet-scrollbar min-h-0 flex-1 overflow-y-auto px-2 pb-4 pt-2">
-        {filtered.length ? (
+        {historyThreads.length ? (
           <div className="grid gap-0.5">
-            {filtered.map((thread) => {
-              const active = thread.id === workspace.currentThreadId;
-              return (
-                <div
-                  key={thread.id}
-                  className={cn(
-                    "group relative flex min-h-9 items-center rounded-lg transition",
-                    active ? "bg-[#dfe4fb]" : "hover:bg-black/5"
-                  )}
-                >
-                  <button
-                    type="button"
-                    disabled={thread.status === "archived"}
-                    onClick={() => {
-                      void aui.threads().switchToThread(thread.id);
-                      setLeftMobileOpen(false);
-                    }}
-                    className="min-w-0 flex-1 truncate px-2 py-2 pr-8 text-left text-[13px]"
-                    title={thread.title ?? "Новая задача"}
-                  >
-                    <span className="flex items-center gap-1.5 truncate">
-                      {thread.pinned && <PinIcon className="size-3 shrink-0" />}
-                      <span className="truncate">{thread.title ?? "Новая задача"}</span>
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setMenuId((current) => (current === thread.id ? null : thread.id))}
-                    className={cn(
-                      "absolute right-1 flex size-6 items-center justify-center rounded-md text-neutral-500 transition hover:bg-white/60",
-                      menuId === thread.id ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-                    )}
-                    aria-label="Действия с чатом"
-                  >
-                    <MoreHorizontalIcon className="size-3.5" />
-                  </button>
-                  {menuId === thread.id && (
-                    <div className="absolute right-0 top-9 z-50 min-w-44 rounded-xl border border-neutral-200 bg-white p-1.5 text-sm shadow-xl">
-                      {thread.status === "active" && (
-                        <MenuAction
-                          onClick={() =>
-                            void workspace
-                              .togglePin(thread.id, !thread.pinned)
-                              .then(() => setMenuId(null))
-                          }
-                        >
-                          <PinIcon className="size-3.5" />
-                          {thread.pinned ? "Открепить" : "Закрепить"}
-                        </MenuAction>
-                      )}
-                      {thread.status === "active" ? (
-                        <MenuAction
-                          onClick={() =>
-                            void workspace.archiveThread(thread.id).then(() => setMenuId(null))
-                          }
-                        >
-                          <ArchiveIcon className="size-3.5" /> В архив
-                        </MenuAction>
-                      ) : (
-                        <MenuAction
-                          onClick={() =>
-                            void workspace.restoreThread(thread.id).then(() => setMenuId(null))
-                          }
-                        >
-                          <ArchiveRestoreIcon className="size-3.5" /> Восстановить
-                        </MenuAction>
-                      )}
-                      <MenuAction
-                        danger
-                        onClick={() =>
-                          void workspace.deleteThread(thread.id).then(() => setMenuId(null))
-                        }
-                      >
-                        <Trash2Icon className="size-3.5" /> Удалить
-                      </MenuAction>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+            {historyThreads.map((thread) => (
+              <ThreadRow
+                key={thread.id}
+                thread={thread}
+                active={thread.id === workspace.currentThreadId && view === "chat"}
+                menuOpen={menuId === thread.id}
+                onOpen={() => void openThread(thread.id)}
+                onMenu={() => setMenuId((current) => (current === thread.id ? null : thread.id))}
+                onRename={() => beginRename(thread)}
+                onPin={() =>
+                  void workspace.togglePin(thread.id, !thread.pinned).then(() => setMenuId(null))
+                }
+                onArchive={() =>
+                  void workspace.archiveThread(thread.id).then(() => setMenuId(null))
+                }
+                onRestore={() =>
+                  void workspace.restoreThread(thread.id).then(() => setMenuId(null))
+                }
+                onDelete={() => {
+                  setMenuId(null);
+                  setDeleteTarget(thread);
+                }}
+              />
+            ))}
           </div>
         ) : (
           <p className="px-2 py-4 text-xs leading-5 text-neutral-500">
@@ -277,7 +371,10 @@ export function ChatWorkspace() {
 
         <button
           type="button"
-          onClick={() => setShowArchive((value) => !value)}
+          onClick={() => {
+            setShowArchive((value) => !value);
+            setMenuId(null);
+          }}
           className="mt-3 flex h-8 items-center gap-2 rounded-lg px-2 text-xs text-neutral-500 transition hover:bg-black/5 hover:text-neutral-900"
         >
           {showArchive ? (
@@ -285,7 +382,7 @@ export function ChatWorkspace() {
           ) : (
             <ArchiveIcon className="size-3.5" />
           )}
-          {showArchive ? "Вернуться к чатам" : "Показать архив"}
+          {showArchive ? "Вернуться к истории" : "Показать архив"}
         </button>
       </div>
 
@@ -312,7 +409,11 @@ export function ChatWorkspace() {
         </div>
         <button
           type="button"
-          className="flex w-full items-center gap-2.5 rounded-xl px-1 py-1 text-left transition hover:bg-black/5"
+          onClick={() => navigate("profile")}
+          className={cn(
+            "flex w-full items-center gap-2.5 rounded-xl px-1 py-1 text-left transition hover:bg-black/5",
+            view === "profile" && "bg-white/55"
+          )}
         >
           <span className="flex size-8 items-center justify-center rounded-full bg-[#ff927c] text-xs font-semibold text-white">
             П
@@ -320,7 +421,7 @@ export function ChatWorkspace() {
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[13px] font-medium">Просметчик</span>
             <span className="block truncate text-[10px] text-neutral-500">
-              Владелец организации
+              Профиль и организация
             </span>
           </span>
           <Settings2Icon className="size-4 text-neutral-500" />
@@ -329,16 +430,22 @@ export function ChatWorkspace() {
     </aside>
   );
 
+  const headerTitle = view === "chat" ? currentThread?.title || "Новая задача" : viewLabels[view];
+  const headerSubtitle =
+    view === "chat"
+      ? currentThread?.objectName || "Просметчик · AI-сметная контора"
+      : "Просметчик · рабочее пространство";
+
   return (
     <AuiProvider value={aui}>
       <div className="flex h-dvh min-h-0 overflow-hidden bg-white">
-        {leftOpen && (
+        {leftOpen ? (
           <div className="hidden h-full w-[322px] shrink-0 border-r border-[#e1e4f1] md:block">
             {leftSidebar}
           </div>
-        )}
+        ) : null}
 
-        {leftMobileOpen && (
+        {leftMobileOpen ? (
           <div className="fixed inset-0 z-[120] md:hidden">
             <button
               type="button"
@@ -356,13 +463,13 @@ export function ChatWorkspace() {
               <XIcon className="size-4" />
             </button>
           </div>
-        )}
+        ) : null}
 
         <div className="flex min-w-0 flex-1">
           <main className="relative flex min-w-0 flex-1 flex-col bg-white">
             <header className="flex h-12 shrink-0 items-center justify-between border-b border-neutral-200 bg-white px-2.5 sm:px-3">
               <div className="flex min-w-0 items-center gap-1">
-                {!leftOpen && (
+                {!leftOpen ? (
                   <HeaderIcon
                     label="Показать боковую панель"
                     onClick={() => setLeftOpen(true)}
@@ -370,7 +477,7 @@ export function ChatWorkspace() {
                   >
                     <MenuIcon />
                   </HeaderIcon>
-                )}
+                ) : null}
                 <HeaderIcon
                   label="Открыть меню"
                   onClick={() => setLeftMobileOpen(true)}
@@ -379,13 +486,11 @@ export function ChatWorkspace() {
                   <MenuIcon />
                 </HeaderIcon>
                 <span className="mx-1 h-5 w-px bg-neutral-200" />
-                <FolderOpenIcon className="size-4 shrink-0 text-neutral-500" />
+                <span className="shrink-0 text-neutral-500">{headerIcon(view)}</span>
                 <div className="min-w-0 px-1">
-                  <div className="truncate text-sm font-medium">
-                    {currentThread?.title || "Новая задача"}
-                  </div>
+                  <div className="truncate text-sm font-medium">{headerTitle}</div>
                   <div className="hidden truncate text-[10px] text-neutral-400 sm:block">
-                    {currentThread?.objectName || "Просметчик · AI-сметная контора"}
+                    {headerSubtitle}
                   </div>
                 </div>
               </div>
@@ -400,34 +505,51 @@ export function ChatWorkspace() {
                 >
                   <PanelRightOpenIcon />
                 </HeaderIcon>
-                <HeaderIcon label="Настройки" onClick={() => undefined}>
+                <HeaderIcon
+                  label="Настройки"
+                  active={view === "settings"}
+                  onClick={() => navigate("settings")}
+                >
                   <Settings2Icon />
                 </HeaderIcon>
-                <HeaderIcon label="Профиль" onClick={() => undefined}>
+                <HeaderIcon
+                  label="Профиль"
+                  active={view === "profile"}
+                  onClick={() => navigate("profile")}
+                >
                   <CircleUserRoundIcon />
                 </HeaderIcon>
               </div>
             </header>
 
-            {workspace.error && (
+            {workspace.error ? (
               <div className="border-b border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700">
                 Локальный кэш не открылся: {workspace.error}
               </div>
-            )}
+            ) : null}
 
             <div className="min-h-0 flex-1">
-              <ProsmetThread />
+              {view === "chat" ? (
+                <ProsmetThread />
+              ) : (
+                <WorkspaceLibrary
+                  view={view as LibraryView}
+                  onOpenThread={openThread}
+                  onStartNew={startNew}
+                  onNavigate={navigate}
+                />
+              )}
             </div>
           </main>
 
-          {rightOpen && (
+          {rightOpen ? (
             <div className="hidden h-full lg:block">
               <RightInspector onClose={() => setRightOpen(false)} />
             </div>
-          )}
+          ) : null}
         </div>
 
-        {rightMobileOpen && (
+        {rightMobileOpen ? (
           <div className="fixed inset-0 z-[130] lg:hidden">
             <button
               type="button"
@@ -439,9 +561,136 @@ export function ChatWorkspace() {
               <RightInspector onClose={() => setRightMobileOpen(false)} />
             </div>
           </div>
-        )}
+        ) : null}
+
+        {renameTarget ? (
+          <Dialog title="Переименовать чат" onClose={() => setRenameTarget(null)}>
+            <input
+              autoFocus
+              value={renameValue}
+              onChange={(event) => setRenameValue(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void saveRename();
+              }}
+              aria-label="Новое название чата"
+              className="h-10 w-full rounded-xl border border-neutral-200 bg-neutral-50 px-3 text-sm outline-none focus:border-neutral-400 focus:bg-white"
+            />
+            <div className="mt-4 flex justify-end gap-2">
+              <DialogButton onClick={() => setRenameTarget(null)}>Отмена</DialogButton>
+              <DialogButton primary onClick={() => void saveRename()}>
+                Сохранить
+              </DialogButton>
+            </div>
+          </Dialog>
+        ) : null}
+
+        {deleteTarget ? (
+          <Dialog title="Удалить историю чата?" onClose={() => setDeleteTarget(null)}>
+            <p className="text-sm leading-6 text-neutral-600">
+              Чат «{deleteTarget.title || "Новая задача"}» и его сообщения будут удалены.
+              Сохранённые сметы, документы и подтверждённые цены останутся в рабочих разделах.
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <DialogButton onClick={() => setDeleteTarget(null)}>Отмена</DialogButton>
+              <DialogButton danger onClick={() => void confirmDelete()}>
+                Удалить
+              </DialogButton>
+            </div>
+          </Dialog>
+        ) : null}
       </div>
     </AuiProvider>
+  );
+}
+
+function ThreadRow({
+  thread,
+  active,
+  pinned = false,
+  menuOpen,
+  onOpen,
+  onMenu,
+  onRename,
+  onPin,
+  onArchive,
+  onRestore,
+  onDelete
+}: {
+  thread: LocalThread;
+  active: boolean;
+  pinned?: boolean;
+  menuOpen: boolean;
+  onOpen: () => void;
+  onMenu: () => void;
+  onRename: () => void;
+  onPin: () => void;
+  onArchive: () => void;
+  onRestore: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div
+      data-thread-menu
+      className={cn(
+        "group relative flex min-h-9 items-center rounded-lg transition",
+        pinned ? "bg-[#dfe4f6]" : active ? "bg-[#dfe4fb]" : "hover:bg-black/5",
+        menuOpen && "z-[70]"
+      )}
+    >
+      <button
+        type="button"
+        onClick={onOpen}
+        className="min-w-0 flex-1 truncate px-2 py-2 pr-8 text-left text-[13px]"
+        title={thread.title ?? "Новая задача"}
+      >
+        <span className="flex items-center gap-1.5 truncate">
+          {thread.pinned ? <PinIcon className="size-3 shrink-0" /> : null}
+          {thread.status === "archived" ? <ArchiveIcon className="size-3 shrink-0" /> : null}
+          <span className="truncate">{thread.title ?? "Новая задача"}</span>
+        </span>
+        {thread.objectName ? (
+          <span className="mt-0.5 block truncate pl-[18px] text-[10px] text-neutral-500">
+            {thread.objectName}
+          </span>
+        ) : null}
+      </button>
+      <button
+        type="button"
+        onClick={onMenu}
+        className={cn(
+          "absolute right-1 flex size-6 items-center justify-center rounded-md text-neutral-500 transition hover:bg-white/60",
+          menuOpen ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+        )}
+        aria-label={`Действия: ${thread.title || "Новая задача"}`}
+        aria-expanded={menuOpen}
+      >
+        <MoreHorizontalIcon className="size-3.5" />
+      </button>
+      {menuOpen ? (
+        <div className="absolute right-0 top-9 z-[80] min-w-48 rounded-xl border border-neutral-200 bg-white p-1.5 text-sm shadow-xl">
+          <MenuAction onClick={onRename}>
+            <PencilLineIcon className="size-3.5" /> Переименовать
+          </MenuAction>
+          {thread.status === "active" ? (
+            <MenuAction onClick={onPin}>
+              <PinIcon className="size-3.5" /> {thread.pinned ? "Открепить" : "Закрепить"}
+            </MenuAction>
+          ) : null}
+          {thread.status === "active" ? (
+            <MenuAction onClick={onArchive}>
+              <ArchiveIcon className="size-3.5" /> В архив
+            </MenuAction>
+          ) : (
+            <MenuAction onClick={onRestore}>
+              <ArchiveRestoreIcon className="size-3.5" /> Восстановить
+            </MenuAction>
+          )}
+          <MenuAction danger onClick={onDelete}>
+            <Trash2Icon className="size-3.5" /> Удалить
+          </MenuAction>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -449,12 +698,14 @@ function HeaderIcon({
   label,
   onClick,
   children,
-  className
+  className,
+  active = false
 }: {
   label: string;
   onClick: () => void;
   children: React.ReactNode;
   className?: string;
+  active?: boolean;
 }) {
   return (
     <button
@@ -462,6 +713,7 @@ function HeaderIcon({
       onClick={onClick}
       className={cn(
         "flex size-8 items-center justify-center rounded-lg text-neutral-500 transition hover:bg-black/5 hover:text-neutral-900 [&_svg]:size-4",
+        active && "bg-neutral-100 text-neutral-900",
         className
       )}
       aria-label={label}
@@ -475,15 +727,19 @@ function HeaderIcon({
 function NavItem({
   icon,
   label,
-  active = false
+  active,
+  onClick
 }: {
   icon: React.ReactNode;
   label: string;
-  active?: boolean;
+  active: boolean;
+  onClick: () => void;
 }) {
   return (
     <button
       type="button"
+      onClick={onClick}
+      aria-current={active ? "page" : undefined}
       className={cn("prosmet-nav-row", active && "bg-[#dfe4fb] font-medium")}
     >
       <span className="[&_svg]:size-[18px]">{icon}</span>
@@ -515,13 +771,89 @@ function MenuAction({
   );
 }
 
+function Dialog({
+  title,
+  onClose,
+  children
+}: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="fixed inset-0 z-[200] flex items-center justify-center px-4">
+      <button
+        type="button"
+        aria-label="Закрыть диалог"
+        className="absolute inset-0 bg-black/25 backdrop-blur-[1px]"
+        onClick={onClose}
+      />
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="relative w-full max-w-md rounded-2xl border border-neutral-200 bg-white p-5 shadow-2xl"
+      >
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <h2 className="text-base font-semibold text-neutral-900">{title}</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Закрыть"
+            className="flex size-8 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100"
+          >
+            <XIcon className="size-4" />
+          </button>
+        </div>
+        {children}
+      </section>
+    </div>
+  );
+}
+
+function DialogButton({
+  onClick,
+  children,
+  primary = false,
+  danger = false
+}: {
+  onClick: () => void;
+  children: React.ReactNode;
+  primary?: boolean;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "h-9 rounded-lg border border-neutral-200 bg-white px-3 text-sm font-medium hover:bg-neutral-50",
+        primary && "border-neutral-900 bg-neutral-900 text-white hover:bg-black",
+        danger && "border-red-600 bg-red-600 text-white hover:bg-red-700"
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
 function StatusDot({ ok, loading }: { ok: boolean; loading: boolean }) {
   return (
     <span
       className={cn(
         "size-2 rounded-full",
-        loading ? "animate-pulse bg-blue-500" : ok ? "bg-emerald-500" : "bg-amber-500"
+        loading ? "animate-pulse bg-blue-400" : ok ? "bg-emerald-500" : "bg-red-500"
       )}
     />
   );
+}
+
+function headerIcon(view: WorkspaceView) {
+  if (view === "objects") return <FolderKanbanIcon className="size-4" />;
+  if (view === "estimates") return <FileSpreadsheetIcon className="size-4" />;
+  if (view === "documents") return <FileTextIcon className="size-4" />;
+  if (view === "prices") return <TagIcon className="size-4" />;
+  if (view === "settings") return <Settings2Icon className="size-4" />;
+  if (view === "profile") return <CircleUserRoundIcon className="size-4" />;
+  return <FolderOpenIcon className="size-4" />;
 }
