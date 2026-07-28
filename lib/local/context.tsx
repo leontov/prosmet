@@ -35,10 +35,14 @@ function newThreadId() {
 }
 
 export function LocalWorkspaceProvider({ children }: { children: ReactNode }) {
+  // The optimistic assistant thread must be stable from the first render through
+  // IndexedDB initialisation. Replacing it after hydration clears the composer and
+  // makes the send button look permanently disabled on slower browsers.
+  const [initialThreadId] = useState(newThreadId);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [threads, setThreads] = useState<LocalThread[]>([]);
-  const [currentThreadId, setCurrentThreadId] = useState(newThreadId);
+  const [currentThreadId, setCurrentThreadId] = useState(initialThreadId);
 
   const refresh = useCallback(async () => {
     const repository = await getRepository();
@@ -55,17 +59,23 @@ export function LocalWorkspaceProvider({ children }: { children: ReactNode }) {
           repository.getMeta(ACTIVE_THREAD_KEY)
         ]);
         if (cancelled) return;
-        const next =
-          (remembered &&
+
+        const rememberedThread =
+          remembered &&
           storedThreads.some(
             (thread) => thread.id === remembered && thread.status === "active"
           )
             ? remembered
-            : storedThreads.find((thread) => thread.status === "active")?.id) ??
-          newThreadId();
+            : null;
+        const next =
+          rememberedThread ??
+          storedThreads.find((thread) => thread.status === "active")?.id ??
+          initialThreadId;
+
         setThreads(storedThreads);
-        setCurrentThreadId(next);
+        setCurrentThreadId((current) => (current === next ? current : next));
         await repository.setMeta(ACTIVE_THREAD_KEY, next);
+        if (cancelled) return;
         setError(null);
         setReady(true);
       } catch (reason) {
@@ -82,7 +92,7 @@ export function LocalWorkspaceProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [initialThreadId]);
 
   const selectThread = useCallback(async (id: string) => {
     const repository = await getRepository();
