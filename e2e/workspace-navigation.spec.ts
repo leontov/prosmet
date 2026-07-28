@@ -9,12 +9,20 @@ function visibleSidebar(page: Page) {
 }
 
 async function openSidebar(page: Page) {
+  // Switching or archiving the active assistant thread remounts the runtime. On
+  // mobile the drawer can therefore still be visible for a frame and then
+  // disappear. Let that transition settle before deciding whether to reuse it.
+  await page.waitForTimeout(180);
   const sidebar = visibleSidebar(page);
-  if ((await sidebar.count()) > 0) return sidebar;
+  if ((await sidebar.count()) > 0) {
+    await expect(sidebar).toBeVisible();
+    return sidebar;
+  }
   const menu = page.getByRole("button", { name: "Открыть меню" });
   await expect(menu).toBeVisible();
   await menu.click();
   await expect(sidebar).toHaveCount(1);
+  await expect(sidebar).toBeVisible();
   return sidebar;
 }
 
