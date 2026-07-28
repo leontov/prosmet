@@ -138,6 +138,12 @@ PRAGMA user_version = 1;
 
 type SqlValue = string | number | null | Uint8Array;
 
+function sqlJsAssetUrl(file: string) {
+  if (file === "sql-wasm-browser.wasm") return "/sql-wasm-browser.wasm";
+  if (file.endsWith(".wasm")) return "/sql-wasm.wasm";
+  return `/${file}`;
+}
+
 export class ProsmetDatabase {
   private tail: Promise<unknown> = Promise.resolve();
   private listeners = new Set<() => void>();
@@ -147,7 +153,7 @@ export class ProsmetDatabase {
   static async open() {
     const module = await import("sql.js");
     const initialize = module.default;
-    const SQL: SqlJsStatic = await initialize({ locateFile: (file) => `/${file}` });
+    const SQL: SqlJsStatic = await initialize({ locateFile: sqlJsAssetUrl });
     const bytes = await readSqliteFile();
     const db = bytes ? new SQL.Database(bytes) : new SQL.Database();
     db.run(SCHEMA);
