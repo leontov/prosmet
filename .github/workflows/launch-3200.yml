@@ -28,7 +28,7 @@ concurrency:
 jobs:
   launch:
     runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       CI: "1"
       NEXT_TELEMETRY_DISABLED: "1"
@@ -56,7 +56,7 @@ jobs:
                 "",
                 "## Launching on port 3200",
                 "",
-                "Build, CSP compatibility, SQL.js WASM assets, AG-UI backend and embedded PostgreSQL are starting on Primary."
+                "Native IndexedDB cache, real PostgreSQL, frontend and AG-UI backend are starting on Primary."
               ].join("\n")
             });
 
@@ -65,6 +65,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22.16.0"
+
+      - name: Provision real PostgreSQL on Primary
+        run: |
+          set -Eeuo pipefail
+          bash deployment/provision-postgres.sh
+          source "$HOME/.prosmet/database.env"
+          echo "::add-mask::$DATABASE_URL"
+          echo "PROSMET_DATABASE_DRIVER=postgres" >> "$GITHUB_ENV"
+          echo "DATABASE_URL=$DATABASE_URL" >> "$GITHUB_ENV"
 
       - name: Install
         run: |
@@ -84,40 +93,46 @@ jobs:
       - name: Build production standalone
         run: npm run build
 
-      - name: Launch frontend, AG-UI backend and embedded PostgreSQL
+      - name: Launch frontend, AG-UI backend and PostgreSQL
         run: |
           set -Eeuo pipefail
           bash deployment/direct-primary.sh "$GITHUB_SHA" 3200
 
-      - name: Verify live application, CSP, SQL.js WASM and AG-UI schema
+      - name: Verify live no-WASM application
         run: |
           set -Eeuo pipefail
           BASE_URL=http://127.0.0.1:3200
           curl -fsS "$BASE_URL/api/health"
           curl -fsS "$BASE_URL/api/backend/status" | tee /tmp/prosmet-backend-status.json
           grep -q '"connected":true' /tmp/prosmet-backend-status.json
+          grep -q '"driver":"postgres"' /tmp/prosmet-backend-status.json
 
           curl -fsSI "$BASE_URL/" | tee /tmp/prosmet-headers.txt
           grep -qi "content-security-policy:.*script-src.*'unsafe-inline'" /tmp/prosmet-headers.txt
-          grep -qi "content-security-policy:.*'unsafe-eval'" /tmp/prosmet-headers.txt
-          grep -qi "content-security-policy:.*'wasm-unsafe-eval'" /tmp/prosmet-headers.txt
+          if grep -qi "content-security-policy:.*'unsafe-eval'" /tmp/prosmet-headers.txt; then
+            echo "Production CSP unexpectedly allows unsafe-eval" >&2
+            exit 1
+          fi
+          if grep -qi "content-security-policy:.*'wasm-unsafe-eval'" /tmp/prosmet-headers.txt; then
+            echo "Production CSP unexpectedly allows wasm-unsafe-eval" >&2
+            exit 1
+          fi
 
           curl -fsS "$BASE_URL/" | tee /tmp/prosmet-index.html >/dev/null
-          grep -q 'prosmet-browser-compat' /tmp/prosmet-index.html
+          if grep -qi 'sql-wasm\|sqlite wasm' /tmp/prosmet-index.html; then
+            echo "Rendered application still references browser SQLite WASM" >&2
+            exit 1
+          fi
 
           curl -fsS -D /tmp/prosmet-favicon-headers.txt "$BASE_URL/favicon.ico" -o /tmp/prosmet-favicon
           grep -qi 'content-type: image/svg+xml' /tmp/prosmet-favicon-headers.txt
           test -s /tmp/prosmet-favicon
 
-          for asset in sql-wasm.wasm sql-wasm-browser.wasm; do
-            curl -fsS -D "/tmp/${asset}.headers" "$BASE_URL/$asset" -o "/tmp/$asset"
-            test -s "/tmp/$asset"
-          done
-
           test -s "$HOME/.prosmet/primary-agent.sse"
           grep -q '"type":"ACTIVITY_SNAPSHOT"' "$HOME/.prosmet/primary-agent.sse"
           grep -q '"messageId"' "$HOME/.prosmet/primary-agent.sse"
           grep -q '"type":"RUN_FINISHED"' "$HOME/.prosmet/primary-agent.sse"
+          test -s "$HOME/.prosmet/primary-sync.json"
 
           echo "LIVE http://78.17.4.108:3200/"
 
@@ -144,9 +159,9 @@ jobs:
                 success ? "**APP:** http://78.17.4.108:3200/" : "Inspect the workflow log before retrying.",
                 success ? "**HEALTH:** http://78.17.4.108:3200/api/health" : "",
                 success ? "**BACKEND:** http://78.17.4.108:3200/api/backend/status" : "",
-                success ? "**SQLITE WASM:** standard and browser binaries verified" : "",
-                success ? "**AG-UI:** activity messageId schema verified" : "",
-                success ? "**CSP:** Next.js hydration, SQL.js dynamic loader and SQLite WASM allowed" : "",
-                success ? "**HTTP COMPAT:** UUID fallback, file SHA-256 fallback and favicon verified" : ""
+                success ? "**SERVER DB:** PostgreSQL connected" : "",
+                success ? "**LOCAL CACHE:** native IndexedDB, no SQLite WASM" : "",
+                success ? "**AG-UI:** streaming schema verified" : "",
+                success ? "**CSP:** no production eval or WASM permissions" : ""
               ].filter(Boolean).join("\n")
             });
