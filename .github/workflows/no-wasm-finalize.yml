@@ -30,7 +30,7 @@ jobs:
         with:
           node-version: "22.16.0"
 
-      - name: Finalize remaining source updates
+      - name: Finalize estimate editor and documentation
         shell: bash
         run: |
           set -Eeuo pipefail
@@ -47,40 +47,6 @@ jobs:
           text = text.replace('useRef(`estimate_${crypto.randomUUID()}`)', 'useRef(`estimate_${browserUuid()}`)')
           text = text.replace("SQLite", "IndexedDB")
           estimate.write_text(text)
-
-          document = Path("components/tools/document-editor.tsx")
-          text = document.read_text()
-          if 'import { browserUuid } from "@/lib/platform/browser-crypto";' not in text:
-              marker = 'import { useLocalWorkspace } from "@/lib/local/context";'
-              if marker not in text:
-                  raise SystemExit("Document editor import marker missing")
-              text = text.replace(marker, f'import {{ browserUuid }} from "@/lib/platform/browser-crypto";\n{marker}')
-          text = text.replace('useRef(`document_${crypto.randomUUID()}`)', 'useRef(`document_${browserUuid()}`)')
-          text = text.replace("SQLite", "IndexedDB")
-          document.write_text(text)
-
-          domain = Path("lib/domain/estimate.ts")
-          text = domain.read_text()
-          if 'import { browserUuid } from "@/lib/platform/browser-crypto";' not in text:
-              marker = 'import { z } from "zod";'
-              if marker not in text:
-                  raise SystemExit("Estimate domain import marker missing")
-              text = text.replace(marker, f'{marker}\nimport {{ browserUuid }} from "@/lib/platform/browser-crypto";')
-          text = text.replace('`${prefix}_${crypto.randomUUID()}`', '`${prefix}_${browserUuid()}`')
-          domain.write_text(text)
-
-          e2e = Path("e2e/chat.spec.ts")
-          text = e2e.read_text()
-          text = text.replace(
-              'for (const asset of ["/favicon.ico", "/sql-wasm.wasm", "/sql-wasm-browser.wasm"]) {',
-              'for (const asset of ["/favicon.ico"]) {'
-          )
-          text = text.replace(
-              'expect(csp).toContain("\'unsafe-eval\'");\n  expect(csp).toContain("\'wasm-unsafe-eval\'");',
-              'expect(csp).not.toContain("\'unsafe-eval\'");\n  expect(csp).not.toContain("\'wasm-unsafe-eval\'");'
-          )
-          text = text.replace('prosmet-local-v2', 'prosmet-cache-v3')
-          e2e.write_text(text)
 
           documentation_files = [Path("README.md")]
           docs_dir = Path("docs")
