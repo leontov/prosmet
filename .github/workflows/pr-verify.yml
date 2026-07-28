@@ -14,14 +14,16 @@ concurrency:
 jobs:
   verify:
     runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 90
+    timeout-minutes: 120
     env:
       CI: "1"
       NEXT_TELEMETRY_DISABLED: "1"
       PROSMET_DEFAULT_PROVIDER: "rules"
+      PROSMET_E2E_PORT: "13110"
     steps:
       - name: Verify runner
         run: |
+          set -Eeuo pipefail
           echo "Runner: ${{ runner.name }}"
           id
           test "${{ runner.name }}" = "prosmet-primary"
@@ -31,17 +33,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22.16.0"
+          cache: npm
 
       - name: Prepare evidence
-        run: mkdir -p artifacts/logs artifacts/screenshots
+        run: mkdir -p artifacts/logs artifacts/database artifacts/screenshots
 
-      - name: Refresh dependency lock
-        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
-
-      - name: Install application and PostgreSQL binaries
+      - name: Install exact locked dependencies
         run: npm ci --no-audit --no-fund 2>&1 | tee artifacts/logs/npm-ci.log
 
-      - name: Provision persistent PostgreSQL without sudo
+      - name: Provision real rootless PostgreSQL
         run: |
           set -o pipefail
           bash deployment/provision-postgres.sh 2>&1 | tee artifacts/logs/postgres-provision.log
@@ -50,19 +50,82 @@ jobs:
           echo "PROSMET_DATABASE_DRIVER=postgres" >> "$GITHUB_ENV"
           echo "DATABASE_URL=$DATABASE_URL" >> "$GITHUB_ENV"
 
-      - run: npm run source:contract
-      - run: npm run typecheck
-      - run: npm run test
-      - run: npm run build
-      - run: npx playwright install chromium
-      - run: npm run e2e
+      - name: Verify real DATABASE_URL
+        run: |
+          set -Eeuo pipefail
+          node --input-type=module <<'NODE' | tee artifacts/database/postgres-connection.json
+          import pg from "pg";
+          const connectionString = process.env.DATABASE_URL;
+          if (!connectionString?.startsWith("postgresql://")) {
+            throw new Error("DATABASE_URL is missing or is not PostgreSQL");
+          }
+          const parsed = new URL(connectionString);
+          const client = new pg.Client({ connectionString, connectionTimeoutMillis: 10_000 });
+          await client.connect();
+          try {
+            const result = await client.query(
+              "SELECT current_database() AS database, current_user AS user, inet_server_addr()::text AS host, inet_server_port() AS port, version() AS version"
+            );
+            const row = result.rows[0];
+            if (row.database !== "prosmet") throw new Error(`Unexpected database ${row.database}`);
+            if (row.user !== "prosmet") throw new Error(`Unexpected database user ${row.user}`);
+            console.log(JSON.stringify({
+              connected: true,
+              protocol: parsed.protocol,
+              hostname: parsed.hostname,
+              port: Number(parsed.port),
+              database: row.database,
+              user: row.user,
+              serverHost: row.host,
+              serverPort: row.port,
+              version: row.version
+            }, null, 2));
+          } finally {
+            await client.end();
+          }
+          NODE
+
+      - name: Source contract
+        run: npm run source:contract 2>&1 | tee artifacts/logs/source-contract.log
+
+      - name: Typecheck
+        run: npm run typecheck 2>&1 | tee artifacts/logs/typecheck.log
+
+      - name: Unit tests
+        run: npm run test 2>&1 | tee artifacts/logs/unit-tests.log
+
+      - name: Production build
+        run: npm run build 2>&1 | tee artifacts/logs/build.log
+
+      - name: Install Chromium
+        run: npx playwright install chromium 2>&1 | tee artifacts/logs/chromium-install.log
+
+      - name: Desktop and mobile Chromium
+        run: npm run e2e 2>&1 | tee artifacts/logs/e2e.log
+
+      - name: Assert no browser WASM remains
+        run: |
+          set -Eeuo pipefail
+          test ! -e public/sql-wasm.wasm
+          test ! -e public/sql-wasm-browser.wasm
+          test ! -e lib/local/database.ts
+          test ! -e scripts/copy-sql-wasm.mjs
+          node --input-type=module <<'NODE'
+          import { readFile } from "node:fs/promises";
+          const pkg = JSON.parse(await readFile("package.json", "utf8"));
+          for (const forbidden of ["sql.js", "@electric-sql/pglite", "embedded-postgres"]) {
+            if (pkg.dependencies?.[forbidden]) throw new Error(`${forbidden} is still installed`);
+          }
+          console.log("No browser SQL/WASM dependency remains");
+          NODE
 
       - name: Collect PostgreSQL evidence
         if: always()
         run: |
           cp "$HOME/.prosmet/postgres.log" artifacts/logs/postgres.log 2>/dev/null || true
-          cp "$HOME/.prosmet/postgres-ready.json" artifacts/logs/postgres-ready.json 2>/dev/null || true
-          cp "$HOME/.prosmet/postgres-status.json" artifacts/logs/postgres-status.json 2>/dev/null || true
+          cp "$HOME/.prosmet/postgres-status.json" artifacts/database/postgres-status.json 2>/dev/null || true
+          cp "$HOME/.prosmet/database.env" artifacts/database/database-env.redacted 2>/dev/null || true
+          sed -i -E "s#(postgresql://[^:]+:)[^@]+#\1***#" artifacts/database/database-env.redacted 2>/dev/null || true
 
       - if: always()
         uses: actions/upload-artifact@v4
@@ -72,4 +135,5 @@ jobs:
             artifacts
             playwright-report
             test-results
-          if-no-files-found: ignore
+          if-no-files-found: error
+          retention-days: 30
