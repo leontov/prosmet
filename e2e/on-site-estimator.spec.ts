@@ -65,8 +65,9 @@ test("a measurer can edit an estimate on site and hand it to a client", async ({
   await handoff.getByRole("button", { name: "Поделиться сметой с клиентом" }).click();
   const share = page.getByRole("dialog", { name: "Передать смету клиенту" });
   await expect(share).toBeVisible({ timeout: 30_000 });
-  await expect(share.getByText(/Квартира Ивановых, Казань/)).toBeVisible();
-  await expect(share.getByText(/Иванов Алексей/)).toBeVisible();
+  await expect(
+    share.getByText("Квартира Ивановых, Казань · Иванов Алексей", { exact: true })
+  ).toBeVisible();
   await expect(share.getByRole("button", { name: /WhatsApp/ })).toBeVisible();
   await expect(share.getByRole("button", { name: /Электронная почта/ })).toBeVisible();
   await expect(share.getByRole("button", { name: /Скачать PDF/ })).toBeVisible();
