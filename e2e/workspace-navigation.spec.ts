@@ -9,10 +9,13 @@ function visibleSidebar(page: Page) {
 }
 
 async function openSidebar(page: Page) {
+  const sidebar = visibleSidebar(page);
+  if ((await sidebar.count()) > 0) return sidebar;
   const menu = page.getByRole("button", { name: "Открыть меню" });
-  if (await menu.isVisible()) await menu.click();
-  await expect(visibleSidebar(page)).toHaveCount(1);
-  return visibleSidebar(page);
+  await expect(menu).toBeVisible();
+  await menu.click();
+  await expect(sidebar).toHaveCount(1);
+  return sidebar;
 }
 
 async function navigate(page: Page, label: string) {
