@@ -159,6 +159,70 @@ const SCHEMA_SQL = `
     FOREIGN KEY (tenant_id) REFERENCES prosmet_tenants(id) ON DELETE CASCADE
   );
 
+  CREATE TABLE IF NOT EXISTS prosmet_workspace_profiles (
+    tenant_id TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL DEFAULT '',
+    legal_form TEXT NOT NULL DEFAULT 'organization',
+    organization_name TEXT NOT NULL DEFAULT '',
+    region TEXT NOT NULL DEFAULT '',
+    profile_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    FOREIGN KEY (tenant_id) REFERENCES prosmet_tenants(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS prosmet_workspace_settings (
+    tenant_id TEXT PRIMARY KEY,
+    region TEXT NOT NULL DEFAULT '',
+    method TEXT NOT NULL DEFAULT 'commercial',
+    currency TEXT NOT NULL DEFAULT 'RUB',
+    vat_percent NUMERIC(7,3) NOT NULL DEFAULT 0,
+    auto_sync BOOLEAN NOT NULL DEFAULT TRUE,
+    settings_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    FOREIGN KEY (tenant_id) REFERENCES prosmet_tenants(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS prosmet_provider_connections (
+    tenant_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    name TEXT NOT NULL,
+    base_url TEXT,
+    model TEXT,
+    status TEXT NOT NULL DEFAULT 'disconnected',
+    selected BOOLEAN NOT NULL DEFAULT FALSE,
+    secret_ciphertext TEXT,
+    secret_iv TEXT,
+    secret_tag TEXT,
+    last_error TEXT,
+    last_checked_at TIMESTAMPTZ,
+    metadata_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (tenant_id, id),
+    FOREIGN KEY (tenant_id) REFERENCES prosmet_tenants(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_prosmet_provider_connections_selected
+    ON prosmet_provider_connections(tenant_id, selected DESC, updated_at DESC);
+
+  CREATE TABLE IF NOT EXISTS prosmet_audit_log (
+    id BIGSERIAL PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    actor_id TEXT NOT NULL,
+    action TEXT NOT NULL,
+    entity_type TEXT NOT NULL,
+    entity_id TEXT,
+    details_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    FOREIGN KEY (tenant_id) REFERENCES prosmet_tenants(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_prosmet_audit_tenant_created
+    ON prosmet_audit_log(tenant_id, created_at DESC);
+
   ALTER TABLE prosmet_agent_runs
     ADD COLUMN IF NOT EXISTS error_text TEXT;
 `;
@@ -211,6 +275,16 @@ export async function ensureServerSchema() {
   await globalForDatabase.prosmetSchema;
 }
 
+export async function ensureTenant(tenantId: string) {
+  if (!postgresConfigured()) return;
+  await ensureServerSchema();
+  await (await getServerDatabase()).query(
+    `INSERT INTO prosmet_tenants (id) VALUES ($1)
+     ON CONFLICT (id) DO UPDATE SET updated_at = NOW()`,
+    [tenantId]
+  );
+}
+
 export async function withServerTransaction<T>(
   operation: (client: ServerSqlClient) => Promise<T>
 ): Promise<T> {
@@ -229,6 +303,31 @@ export async function withServerTransaction<T>(
   }
 }
 
+export async function writeAuditEvent(input: {
+  tenantId: string;
+  actorId?: string;
+  action: string;
+  entityType: string;
+  entityId?: string;
+  details?: unknown;
+}) {
+  if (!postgresConfigured()) return;
+  await ensureTenant(input.tenantId);
+  await (await getServerDatabase()).query(
+    `INSERT INTO prosmet_audit_log
+      (tenant_id, actor_id, action, entity_type, entity_id, details_json)
+     VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
+    [
+      input.tenantId,
+      input.actorId ?? input.tenantId,
+      input.action,
+      input.entityType,
+      input.entityId ?? null,
+      JSON.stringify(input.details ?? {})
+    ]
+  );
+}
+
 export async function beginAgentRun(input: {
   tenantId: string;
   runId: string;
@@ -238,13 +337,8 @@ export async function beginAgentRun(input: {
   request: unknown;
 }) {
   if (!postgresConfigured()) return;
-  await ensureServerSchema();
+  await ensureTenant(input.tenantId);
   const database = await getServerDatabase();
-  await database.query(
-    `INSERT INTO prosmet_tenants (id) VALUES ($1)
-     ON CONFLICT (id) DO UPDATE SET updated_at = NOW()`,
-    [input.tenantId]
-  );
   await database.query(
     `INSERT INTO prosmet_agent_runs
       (tenant_id, run_id, thread_id, provider, model, status, request_json, created_at, updated_at)
