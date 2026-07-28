@@ -40,7 +40,13 @@ export const prosmetToolkit = defineToolkit({
     description:
       "Show a complete editable professional estimate with technology, sections, resources, prices, totals and a client handoff flow.",
     parameters: EstimateDraftSchema,
-    render: ({ args, status }) => <EstimateExperience args={args} status={status} />
+    render: ({ args, status }) => (
+      <EstimateExperience
+        key={`${args.id || "estimate"}:${status.type}`}
+        args={args}
+        status={status}
+      />
+    )
   },
   commercial_proposal: {
     description: "Show an editable print-ready commercial proposal.",
