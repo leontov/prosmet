@@ -84,23 +84,34 @@ export function openEstimateEmail(draft: EstimateDraft) {
   window.location.href = `mailto:?subject=${subject}&body=${body}`;
 }
 
-export async function copyEstimateSummary(draft: EstimateDraft) {
-  const value = estimateShareText(draft);
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(value);
-    return;
-  }
-
+function copyWithTextarea(value: string) {
   const textarea = document.createElement("textarea");
   textarea.value = value;
+  textarea.setAttribute("readonly", "");
   textarea.style.position = "fixed";
-  textarea.style.opacity = "0";
+  textarea.style.left = "-9999px";
+  textarea.style.top = "0";
   document.body.appendChild(textarea);
   textarea.focus();
   textarea.select();
+  textarea.setSelectionRange(0, value.length);
   const copied = document.execCommand("copy");
   textarea.remove();
   if (!copied) throw new Error("Не удалось скопировать текст сметы");
+}
+
+export async function copyEstimateSummary(draft: EstimateDraft) {
+  const value = estimateShareText(draft);
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(value);
+      return;
+    } catch {
+      // Plain HTTP and embedded mobile browsers may expose Clipboard API but
+      // reject it. Fall back to a user-gesture based textarea copy.
+    }
+  }
+  copyWithTextarea(value);
 }
 
 export async function downloadEstimateForSharing(draft: EstimateDraft) {
