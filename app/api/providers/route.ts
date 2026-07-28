@@ -11,6 +11,10 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+// Deployment provisions this value outside the repository. Keep the provider
+// service compatible with its internal name without ever returning the key.
+process.env.PROSMET_MASTER_KEY ??= process.env.PROSMET_PROVIDER_MASTER_KEY;
+
 const IdentifierSchema = z.object({
   id: z.string().trim().regex(/^[a-zA-Z0-9:_-]{4,160}$/)
 });
