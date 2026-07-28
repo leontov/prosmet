@@ -21,7 +21,7 @@ function watchRuntimeErrors(page: import("@playwright/test").Page) {
 
 function relevantRuntimeErrors(errors: string[]) {
   return errors.filter((message) =>
-    /Content Security Policy|Refused to execute inline script|hydration|Connection closed|randomUUID is not a function|sql-wasm|both async and sync fetching|wasm streaming compile failed|ZodError|messageId.*Required/i.test(
+    /Content Security Policy|Refused to execute inline script|Refused to evaluate|blocks the use of ['"]eval['"]|unsafe-eval|EvalError|hydration|Connection closed|randomUUID is not a function|sql-wasm|both async and sync fetching|wasm streaming compile failed|ZodError|messageId.*Required/i.test(
       message
     )
   );
@@ -69,6 +69,7 @@ test("Codex desktop shell hydrates without CSP errors and exposes both sidebars"
   const csp = response?.headers()["content-security-policy"] ?? "";
   expect(csp).toContain("script-src");
   expect(csp).toContain("'unsafe-inline'");
+  expect(csp).toContain("'unsafe-eval'");
   expect(csp).toContain("'wasm-unsafe-eval'");
 
   if (testInfo.project.name === "desktop-chromium") {
