@@ -23,6 +23,7 @@ jobs:
       - name: Verify runner
         run: |
           echo "Runner: ${{ runner.name }}"
+          id
           test "${{ runner.name }}" = "prosmet-primary"
 
       - uses: actions/checkout@v4
@@ -41,12 +42,12 @@ jobs:
           fi
 
       - name: Install application and PostgreSQL binaries
-        run: npm ci --no-audit --no-fund
+        run: npm ci --no-audit --no-fund 2>&1 | tee artifacts/logs/npm-ci.log
 
       - name: Provision persistent PostgreSQL without sudo
         run: |
-          set -Eeuo pipefail
-          bash deployment/provision-postgres.sh
+          set -o pipefail
+          bash deployment/provision-postgres.sh 2>&1 | tee artifacts/logs/postgres-provision.log
           source "$HOME/.prosmet/database.env"
           echo "::add-mask::$DATABASE_URL"
           echo "PROSMET_DATABASE_DRIVER=postgres" >> "$GITHUB_ENV"
@@ -58,6 +59,13 @@ jobs:
       - run: npm run build
       - run: npx playwright install chromium
       - run: npm run e2e
+
+      - name: Collect PostgreSQL evidence
+        if: always()
+        run: |
+          cp "$HOME/.prosmet/postgres.log" artifacts/logs/postgres.log 2>/dev/null || true
+          cp "$HOME/.prosmet/postgres-ready.json" artifacts/logs/postgres-ready.json 2>/dev/null || true
+          cp "$HOME/.prosmet/postgres-status.json" artifacts/logs/postgres-status.json 2>/dev/null || true
 
       - if: always()
         uses: actions/upload-artifact@v4
