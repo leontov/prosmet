@@ -152,7 +152,14 @@ export async function exportEstimatePdf(draft: EstimateDraft) {
     content
   };
 
-  pdfMake.createPdf(definition).download(`${safeName(draft.title)}-v${draft.revision}.pdf`);
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    try {
+      pdfMake.createPdf(definition).getBlob((value: Blob) => resolve(value));
+    } catch (error) {
+      reject(error);
+    }
+  });
+  saveBlob(blob, `${safeName(draft.title)}-v${draft.revision}.pdf`);
 }
 
 export async function exportEstimateXlsx(draft: EstimateDraft) {
