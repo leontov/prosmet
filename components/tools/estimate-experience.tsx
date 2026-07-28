@@ -1,5 +1,6 @@
 "use client";
 
+import { useAuiState } from "@assistant-ui/react";
 import {
   CheckIcon,
   ClipboardIcon,
@@ -22,6 +23,7 @@ import {
   validateForApproval,
   type EstimateDraft
 } from "@/lib/domain/estimate";
+import { extractSiteIntake } from "@/lib/domain/site-intake";
 import { useLocalWorkspace } from "@/lib/local/context";
 import { getRepository } from "@/lib/local/repository";
 import {
@@ -42,6 +44,19 @@ function estimateIdFromArgs(args: unknown) {
   return typeof id === "string" && id ? id : null;
 }
 
+function contentText(content: unknown) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .flatMap((part) => {
+      if (!part || typeof part !== "object") return [];
+      const item = part as Record<string, unknown>;
+      return item.type === "text" && typeof item.text === "string" ? [item.text] : [];
+    })
+    .join("\n")
+    .trim();
+}
+
 function channelLabel(channel: EstimateShareChannel) {
   if (channel === "whatsapp") return "WhatsApp";
   if (channel === "email") return "электронную почту";
@@ -58,6 +73,14 @@ export function EstimateExperience({
   status?: { type?: string };
 }) {
   const workspace = useLocalWorkspace();
+  const latestUserInput = useAuiState((state) => {
+    for (let index = state.thread.messages.length - 1; index >= 0; index -= 1) {
+      const message = state.thread.messages[index];
+      if (message?.role === "user") return contentText(message.content);
+    }
+    return "";
+  });
+  const intake = useMemo(() => extractSiteIntake(latestUserInput), [latestUserInput]);
   const incoming = useMemo(() => {
     const parsed = EstimateDraftSchema.safeParse(args);
     return parsed.success ? parsed.data : null;
@@ -86,10 +109,44 @@ export function EstimateExperience({
     };
   }, [estimateId]);
 
+  useEffect(() => {
+    if (!estimateId || (!intake.objectName && !intake.customer)) return;
+    let cancelled = false;
+    void (async () => {
+      const repository = await getRepository();
+      const current = (await repository.getEstimate(estimateId)) ?? incoming;
+      if (!current) return;
+      const objectName =
+        intake.objectName &&
+        (!current.objectName.trim() || current.objectName === "Строительный объект")
+          ? intake.objectName
+          : current.objectName;
+      const customer = intake.customer && !current.customer.trim() ? intake.customer : current.customer;
+      if (objectName === current.objectName && customer === current.customer) return;
+
+      const enriched: EstimateDraft = {
+        ...cloneEstimate(current),
+        objectName,
+        customer,
+        updatedAt: new Date().toISOString()
+      };
+      await repository.saveEstimate(workspace.currentThreadId, enriched);
+      if (cancelled) return;
+      setLatest(enriched);
+      setEditorEpoch((value) => value + 1);
+      window.dispatchEvent(new Event("prosmet:local-data-changed"));
+    })().catch((reason) =>
+      setError(reason instanceof Error ? reason.message : "Не удалось заполнить данные объекта")
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [estimateId, incoming, intake.customer, intake.objectName, workspace.currentThreadId]);
+
   const reloadLatest = async (waitForAutosave = false) => {
     if (!estimateId) return incoming;
     if (waitForAutosave) {
-      await new Promise((resolve) => window.setTimeout(resolve, 760));
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 760));
     }
     return (await (await getRepository()).getEstimate(estimateId)) ?? incoming;
   };
