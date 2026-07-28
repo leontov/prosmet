@@ -29,6 +29,7 @@ jobs:
           echo "be19de4d0ddae384c1fbbd56ff68a892590919dee4c8831e104200b7b2bc5382  /tmp/prosmet-source.tar.gz" | sha256sum -c -
           tar -xzf /tmp/prosmet-source.tar.gz -C .
           rm -rf bootstrap .github/workflows/bootstrap-source.yml
+          rm -f .github/workflows/primary-ci.yml
 
       - name: Publish normal source tree
         shell: bash
