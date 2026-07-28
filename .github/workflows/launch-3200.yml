@@ -56,7 +56,7 @@ jobs:
                 "",
                 "## Launching on port 3200",
                 "",
-                "Build, SQL.js WASM assets, AG-UI backend and embedded PostgreSQL are starting on Primary."
+                "Build, CSP compatibility, SQL.js WASM assets, AG-UI backend and embedded PostgreSQL are starting on Primary."
               ].join("\n")
             });
 
@@ -89,7 +89,7 @@ jobs:
           set -Eeuo pipefail
           bash deployment/direct-primary.sh "$GITHUB_SHA" 3200
 
-      - name: Verify live application, SQL.js WASM and AG-UI schema
+      - name: Verify live application, CSP, SQL.js WASM and AG-UI schema
         run: |
           set -Eeuo pipefail
           BASE_URL=http://127.0.0.1:3200
@@ -99,6 +99,7 @@ jobs:
 
           curl -fsSI "$BASE_URL/" | tee /tmp/prosmet-headers.txt
           grep -qi "content-security-policy:.*script-src.*'unsafe-inline'" /tmp/prosmet-headers.txt
+          grep -qi "content-security-policy:.*'unsafe-eval'" /tmp/prosmet-headers.txt
           grep -qi "content-security-policy:.*'wasm-unsafe-eval'" /tmp/prosmet-headers.txt
 
           curl -fsS "$BASE_URL/" | tee /tmp/prosmet-index.html >/dev/null
@@ -145,7 +146,7 @@ jobs:
                 success ? "**BACKEND:** http://78.17.4.108:3200/api/backend/status" : "",
                 success ? "**SQLITE WASM:** standard and browser binaries verified" : "",
                 success ? "**AG-UI:** activity messageId schema verified" : "",
-                success ? "**CSP:** Next.js hydration and SQLite WASM allowed" : "",
+                success ? "**CSP:** Next.js hydration, SQL.js dynamic loader and SQLite WASM allowed" : "",
                 success ? "**HTTP COMPAT:** UUID fallback, file SHA-256 fallback and favicon verified" : ""
               ].filter(Boolean).join("\n")
             });
