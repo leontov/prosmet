@@ -1,0 +1,47 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+  --muted: #f5f5f4;
+  --muted-foreground: #737373;
+  --border: #e7e5e4;
+  --accent: #f4f4f5;
+  --accent-foreground: #18181b;
+  --primary: #171717;
+  --primary-foreground: #fafafa;
+  --success: #157347;
+  --warning: #a15c00;
+  --danger: #b42318;
+  --sidebar: #f9f9f8;
+  --shadow: 0 12px 40px rgba(0, 0, 0, 0.08);
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  text-rendering: optimizeLegibility;
+}
+button, input, textarea, select { font: inherit; }
+button { cursor: pointer; }
+::selection { background: #dbeafe; }
+
+.prose-message { color: #262626; line-height: 1.72; }
+.prose-message p { margin: .55rem 0; }
+.prose-message ul, .prose-message ol { margin: .6rem 0; padding-left: 1.45rem; }
+.prose-message li { margin: .2rem 0; }
+.prose-message h1, .prose-message h2, .prose-message h3 { margin: 1rem 0 .45rem; font-weight: 650; line-height: 1.25; }
+.prose-message h2 { font-size: 1.1rem; }
+.prose-message code { border-radius: .35rem; background: #f4f4f5; padding: .12rem .3rem; font-size: .9em; }
+.prose-message pre { overflow-x: auto; border-radius: .75rem; background: #171717; color: white; padding: 1rem; }
+
+.scrollbar-thin { scrollbar-width: thin; scrollbar-color: #d4d4d4 transparent; }
+.safe-bottom { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
+
+@media (max-width: 767px) {
+  .desktop-only { display: none !important; }
+}
