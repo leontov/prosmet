@@ -2,8 +2,9 @@ import { z } from "zod";
 import { resolveServerIdentity } from "@/lib/server/identity";
 import {
   ensureServerSchema,
-  getPostgresPool,
+  getServerDatabase,
   postgresConfigured,
+  type ServerSqlClient,
   withServerTransaction
 } from "@/lib/server/postgres";
 
@@ -33,7 +34,7 @@ function record(value: unknown): Record<string, unknown> {
 }
 
 async function materialize(
-  client: import("pg").PoolClient,
+  client: ServerSqlClient,
   tenantId: string,
   input: SyncOperation
 ) {
@@ -181,13 +182,13 @@ export async function POST(request: Request) {
       let accepted = 0;
       let lastCursor = 0;
       for (const operation of input.operations) {
-        const inserted = await client.query<{ cursor: string }>(
+        const inserted = await client.query<{ cursor: string | number }>(
           `INSERT INTO prosmet_sync_operations
             (operation_id, tenant_id, device_id, entity_type, entity_id,
              operation, payload_json, client_created_at)
            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::timestamptz)
            ON CONFLICT (tenant_id, operation_id) DO NOTHING
-           RETURNING cursor::text`,
+           RETURNING cursor`,
           [
             operation.id,
             identity.ownerId,
@@ -199,7 +200,7 @@ export async function POST(request: Request) {
             operation.createdAt ?? null
           ]
         );
-        if (!inserted.rowCount) continue;
+        if (!inserted.rows.length) continue;
         await materialize(client, identity.ownerId, operation);
         accepted += 1;
         lastCursor = Math.max(lastCursor, Number(inserted.rows[0]?.cursor ?? 0));
@@ -236,17 +237,17 @@ export async function GET(request: Request) {
 
   try {
     await ensureServerSchema();
-    const rows = await getPostgresPool().query<{
-      cursor: string;
+    const rows = await (await getServerDatabase()).query<{
+      cursor: string | number;
       operationId: string;
       deviceId: string;
       entityType: string;
       entityId: string;
       operation: "upsert" | "delete";
       payload: unknown;
-      createdAt: Date;
+      createdAt: Date | string;
     }>(
-      `SELECT cursor::text,
+      `SELECT cursor,
               operation_id AS "operationId",
               device_id AS "deviceId",
               entity_type AS "entityType",
@@ -264,7 +265,10 @@ export async function GET(request: Request) {
     const operations = rows.rows.map((row) => ({
       ...row,
       cursor: Number(row.cursor),
-      createdAt: row.createdAt.toISOString()
+      createdAt:
+        row.createdAt instanceof Date
+          ? row.createdAt.toISOString()
+          : new Date(row.createdAt).toISOString()
     }));
     const nextCursor = operations.at(-1)?.cursor ?? cursor;
     const headers = new Headers({ "Cache-Control": "no-store" });
