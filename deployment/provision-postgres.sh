@@ -5,16 +5,21 @@ ROOT="${HOME}/.prosmet"
 ENV_FILE="${ROOT}/database.env"
 PASSWORD_FILE="${ROOT}/postgres-password"
 STATUS_FILE="${ROOT}/postgres-status.json"
+LOG_FILE="${ROOT}/postgres.log"
+RUNTIME_ROOT="${ROOT}/runtime/postgresql-16"
+PACKAGE_CACHE="${ROOT}/packages/postgresql-16"
+DATA_DIR="${ROOT}/postgres-data-v16"
+SOCKET_DIR="${ROOT}/run/postgresql"
+RETIRED_DIR="${ROOT}/retired"
 LEGACY_PID_FILE="${ROOT}/postgres.pid"
 LEGACY_DATA_DIR="${ROOT}/data/postgres"
-RETIRED_DIR="${ROOT}/retired"
 DATABASE_USER="prosmet"
 DATABASE_NAME="prosmet"
 DATABASE_HOST="127.0.0.1"
-DATABASE_PORT="${PROSMET_POSTGRES_PORT:-5432}"
+DATABASE_PORT="${PROSMET_POSTGRES_PORT:-55432}"
 
-mkdir -p "${ROOT}" "${RETIRED_DIR}"
-chmod 700 "${ROOT}" "${RETIRED_DIR}"
+mkdir -p "${ROOT}" "${PACKAGE_CACHE}" "${SOCKET_DIR}" "${RETIRED_DIR}"
+chmod 700 "${ROOT}" "${PACKAGE_CACHE}" "${SOCKET_DIR}" "${RETIRED_DIR}"
 
 if [[ ! -s "${PASSWORD_FILE}" ]]; then
   umask 077
@@ -35,6 +40,8 @@ write_environment() {
   cat > "${ENV_FILE}" <<ENV
 export PROSMET_DATABASE_DRIVER=postgres
 export DATABASE_URL='${url}'
+export PROSMET_POSTGRES_BIN='${PG_BINDIR}'
+export PROSMET_POSTGRES_DATA='${DATA_DIR}'
 ENV
   chmod 600 "${ENV_FILE}"
 }
@@ -62,27 +69,31 @@ try {
 NODE
 }
 
-# Respect a real externally managed PostgreSQL when the owner provides one.
+# Respect a real externally managed PostgreSQL when the owner supplies one.
 if [[ -n "${DATABASE_URL:-}" ]] && probe_database_url "${DATABASE_URL}" >/dev/null 2>&1; then
+  PG_BINDIR="external"
   umask 077
   cat > "${ENV_FILE}" <<ENV
 export PROSMET_DATABASE_DRIVER=postgres
 export DATABASE_URL='${DATABASE_URL}'
+export PROSMET_POSTGRES_BIN='external'
+export PROSMET_POSTGRES_DATA='external'
 ENV
   chmod 600 "${ENV_FILE}"
-  echo "Using the configured PostgreSQL DATABASE_URL"
+  echo "Using configured PostgreSQL DATABASE_URL"
   exit 0
 fi
 
-# Reuse the previously provisioned local database when it is healthy.
-LOCAL_DATABASE_URL="$(build_database_url)"
-if probe_database_url "${LOCAL_DATABASE_URL}" >/dev/null 2>&1; then
-  write_environment
-  echo "PostgreSQL is already ready on ${DATABASE_HOST}:${DATABASE_PORT}"
-  exit 0
-fi
+retire_path() {
+  local source="${1:?source path is required}"
+  local label="${2:?label is required}"
+  [[ -e "${source}" ]] || return 0
+  local destination="${RETIRED_DIR}/${label}-$(date -u +%Y%m%dT%H%M%SZ)"
+  mv "${source}" "${destination}"
+  echo "Retired ${source} to ${destination}"
+}
 
-# Stop and retire the failed embedded-postgres experiment. It is never reused.
+# Stop and retire the incompatible embedded/WASM experiment once.
 if [[ -f "${LEGACY_PID_FILE}" ]]; then
   LEGACY_PID="$(cat "${LEGACY_PID_FILE}" 2>/dev/null || true)"
   if [[ "${LEGACY_PID}" =~ ^[0-9]+$ ]] && kill -0 "${LEGACY_PID}" 2>/dev/null; then
@@ -94,77 +105,179 @@ if [[ -f "${LEGACY_PID_FILE}" ]]; then
   fi
   rm -f "${LEGACY_PID_FILE}"
 fi
-if [[ -d "${LEGACY_DATA_DIR}" ]]; then
-  RETIRED_PATH="${RETIRED_DIR}/embedded-postgres-$(date -u +%Y%m%dT%H%M%SZ)"
-  mv "${LEGACY_DATA_DIR}" "${RETIRED_PATH}"
-  echo "Retired incompatible embedded PostgreSQL cluster to ${RETIRED_PATH}"
+retire_path "${LEGACY_DATA_DIR}" "embedded-postgres"
+
+find_pg_bindir() {
+  find "${RUNTIME_ROOT}/usr/lib/postgresql" \
+    -mindepth 3 -maxdepth 3 -type f -name postgres -print 2>/dev/null \
+    | sort -V | tail -n 1 | xargs -r dirname
+}
+
+PG_BINDIR="$(find_pg_bindir)"
+if [[ -z "${PG_BINDIR}" || ! -x "${PG_BINDIR}/initdb" ]]; then
+  command -v apt-get >/dev/null 2>&1 || {
+    echo "apt-get is required to download the signed Ubuntu PostgreSQL package" >&2
+    exit 1
+  }
+  command -v dpkg-deb >/dev/null 2>&1 || {
+    echo "dpkg-deb is required to extract the Ubuntu PostgreSQL package" >&2
+    exit 1
+  }
+
+  rm -rf "${RUNTIME_ROOT}"
+  mkdir -p "${RUNTIME_ROOT}" "${PACKAGE_CACHE}"
+  rm -f "${PACKAGE_CACHE}"/*.deb
+
+  packages=(postgresql-16 postgresql-client-16 libpq5)
+  optional_packages=(
+    libicu74
+    libldap2
+    libllvm17t64
+    liblz4-1
+    libpam0g
+    libreadline8t64
+    libssl3t64
+    libxml2
+    libxslt1.1
+    libzstd1
+    zlib1g
+  )
+
+  pushd "${PACKAGE_CACHE}" >/dev/null
+  for package in "${packages[@]}"; do
+    apt-cache show "${package}" >/dev/null 2>&1 || {
+      echo "Required Ubuntu package is unavailable: ${package}" >&2
+      exit 1
+    }
+    apt-get download "${package}"
+  done
+  for package in "${optional_packages[@]}"; do
+    if apt-cache show "${package}" >/dev/null 2>&1; then
+      apt-get download "${package}" || true
+    fi
+  done
+  popd >/dev/null
+
+  shopt -s nullglob
+  debs=("${PACKAGE_CACHE}"/*.deb)
+  if [[ "${#debs[@]}" -lt 2 ]]; then
+    echo "PostgreSQL package download did not produce the expected .deb files" >&2
+    exit 1
+  fi
+  for archive in "${debs[@]}"; do
+    dpkg-deb -x "${archive}" "${RUNTIME_ROOT}"
+  done
+  shopt -u nullglob
+
+  PG_BINDIR="$(find_pg_bindir)"
 fi
 
-if ! sudo -n true >/dev/null 2>&1; then
-  echo "prosmet-primary must allow passwordless sudo to provision PostgreSQL" >&2
+if [[ -z "${PG_BINDIR}" || ! -x "${PG_BINDIR}/postgres" || ! -x "${PG_BINDIR}/initdb" ]]; then
+  echo "A runnable PostgreSQL server was not found after package extraction" >&2
   exit 1
 fi
 
-if ! command -v psql >/dev/null 2>&1 || ! command -v pg_isready >/dev/null 2>&1; then
-  sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update -y
-  sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    postgresql postgresql-contrib
+PG_MAJOR="$(basename "$(dirname "${PG_BINDIR}")")"
+PG_SHAREDIR="${RUNTIME_ROOT}/usr/share/postgresql/${PG_MAJOR}"
+PG_LIBDIR="${RUNTIME_ROOT}/usr/lib/x86_64-linux-gnu:${RUNTIME_ROOT}/lib/x86_64-linux-gnu"
+export PATH="${PG_BINDIR}:${PATH}"
+export LD_LIBRARY_PATH="${PG_LIBDIR}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+
+missing_libraries="$(ldd "${PG_BINDIR}/postgres" 2>/dev/null | awk '/not found/{print $1}' | paste -sd, -)"
+if [[ -n "${missing_libraries}" ]]; then
+  echo "PostgreSQL package has unresolved runtime libraries: ${missing_libraries}" >&2
+  ldd "${PG_BINDIR}/postgres" >&2 || true
+  exit 1
 fi
 
-sudo -n systemctl enable --now postgresql
+LOCAL_DATABASE_URL="$(build_database_url)"
+if probe_database_url "${LOCAL_DATABASE_URL}" >/dev/null 2>&1; then
+  write_environment
+  echo "Rootless PostgreSQL is already ready on ${DATABASE_HOST}:${DATABASE_PORT}"
+  exit 0
+fi
 
-# Ubuntu may choose a non-default port when another cluster already exists.
-if command -v pg_lsclusters >/dev/null 2>&1; then
-  CLUSTER_LINE="$(pg_lsclusters --no-header 2>/dev/null | awk '$4 == "online" { print; exit }')"
-  if [[ -z "${CLUSTER_LINE}" ]]; then
-    FIRST_CLUSTER="$(pg_lsclusters --no-header 2>/dev/null | awk 'NR == 1 { print $1, $2 }')"
-    if [[ -n "${FIRST_CLUSTER}" ]]; then
-      read -r PG_VERSION PG_NAME <<<"${FIRST_CLUSTER}"
-      sudo -n pg_ctlcluster "${PG_VERSION}" "${PG_NAME}" start
-      CLUSTER_LINE="$(pg_lsclusters --no-header 2>/dev/null | awk '$4 == "online" { print; exit }')"
-    fi
-  fi
-  if [[ -n "${CLUSTER_LINE}" ]]; then
-    DATABASE_PORT="$(awk '{print $3}' <<<"${CLUSTER_LINE}")"
-  fi
+if [[ -f "${DATA_DIR}/PG_VERSION" ]] && [[ "$(cat "${DATA_DIR}/PG_VERSION")" != "${PG_MAJOR}" ]]; then
+  retire_path "${DATA_DIR}" "postgres-data-version-mismatch"
+fi
+
+if [[ ! -f "${DATA_DIR}/PG_VERSION" ]]; then
+  rm -rf "${DATA_DIR}"
+  mkdir -p "${DATA_DIR}"
+  chmod 700 "${DATA_DIR}"
+  PW_FILE="${ROOT}/.postgres-init-password"
+  printf '%s\n' "${PASSWORD}" > "${PW_FILE}"
+  chmod 600 "${PW_FILE}"
+  "${PG_BINDIR}/initdb" \
+    --pgdata="${DATA_DIR}" \
+    --username="${DATABASE_USER}" \
+    --pwfile="${PW_FILE}" \
+    --encoding=UTF8 \
+    --locale=C.UTF-8 \
+    --auth-local=trust \
+    --auth-host=scram-sha-256 \
+    --waldir="${DATA_DIR}/pg_wal" \
+    -L "${PG_SHAREDIR}"
+  rm -f "${PW_FILE}"
+
+  cat >> "${DATA_DIR}/postgresql.conf" <<CONF
+listen_addresses = '${DATABASE_HOST}'
+port = ${DATABASE_PORT}
+unix_socket_directories = '${SOCKET_DIR}'
+password_encryption = 'scram-sha-256'
+timezone = 'UTC'
+max_connections = 100
+shared_buffers = '128MB'
+work_mem = '4MB'
+maintenance_work_mem = '64MB'
+jit = off
+ssl = off
+logging_collector = off
+log_min_messages = warning
+CONF
+fi
+chmod 700 "${DATA_DIR}"
+
+if ! "${PG_BINDIR}/pg_ctl" -D "${DATA_DIR}" status >/dev/null 2>&1; then
+  : > "${LOG_FILE}"
+  chmod 600 "${LOG_FILE}"
+  env RUNNER_TRACKING_ID= \
+    "${PG_BINDIR}/pg_ctl" \
+      -D "${DATA_DIR}" \
+      -l "${LOG_FILE}" \
+      -o "-h ${DATABASE_HOST} -p ${DATABASE_PORT} -k ${SOCKET_DIR}" \
+      -w start
 fi
 
 for _ in $(seq 1 60); do
-  pg_isready -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" >/dev/null 2>&1 && break
+  "${PG_BINDIR}/pg_isready" -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}" >/dev/null 2>&1 && break
   sleep 1
 done
-if ! pg_isready -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" >/dev/null 2>&1; then
-  sudo -n systemctl status postgresql --no-pager || true
-  echo "PostgreSQL service did not become ready" >&2
+if ! "${PG_BINDIR}/pg_isready" -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}" >/dev/null 2>&1; then
+  tail -n 250 "${LOG_FILE}" || true
+  echo "Rootless PostgreSQL did not become ready" >&2
   exit 1
 fi
 
-sudo -n -u postgres psql -v ON_ERROR_STOP=1 --dbname=postgres <<SQL
-DO \$\$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${DATABASE_USER}') THEN
-    CREATE ROLE ${DATABASE_USER} LOGIN PASSWORD '${PASSWORD}';
-  ELSE
-    ALTER ROLE ${DATABASE_USER} WITH LOGIN PASSWORD '${PASSWORD}';
-  END IF;
-END
-\$\$;
-SQL
-
-if ! sudo -n -u postgres psql --dbname=postgres -tAc \
-  "SELECT 1 FROM pg_database WHERE datname = '${DATABASE_NAME}'" | grep -q 1; then
-  sudo -n -u postgres createdb --owner="${DATABASE_USER}" "${DATABASE_NAME}"
+export PGPASSWORD="${PASSWORD}"
+if ! "${PG_BINDIR}/psql" -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}" \
+  --dbname=postgres -tAc "SELECT 1 FROM pg_database WHERE datname = '${DATABASE_NAME}'" \
+  | grep -q 1; then
+  "${PG_BINDIR}/createdb" \
+    -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}" \
+    --owner="${DATABASE_USER}" "${DATABASE_NAME}"
 fi
 
-sudo -n -u postgres psql -v ON_ERROR_STOP=1 --dbname="${DATABASE_NAME}" <<SQL
+"${PG_BINDIR}/psql" \
+  -h "${DATABASE_HOST}" -p "${DATABASE_PORT}" -U "${DATABASE_USER}" \
+  --dbname="${DATABASE_NAME}" -v ON_ERROR_STOP=1 <<SQL
 ALTER DATABASE ${DATABASE_NAME} SET timezone TO 'UTC';
 GRANT CONNECT, TEMPORARY ON DATABASE ${DATABASE_NAME} TO ${DATABASE_USER};
-CREATE EXTENSION IF NOT EXISTS pgcrypto;
 SQL
 
-LOCAL_DATABASE_URL="$(build_database_url)"
 if ! probe_database_url "${LOCAL_DATABASE_URL}" >/dev/null 2>&1; then
-  echo "Provisioned PostgreSQL did not accept the application DATABASE_URL" >&2
+  tail -n 250 "${LOG_FILE}" || true
+  echo "Rootless PostgreSQL did not accept the application DATABASE_URL" >&2
   exit 1
 fi
 
@@ -177,11 +290,15 @@ try {
   const result = await client.query(
     "SELECT current_database() AS database, current_user AS user, inet_server_addr()::text AS host, inet_server_port() AS port, version() AS version"
   );
-  console.log(JSON.stringify({ ready: true, ...result.rows[0] }, null, 2));
+  console.log(JSON.stringify({
+    ready: true,
+    distribution: "Ubuntu postgresql-16 package (rootless extraction)",
+    ...result.rows[0]
+  }, null, 2));
 } finally {
   await client.end();
 }
 NODE
 chmod 600 "${STATUS_FILE}"
 
-echo "Real PostgreSQL is ready on ${DATABASE_HOST}:${DATABASE_PORT}/${DATABASE_NAME}"
+echo "Real rootless PostgreSQL ${PG_MAJOR} is ready on ${DATABASE_HOST}:${DATABASE_PORT}/${DATABASE_NAME}"
