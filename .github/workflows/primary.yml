@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: prosmet-primary-production
@@ -24,6 +25,8 @@ jobs:
       DEPLOY_PORT: "3100"
     steps:
       - name: Verify runner identity
+        id: runner
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
@@ -32,16 +35,23 @@ jobs:
           test "${{ runner.name }}" = "prosmet-primary"
 
       - name: Checkout
+        id: checkout
+        if: steps.runner.outcome == 'success'
+        continue-on-error: true
         uses: actions/checkout@v4
 
       - name: Set up Node 22
+        id: node
+        if: steps.checkout.outcome == 'success'
+        continue-on-error: true
         uses: actions/setup-node@v4
         with:
           node-version: "22.16.0"
-          cache: npm
-          cache-dependency-path: package-lock.json
 
       - name: Create lockfile when repository is freshly initialized
+        id: lockfile
+        if: steps.node.outcome == 'success'
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
@@ -50,27 +60,51 @@ jobs:
           fi
 
       - name: Install dependencies
+        id: install
+        if: steps.lockfile.outcome == 'success'
+        continue-on-error: true
         run: npm ci --no-audit --no-fund
 
       - name: Source contract
+        id: source_contract
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
         run: npm run source:contract
 
       - name: TypeScript
+        id: typecheck
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
         run: npm run typecheck
 
       - name: Unit tests
+        id: unit_tests
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
         run: npm run test
 
       - name: Production build
+        id: build
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
         run: npm run build
 
       - name: Install Chromium
+        id: chromium
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
         run: npx playwright install --with-deps chromium
 
       - name: Desktop and mobile E2E
+        id: e2e
+        if: steps.build.outcome == 'success' && steps.chromium.outcome == 'success'
+        continue-on-error: true
         run: npm run e2e
 
       - name: Build immutable production image
+        id: image
+        if: steps.source_contract.outcome == 'success' && steps.typecheck.outcome == 'success' && steps.unit_tests.outcome == 'success' && steps.build.outcome == 'success' && steps.e2e.outcome == 'success'
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
@@ -78,6 +112,9 @@ jobs:
           docker tag "prosmet:${GITHUB_SHA}" prosmet:latest
 
       - name: Deploy canary container
+        id: canary
+        if: steps.image.outcome == 'success'
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
@@ -114,6 +151,9 @@ jobs:
           exit 1
 
       - name: Promote canary to Primary
+        id: deploy
+        if: steps.canary.outcome == 'success'
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
@@ -139,7 +179,7 @@ jobs:
           docker rm -f prosmet-canary >/dev/null 2>&1 || true
 
       - name: Write release evidence
-        if: success()
+        if: always()
         shell: bash
         run: |
           mkdir -p artifacts
@@ -152,7 +192,7 @@ jobs:
             "url": "http://78.17.4.108:${DEPLOY_PORT}/",
             "health": "http://78.17.4.108:${DEPLOY_PORT}/api/health",
             "image": "prosmet:${GITHUB_SHA}",
-            "gate": "passed"
+            "gate": "${{ steps.deploy.outcome }}"
           }
           JSON
 
@@ -168,9 +208,111 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
 
+      - name: Publish observable Primary status
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          RUNNER_GATE: ${{ steps.runner.outcome }}
+          CHECKOUT_GATE: ${{ steps.checkout.outcome }}
+          LOCKFILE_GATE: ${{ steps.lockfile.outcome }}
+          INSTALL_GATE: ${{ steps.install.outcome }}
+          SOURCE_GATE: ${{ steps.source_contract.outcome }}
+          TYPE_GATE: ${{ steps.typecheck.outcome }}
+          UNIT_GATE: ${{ steps.unit_tests.outcome }}
+          BUILD_GATE: ${{ steps.build.outcome }}
+          CHROMIUM_GATE: ${{ steps.chromium.outcome }}
+          E2E_GATE: ${{ steps.e2e.outcome }}
+          IMAGE_GATE: ${{ steps.image.outcome }}
+          CANARY_GATE: ${{ steps.canary.outcome }}
+          DEPLOY_GATE: ${{ steps.deploy.outcome }}
+        with:
+          script: |
+            const title = "[Prosmet Primary] Deployment status";
+            const checks = [
+              ["runner prosmet-primary", process.env.RUNNER_GATE],
+              ["checkout", process.env.CHECKOUT_GATE],
+              ["lockfile", process.env.LOCKFILE_GATE],
+              ["npm ci", process.env.INSTALL_GATE],
+              ["source contract", process.env.SOURCE_GATE],
+              ["typecheck", process.env.TYPE_GATE],
+              ["unit tests", process.env.UNIT_GATE],
+              ["production build", process.env.BUILD_GATE],
+              ["Chromium", process.env.CHROMIUM_GATE],
+              ["desktop/mobile E2E", process.env.E2E_GATE],
+              ["Docker image", process.env.IMAGE_GATE],
+              ["canary", process.env.CANARY_GATE],
+              ["Primary deploy", process.env.DEPLOY_GATE],
+            ];
+            const icon = (value) => value === "success" ? "✅" : value === "skipped" ? "⏭️" : "❌";
+            const body = [
+              `**Commit:** \`${context.sha}\``,
+              `**Runner:** \`${context.runner.name}\``,
+              `**Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              `**Updated:** ${new Date().toISOString()}`,
+              "",
+              "| Gate | Result |",
+              "|---|---|",
+              ...checks.map(([name, value]) => `| ${name} | ${icon(value)} ${value || "not-run"} |`),
+              "",
+              process.env.DEPLOY_GATE === "success"
+                ? "**LIVE:** http://78.17.4.108:3100/"
+                : "Deployment is blocked until every required gate passes.",
+            ].join("\n");
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "open",
+              per_page: 100,
+            });
+            const existing = issues.find((issue) => !issue.pull_request && issue.title === title);
+            if (existing) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: existing.number,
+                body,
+              });
+            } else {
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title,
+                body,
+              });
+            }
+
       - name: Show logs on failure
-        if: failure()
+        if: always() && steps.deploy.outcome != 'success'
         shell: bash
         run: |
           docker logs prosmet-canary 2>/dev/null || true
           docker logs prosmet 2>/dev/null || true
+
+      - name: Enforce green release gate
+        if: always()
+        shell: bash
+        env:
+          RUNNER_GATE: ${{ steps.runner.outcome }}
+          INSTALL_GATE: ${{ steps.install.outcome }}
+          SOURCE_GATE: ${{ steps.source_contract.outcome }}
+          TYPE_GATE: ${{ steps.typecheck.outcome }}
+          UNIT_GATE: ${{ steps.unit_tests.outcome }}
+          BUILD_GATE: ${{ steps.build.outcome }}
+          CHROMIUM_GATE: ${{ steps.chromium.outcome }}
+          E2E_GATE: ${{ steps.e2e.outcome }}
+          IMAGE_GATE: ${{ steps.image.outcome }}
+          CANARY_GATE: ${{ steps.canary.outcome }}
+          DEPLOY_GATE: ${{ steps.deploy.outcome }}
+        run: |
+          set -euo pipefail
+          test "$RUNNER_GATE" = success
+          test "$INSTALL_GATE" = success
+          test "$SOURCE_GATE" = success
+          test "$TYPE_GATE" = success
+          test "$UNIT_GATE" = success
+          test "$BUILD_GATE" = success
+          test "$CHROMIUM_GATE" = success
+          test "$E2E_GATE" = success
+          test "$IMAGE_GATE" = success
+          test "$CANARY_GATE" = success
+          test "$DEPLOY_GATE" = success
