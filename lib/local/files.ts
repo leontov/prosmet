@@ -1,7 +1,14 @@
 "use client";
 
-import { getDatabase } from "@/lib/local/database";
 import { browserUuid, sha256Hex } from "@/lib/platform/browser-crypto";
+import {
+  LOCAL_STORES,
+  getAllRecords,
+  getRecord,
+  requestResult,
+  withLocalTransaction
+} from "@/lib/local/idb";
+import type { OutboxRecord } from "@/lib/local/repository";
 
 function now() {
   return new Date().toISOString();
@@ -19,56 +26,31 @@ export type StoredFile = {
   updatedAt: string;
 };
 
-export async function storeFile(file: File, threadId?: string, id = `file_${browserUuid()}`) {
+function outbox(
+  entityId: string,
+  operation: "upsert" | "delete",
+  payload: unknown
+): OutboxRecord {
+  return {
+    id: browserUuid(),
+    entityType: "file",
+    entityId,
+    operation,
+    payload,
+    attempts: 0,
+    createdAt: now()
+  };
+}
+
+export async function storeFile(
+  file: File,
+  threadId?: string,
+  id = `file_${browserUuid()}`
+) {
   const bytes = new Uint8Array(await file.arrayBuffer());
   const checksum = await sha256Hex(bytes);
   const timestamp = now();
-  const database = await getDatabase();
-  await database.write((sqlite) => {
-    sqlite.run(
-      `INSERT INTO files
-        (id, thread_id, name, mime_type, size_bytes, sha256, blob_data, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO UPDATE SET
-         thread_id = COALESCE(excluded.thread_id, files.thread_id),
-         name = excluded.name,
-         mime_type = excluded.mime_type,
-         size_bytes = excluded.size_bytes,
-         sha256 = excluded.sha256,
-         blob_data = excluded.blob_data,
-         updated_at = excluded.updated_at`,
-      [
-        id,
-        threadId ?? null,
-        file.name,
-        file.type || "application/octet-stream",
-        bytes.byteLength,
-        checksum,
-        bytes,
-        timestamp,
-        timestamp
-      ]
-    );
-    sqlite.run(
-      `INSERT INTO outbox
-        (id, entity_type, entity_id, operation, payload_json, attempts, created_at)
-       VALUES (?, 'file', ?, 'upsert', ?, 0, ?)`,
-      [
-        browserUuid(),
-        id,
-        JSON.stringify({
-          id,
-          threadId,
-          name: file.name,
-          mimeType: file.type || "application/octet-stream",
-          sizeBytes: bytes.byteLength,
-          checksum
-        }),
-        timestamp
-      ]
-    );
-  });
-  return {
+  const stored: StoredFile = {
     id,
     threadId,
     name: file.name,
@@ -78,74 +60,54 @@ export async function storeFile(file: File, threadId?: string, id = `file_${brow
     bytes,
     createdAt: timestamp,
     updatedAt: timestamp
-  } satisfies StoredFile;
+  };
+
+  await withLocalTransaction(
+    [LOCAL_STORES.files, LOCAL_STORES.outbox],
+    "readwrite",
+    async (transaction) => {
+      await requestResult(transaction.objectStore(LOCAL_STORES.files).put(stored));
+      await requestResult(
+        transaction.objectStore(LOCAL_STORES.outbox).put(
+          outbox(id, "upsert", {
+            id,
+            threadId,
+            name: stored.name,
+            mimeType: stored.mimeType,
+            sizeBytes: stored.sizeBytes,
+            checksum: stored.checksum,
+            updatedAt: stored.updatedAt
+          })
+        )
+      );
+    }
+  );
+
+  return stored;
 }
 
 export async function loadFile(id: string) {
-  const database = await getDatabase();
-  const row = database.first<{
-    id: string;
-    threadId: string | null;
-    name: string;
-    mimeType: string;
-    sizeBytes: number;
-    checksum: string;
-    bytes: Uint8Array | null;
-    createdAt: string;
-    updatedAt: string;
-  }>(
-    `SELECT id, thread_id AS threadId, name, mime_type AS mimeType,
-            size_bytes AS sizeBytes, sha256 AS checksum, blob_data AS bytes,
-            created_at AS createdAt, updated_at AS updatedAt
-     FROM files WHERE id = ?`,
-    [id]
-  );
-  if (!row) return null;
-  return {
-    ...row,
-    threadId: row.threadId ?? undefined,
-    sizeBytes: Number(row.sizeBytes),
-    bytes: row.bytes instanceof Uint8Array ? row.bytes : new Uint8Array()
-  } satisfies StoredFile;
+  return (await getRecord<StoredFile>(LOCAL_STORES.files, id)) ?? null;
 }
 
 export async function deleteFile(id: string) {
-  const database = await getDatabase();
-  const timestamp = now();
-  await database.write((sqlite) => {
-    sqlite.run("DELETE FROM files WHERE id = ?", [id]);
-    sqlite.run(
-      `INSERT INTO outbox
-        (id, entity_type, entity_id, operation, payload_json, attempts, created_at)
-       VALUES (?, 'file', ?, 'delete', 'null', 0, ?)`,
-      [browserUuid(), id, timestamp]
-    );
-  });
+  await withLocalTransaction(
+    [LOCAL_STORES.files, LOCAL_STORES.outbox],
+    "readwrite",
+    async (transaction) => {
+      await requestResult(transaction.objectStore(LOCAL_STORES.files).delete(id));
+      await requestResult(
+        transaction.objectStore(LOCAL_STORES.outbox).put(outbox(id, "delete", null))
+      );
+    }
+  );
 }
 
 export async function listFiles() {
-  const database = await getDatabase();
-  return database
-    .read<{
-      id: string;
-      threadId: string | null;
-      name: string;
-      mimeType: string;
-      sizeBytes: number;
-      checksum: string;
-      createdAt: string;
-      updatedAt: string;
-    }>(
-      `SELECT id, thread_id AS threadId, name, mime_type AS mimeType,
-              size_bytes AS sizeBytes, sha256 AS checksum,
-              created_at AS createdAt, updated_at AS updatedAt
-       FROM files ORDER BY updated_at DESC`
-    )
-    .map((row) => ({
-      ...row,
-      threadId: row.threadId ?? undefined,
-      sizeBytes: Number(row.sizeBytes)
-    }));
+  const files = await getAllRecords<StoredFile>(LOCAL_STORES.files);
+  return files
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    .map(({ bytes: _bytes, ...metadata }) => metadata);
 }
 
 export function toDataUrl(bytes: Uint8Array, mimeType: string) {
