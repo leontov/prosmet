@@ -21,7 +21,7 @@ function watchRuntimeErrors(page: import("@playwright/test").Page) {
 
 function relevantRuntimeErrors(errors: string[]) {
   return errors.filter((message) =>
-    /Content Security Policy|Refused to execute inline script|hydration|Connection closed/i.test(
+    /Content Security Policy|Refused to execute inline script|hydration|Connection closed|randomUUID is not a function/i.test(
       message
     )
   );
@@ -29,6 +29,30 @@ function relevantRuntimeErrors(errors: string[]) {
 
 test.beforeAll(async () => {
   await mkdir("artifacts/screenshots", { recursive: true });
+});
+
+test("plain HTTP boots without native crypto.randomUUID and serves a favicon", async ({ page }) => {
+  const runtimeErrors = watchRuntimeErrors(page);
+  await page.addInitScript(() => {
+    try {
+      Object.defineProperty(globalThis.crypto, "randomUUID", {
+        configurable: true,
+        value: undefined
+      });
+    } catch {
+      // The page compatibility script must still leave the application usable.
+    }
+  });
+
+  const response = await page.goto("/");
+  expect(response?.ok()).toBeTruthy();
+  await expect(page.getByTestId("chat-empty-state")).toBeVisible();
+  await expect(composer(page)).toBeVisible();
+  expect(relevantRuntimeErrors(runtimeErrors)).toEqual([]);
+
+  const favicon = await page.request.get("/favicon.ico");
+  expect(favicon.ok()).toBeTruthy();
+  expect(favicon.headers()["content-type"]).toContain("image/svg+xml");
 });
 
 test("Codex desktop shell hydrates without CSP errors and exposes both sidebars", async ({
