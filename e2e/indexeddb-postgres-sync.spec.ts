@@ -1,9 +1,9 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Browser, type Page } from "@playwright/test";
 
 const DB_NAME = "prosmet-cache-v3";
 const REQUIRED_STORES = ["threads", "outbox", "syncState"];
 
-async function waitForDatabase(page: import("@playwright/test").Page) {
+async function waitForDatabase(page: Page) {
   await expect
     .poll(
       () =>
@@ -29,10 +29,7 @@ async function waitForDatabase(page: import("@playwright/test").Page) {
     .toBe(true);
 }
 
-async function readLocalState(
-  page: import("@playwright/test").Page,
-  threadId: string
-) {
+async function readLocalState(page: Page, threadId: string) {
   return page.evaluate(
     async ({ databaseName, threadId }) =>
       new Promise<{
@@ -84,12 +81,21 @@ async function readLocalState(
   );
 }
 
+async function waitForDeviceId(page: Page) {
+  await expect
+    .poll(async () => (await readLocalState(page, "__device_probe__")).deviceId, {
+      timeout: 15_000,
+      message: "The application did not create a persistent device identity"
+    })
+    .toMatch(/^device:/);
+  return (await readLocalState(page, "__device_probe__")).deviceId as string;
+}
+
 async function seedOutbox(
-  page: import("@playwright/test").Page,
+  page: Page,
   input: {
     threadId: string;
     operationId: string;
-    sourceDeviceId: string;
     createdAt: string;
     title: string;
   }
@@ -104,7 +110,7 @@ async function seedOutbox(
           const database = request.result;
           try {
             const transaction = database.transaction(
-              ["threads", "outbox", "syncState"],
+              ["threads", "outbox"],
               "readwrite"
             );
             const payload = {
@@ -126,12 +132,6 @@ async function seedOutbox(
               attempts: 0,
               createdAt: input.createdAt,
               lastError: null
-            });
-            transaction.objectStore("syncState").put({
-              scope: "server",
-              deviceId: input.sourceDeviceId,
-              cursor: 0,
-              updatedAt: input.createdAt
             });
             transaction.onabort = () => {
               database.close();
@@ -155,53 +155,21 @@ async function seedOutbox(
   );
 }
 
-async function simulateSecondDevice(
-  page: import("@playwright/test").Page,
-  input: { threadId: string; pullDeviceId: string; createdAt: string }
-) {
-  await page.evaluate(
-    async ({ databaseName, input }) =>
-      new Promise<void>((resolve, reject) => {
-        const request = indexedDB.open(databaseName);
-        request.onerror = () => reject(request.error ?? new Error("IndexedDB open failed"));
-        request.onsuccess = () => {
-          const database = request.result;
-          try {
-            const transaction = database.transaction(
-              ["threads", "syncState"],
-              "readwrite"
-            );
-            transaction.objectStore("threads").delete(input.threadId);
-            transaction.objectStore("syncState").put({
-              scope: "server",
-              deviceId: input.pullDeviceId,
-              cursor: 0,
-              updatedAt: input.createdAt
-            });
-            transaction.onabort = () => {
-              database.close();
-              reject(transaction.error ?? new Error("IndexedDB reset aborted"));
-            };
-            transaction.onerror = () => {
-              database.close();
-              reject(transaction.error ?? new Error("IndexedDB reset failed"));
-            };
-            transaction.oncomplete = () => {
-              database.close();
-              resolve();
-            };
-          } catch (error) {
-            database.close();
-            reject(error);
-          }
-        };
-      }),
-    { databaseName: DB_NAME, input }
-  );
+async function openSecondDevice(browser: Browser, firstPage: Page) {
+  const origin = new URL(firstPage.url()).origin;
+  const cookies = await firstPage.context().cookies();
+  const context = await browser.newContext({ baseURL: origin });
+  await context.addCookies(cookies);
+  const page = await context.newPage();
+  await page.goto("/");
+  await expect(page.getByTestId("chat-empty-state")).toBeVisible();
+  await waitForDatabase(page);
+  return { context, page };
 }
 
 test("IndexedDB outbox is committed to PostgreSQL and pulled by another device", async ({
-  page
+  page,
+  browser
 }, testInfo) => {
   const runtimeErrors: string[] = [];
   page.on("console", (message) => {
@@ -213,22 +181,15 @@ test("IndexedDB outbox is committed to PostgreSQL and pulled by another device",
   await page.goto("/");
   await expect(page.getByTestId("chat-empty-state")).toBeVisible();
   await waitForDatabase(page);
+  const sourceDeviceId = await waitForDeviceId(page);
 
   const suffix = `${testInfo.project.name}-${Date.now()}`;
   const threadId = `e2e-sync-thread-${suffix}`;
   const operationId = `e2e-sync-operation-${suffix}`;
-  const sourceDeviceId = `device:e2e-source-${suffix}`;
-  const pullDeviceId = `device:e2e-pull-${suffix}`;
   const createdAt = new Date().toISOString();
   const title = `E2E PostgreSQL ${suffix}`;
 
-  await seedOutbox(page, {
-    threadId,
-    operationId,
-    sourceDeviceId,
-    createdAt,
-    title
-  });
+  await seedOutbox(page, { threadId, operationId, createdAt, title });
 
   // Reload starts the real application sync loop:
   // IndexedDB outbox -> /api/sync -> PostgreSQL.
@@ -264,22 +225,42 @@ test("IndexedDB outbox is committed to PostgreSQL and pulled by another device",
     entityType: "thread"
   });
 
-  await simulateSecondDevice(page, { threadId, pullDeviceId, createdAt });
-
-  await page.reload();
-  await expect(page.getByTestId("chat-empty-state")).toBeVisible();
-  await waitForDatabase(page);
-
-  await expect
-    .poll(async () => readLocalState(page, threadId), { timeout: 30_000 })
-    .toMatchObject({
-      outbox: 0,
-      deviceId: pullDeviceId,
-      thread: { id: threadId, title }
+  // A second browser context has a separate IndexedDB and its own immutable
+  // device identity, while sharing only the owner HttpOnly cookie. It must pull
+  // the thread from PostgreSQL without test code rewriting the active device ID.
+  const second = await openSecondDevice(browser, page);
+  try {
+    const secondErrors: string[] = [];
+    second.page.on("console", (message) => {
+      if (message.type() === "error") secondErrors.push(message.text());
     });
+    second.page.on("pageerror", (error) => secondErrors.push(error.message));
+    second.page.on("crash", () => secondErrors.push("Page crashed"));
 
-  const finalState = await readLocalState(page, threadId);
-  expect(finalState.cursor).toBeGreaterThanOrEqual(Number(serverPayload.cursor) || 1);
+    const secondDeviceId = await waitForDeviceId(second.page);
+    expect(secondDeviceId).not.toBe(sourceDeviceId);
+
+    await expect
+      .poll(async () => readLocalState(second.page, threadId), { timeout: 30_000 })
+      .toMatchObject({
+        outbox: 0,
+        deviceId: secondDeviceId,
+        thread: { id: threadId, title }
+      });
+
+    const finalState = await readLocalState(second.page, threadId);
+    expect(finalState.cursor).toBeGreaterThanOrEqual(Number(serverPayload.cursor) || 1);
+    expect(
+      secondErrors.filter((message) =>
+        /Content Security Policy|unsafe-eval|wasm|sql-wasm|hydration|ZodError|Connection closed|IndexedDB.*not found|Page crashed/i.test(
+          message
+        )
+      )
+    ).toEqual([]);
+  } finally {
+    await second.context.close();
+  }
+
   expect(
     runtimeErrors.filter((message) =>
       /Content Security Policy|unsafe-eval|wasm|sql-wasm|hydration|ZodError|Connection closed|IndexedDB.*not found|Page crashed/i.test(
