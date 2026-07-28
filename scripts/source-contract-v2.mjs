@@ -19,9 +19,11 @@ const required = [
   "app/api/sync/route.ts",
   "components/app/chat-workspace.tsx",
   "components/app/right-inspector.tsx",
+  "components/app/workspace-library.tsx",
   "components/chat/prosmet-thread.tsx",
   "components/tools/estimate-editor.tsx",
   "components/tools/document-editor.tsx",
+  "lib/local/catalog.ts",
   "lib/local/context.tsx",
   "lib/local/idb.ts",
   "lib/local/repository.ts",
@@ -31,6 +33,7 @@ const required = [
   "deployment/provision-postgres.sh",
   "deployment/direct-primary.sh",
   "playwright.config.ts",
+  "e2e/workspace-navigation.spec.ts",
   ".github/workflows/launch-3200.yml"
 ];
 for (const path of required) {
@@ -69,7 +72,12 @@ for (const token of [
   "const [initialThreadId] = useState(newThreadId)",
   "const [currentThreadId, setCurrentThreadId] = useState(initialThreadId)",
   "initialThreadId;",
-  "setCurrentThreadId((current) => (current === next ? current : next))"
+  "setCurrentThreadId((current) => (current === next ? current : next))",
+  "renameThread",
+  "archiveThread",
+  "restoreThread",
+  "deleteThread",
+  "togglePin"
 ]) {
   need(context, token, "stable-thread-hydration");
 }
@@ -129,6 +137,16 @@ for (const path of ["lib/local/repository.ts", "lib/local/files.ts", "lib/local/
   for (const token of ["getDatabase", "sql.js", "sqlite.run", "localStorage"]) {
     forbid(source, token, path);
   }
+}
+
+const catalog = await read("lib/local/catalog.ts");
+for (const token of [
+  "LocalEstimateEntry",
+  "listEstimateEntries",
+  "EstimateDraftSchema.safeParse",
+  "LOCAL_STORES.estimates"
+]) {
+  need(catalog, token, "workspace-catalog");
 }
 
 const postgres = await read("lib/server/postgres.ts");
@@ -211,10 +229,69 @@ for (const token of [
 }
 
 const shell = await read("components/app/chat-workspace.tsx");
-for (const token of ["RightInspector", "app-sidebar", "IndexedDB-кэш готов"]) {
-  need(shell, token, "shell");
+for (const token of [
+  "RightInspector",
+  "WorkspaceLibrary",
+  "WorkspaceView",
+  "app-sidebar",
+  "IndexedDB-кэш готов",
+  "Закреплённые",
+  "История чатов",
+  "Переименовать чат",
+  "Показать архив",
+  "workspace.togglePin",
+  "workspace.archiveThread",
+  "workspace.restoreThread",
+  "workspace.deleteThread",
+  "workspace.renameThread",
+  'label="Объекты"',
+  'label="Сметы"',
+  'label="Документы"',
+  'label="Каталог цен"'
+]) {
+  need(shell, token, "functional-shell");
 }
-forbid(shell, "SQLite WASM", "shell");
+for (const token of ["SQLite WASM", "onClick={() => undefined}", "Сметная контора"]) {
+  forbid(shell, token, "functional-shell");
+}
+
+const library = await read("components/app/workspace-library.tsx");
+for (const token of [
+  "objects-view",
+  "estimates-view",
+  "documents-view",
+  "prices-view",
+  "profile-view",
+  "settings-view",
+  "listEstimateEntries",
+  "repository.listDocuments()",
+  "repository.listPrices()",
+  "exportEstimatePdf",
+  "exportEstimateXlsx",
+  "Открыть в чате",
+  "Сохранить профиль",
+  "Сохранить настройки"
+]) {
+  need(library, token, "workspace-library");
+}
+
+const navigationE2e = await read("e2e/workspace-navigation.spec.ts");
+for (const token of [
+  "objects-view",
+  "estimates-view",
+  "documents-view",
+  "prices-view",
+  "Закрепить",
+  "Открепить",
+  "В архив",
+  "Восстановить",
+  "Переименовать чат",
+  "Удалить историю чата?",
+  "Новая задача",
+  "waitForEvent(\"download\")"
+]) {
+  need(navigationE2e, token, "workspace-navigation-e2e");
+}
 
 const inspector = await read("components/app/right-inspector.tsx");
 for (const token of ["right-inspector", "PostgreSQL", "IndexedDB", "Синхронизация"]) {
