@@ -69,7 +69,9 @@ const AttachmentTile: FC<{ removable: boolean }> = ({ removable }) => {
         ) : null}
       </div>
       <div className="min-w-0 flex-1">
-        <AttachmentPrimitive.Name className="block truncate text-xs font-medium text-neutral-800" />
+        <span className="block truncate text-xs font-medium text-neutral-800">
+          <AttachmentPrimitive.Name />
+        </span>
         <p className={`truncate text-[10px] ${failed ? "text-red-600" : "text-neutral-500"}`}>
           {errorMessage ?? (running ? "Загрузка…" : type === "image" ? "Изображение" : "Документ")}
         </p>
