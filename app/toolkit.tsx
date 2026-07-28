@@ -4,7 +4,7 @@ import { defineToolkit } from "@assistant-ui/react";
 import { z } from "zod";
 import { ActivityIcon, CheckCircle2Icon, LoaderCircleIcon } from "lucide-react";
 import { DocumentEditor } from "@/components/tools/document-editor";
-import { EstimateEditor } from "@/components/tools/estimate-editor";
+import { EstimateExperience } from "@/components/tools/estimate-experience";
 import { TechnologyCard } from "@/components/tools/technology-card";
 import { EstimateDraftSchema, TechnologyStepSchema } from "@/lib/domain/estimate";
 
@@ -38,9 +38,9 @@ export const prosmetToolkit = defineToolkit({
   },
   estimate_draft: {
     description:
-      "Show a complete editable professional estimate with technology, sections, resources, prices and totals.",
+      "Show a complete editable professional estimate with technology, sections, resources, prices, totals and a client handoff flow.",
     parameters: EstimateDraftSchema,
-    render: ({ args, status }) => <EstimateEditor args={args} status={status} />
+    render: ({ args, status }) => <EstimateExperience args={args} status={status} />
   },
   commercial_proposal: {
     description: "Show an editable print-ready commercial proposal.",
