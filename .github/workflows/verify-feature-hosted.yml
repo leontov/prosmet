@@ -1,0 +1,72 @@
+name: verify-chat-first-hosted
+
+on:
+  pull_request:
+    branches:
+      - bootstrap-base/chat-first-estimating-office
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-chat-first-hosted-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Hosted quality diagnostics
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      CI: "1"
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/chat-first-estimating-office
+          fetch-depth: 0
+
+      - name: Set up Node 22.16.0
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.16.0"
+
+      - name: Generate deterministic lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ ! -f package-lock.json ]; then
+            npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          fi
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Source contract
+        run: npm run source:contract
+      - name: TypeScript
+        run: npm run typecheck
+      - name: ESLint
+        run: npm run lint
+      - name: Unit and integration tests
+        run: npm run test
+      - name: Production build
+        run: npm run build
+      - name: Install Chromium
+        run: npm run test:e2e:install
+      - name: Desktop and mobile E2E
+        run: npm run test:e2e
+
+      - name: Upload hosted diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chat-first-hosted-${{ github.event.pull_request.head.sha }}
+          path: |
+            package-lock.json
+            artifacts
+            playwright-report
+            test-results
+          if-no-files-found: ignore
+          retention-days: 30
