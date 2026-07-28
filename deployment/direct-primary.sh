@@ -11,6 +11,7 @@ PID_FILE="${ROOT}/prosmet.pid"
 LOG_FILE="${ROOT}/prosmet.log"
 DATABASE_ENV="${ROOT}/database.env"
 RELEASE_STATUS="${ROOT}/release.json"
+PROVIDER_KEY_FILE="${ROOT}/provider-master-key"
 
 if [[ ! -f "${DATABASE_ENV}" ]]; then
   echo "Missing ${DATABASE_ENV}; run deployment/provision-postgres.sh first" >&2
@@ -20,6 +21,11 @@ fi
 # shellcheck disable=SC1090
 source "${DATABASE_ENV}"
 : "${DATABASE_URL:?DATABASE_URL is required}"
+
+if [[ -z "${PROSMET_PROVIDER_MASTER_KEY:-}" && -s "${PROVIDER_KEY_FILE}" ]]; then
+  PROSMET_PROVIDER_MASTER_KEY="$(tr -d '\r\n' < "${PROVIDER_KEY_FILE}")"
+fi
+: "${PROSMET_PROVIDER_MASTER_KEY:?PROSMET_PROVIDER_MASTER_KEY is required}"
 
 mkdir -p "${ROOT}" "${RELEASES_ROOT}"
 rm -rf "${STAGING}"
@@ -92,6 +98,8 @@ nohup env \
   PROSMET_DATABASE_DRIVER=postgres \
   DATABASE_URL="${DATABASE_URL}" \
   PROSMET_DEFAULT_PROVIDER="${PROSMET_DEFAULT_PROVIDER:-rules}" \
+  PROSMET_PROVIDER_MASTER_KEY="${PROSMET_PROVIDER_MASTER_KEY}" \
+  PROSMET_MASTER_KEY="${PROSMET_PROVIDER_MASTER_KEY}" \
   PROSMET_SESSION_SECRET="${PROSMET_SESSION_SECRET:-}" \
   BETTER_AUTH_SECRET="${BETTER_AUTH_SECRET:-}" \
   MIMO_API_KEY="${MIMO_API_KEY:-}" \
