@@ -86,8 +86,9 @@ test("all workspace sections and thread history actions are functional", async (
   await expect(estimate.getByText("Утверждена", { exact: true })).toBeVisible();
 
   await navigate(page, "Объекты");
-  await expect(page.getByTestId("objects-view")).toBeVisible();
-  await expect(page.getByText("Строительный объект", { exact: true })).toBeVisible();
+  const objectsView = page.getByTestId("objects-view");
+  await expect(objectsView).toBeVisible();
+  await expect(objectsView.getByText("Строительный объект", { exact: true })).toBeVisible();
 
   await navigate(page, "Сметы");
   const estimatesView = page.getByTestId("estimates-view");
