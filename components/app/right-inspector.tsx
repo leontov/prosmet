@@ -68,9 +68,7 @@ export function RightInspector({ onClose }: { onClose: () => void }) {
           repository.listDocuments(),
           repository.listPrices()
         ]);
-        if (!cancelled) {
-          setArtifacts({ estimates, documents, prices, loading: false });
-        }
+        if (!cancelled) setArtifacts({ estimates, documents, prices, loading: false });
       } catch {
         if (!cancelled) {
           setArtifacts({ estimates: [], documents: [], prices: [], loading: false });
@@ -103,9 +101,15 @@ export function RightInspector({ onClose }: { onClose: () => void }) {
       </header>
 
       <div className="flex shrink-0 gap-1 border-b border-neutral-200 px-2 py-2">
-        <InspectorTabButton active={tab === "context"} onClick={() => setTab("context")}>Контекст</InspectorTabButton>
-        <InspectorTabButton active={tab === "artifacts"} onClick={() => setTab("artifacts")}>Артефакты</InspectorTabButton>
-        <InspectorTabButton active={tab === "activity"} onClick={() => setTab("activity")}>Работа</InspectorTabButton>
+        <InspectorTabButton active={tab === "context"} onClick={() => setTab("context")}>
+          Контекст
+        </InspectorTabButton>
+        <InspectorTabButton active={tab === "artifacts"} onClick={() => setTab("artifacts")}>
+          Артефакты
+        </InspectorTabButton>
+        <InspectorTabButton active={tab === "activity"} onClick={() => setTab("activity")}>
+          Работа
+        </InspectorTabButton>
       </div>
 
       <div className="prosmet-scrollbar min-h-0 flex-1 overflow-y-auto p-3">
@@ -126,7 +130,7 @@ export function RightInspector({ onClose }: { onClose: () => void }) {
               </div>
             </InspectorSection>
 
-            <InspectorSection title="Backend">
+            <InspectorSection title="Сервер">
               <StatusRow
                 icon={<ServerIcon />}
                 title="Next.js API"
@@ -138,7 +142,11 @@ export function RightInspector({ onClose }: { onClose: () => void }) {
                 title="PostgreSQL"
                 detail={
                   runtime.backend.databaseConnected
-                    ? `Подключено${runtime.backend.databaseLatencyMs != null ? ` · ${runtime.backend.databaseLatencyMs} мс` : ""}`
+                    ? `Подключено${
+                        runtime.backend.databaseLatencyMs != null
+                          ? ` · ${runtime.backend.databaseLatencyMs} мс`
+                          : ""
+                      }`
                     : runtime.backend.databaseConfigured
                       ? runtime.backend.message || "Ошибка подключения"
                       : "Не настроено"
@@ -161,11 +169,11 @@ export function RightInspector({ onClose }: { onClose: () => void }) {
               />
             </InspectorSection>
 
-            <InspectorSection title="Local-first">
+            <InspectorSection title="Локальный кэш">
               <StatusRow
                 icon={<HardDriveIcon />}
-                title="SQLite WASM"
-                detail={workspace.ready ? "Локальная база открыта" : workspace.error || "Инициализация…"}
+                title="IndexedDB"
+                detail={workspace.ready ? "Локальный кэш готов" : workspace.error || "Инициализация…"}
                 status={workspace.ready ? "ok" : workspace.error ? "error" : "loading"}
               />
               <StatusRow
@@ -183,7 +191,7 @@ export function RightInspector({ onClose }: { onClose: () => void }) {
           <div className="space-y-3">
             {artifacts.loading ? (
               <div className="flex items-center gap-2 rounded-xl border border-neutral-200 bg-white p-3 text-sm text-neutral-500">
-                <LoaderCircleIcon className="size-4 animate-spin" /> Загружаем локальные артефакты…
+                <LoaderCircleIcon className="size-4 animate-spin" /> Загружаем локальный кэш…
               </div>
             ) : (
               <>
@@ -203,7 +211,12 @@ export function RightInspector({ onClose }: { onClose: () => void }) {
                   icon={<DatabaseIcon />}
                   title="Подтверждённые цены"
                   count={artifacts.prices.filter((price) => price.status === "confirmed").length}
-                  items={artifacts.prices.slice(0, 4).map((price) => `${price.name} · ${price.price.toLocaleString("ru-RU")} ${price.currency}`)}
+                  items={artifacts.prices
+                    .slice(0, 4)
+                    .map(
+                      (price) =>
+                        `${price.name} · ${price.price.toLocaleString("ru-RU")} ${price.currency}`
+                    )}
                 />
               </>
             )}
@@ -222,7 +235,9 @@ export function RightInspector({ onClose }: { onClose: () => void }) {
                 {isRunning ? "Просметчик работает" : "Нет активного запуска"}
               </div>
               <p className="mt-2 text-xs leading-5 text-neutral-500">
-                Здесь отображается безопасный рабочий статус: анализ исходных данных, технология, цены, проверка и подготовка документов. Внутренние рассуждения модели не показываются.
+                Здесь отображается безопасный рабочий статус: анализ исходных данных,
+                технология, цены, проверка и подготовка документов. Внутренние рассуждения
+                модели не показываются.
               </p>
             </div>
             <StatusRow
@@ -344,7 +359,10 @@ function ArtifactSummary({
       <div className="mt-3 space-y-1.5">
         {items.length ? (
           items.map((item) => (
-            <div key={item} className="truncate rounded-lg bg-neutral-50 px-2.5 py-2 text-xs text-neutral-600">
+            <div
+              key={item}
+              className="truncate rounded-lg bg-neutral-50 px-2.5 py-2 text-xs text-neutral-600"
+            >
               {item}
             </div>
           ))
@@ -358,13 +376,17 @@ function ArtifactSummary({
 
 function syncLabel(sync: ReturnType<typeof useRuntimeStatus>["sync"]) {
   if (sync.state === "syncing") return `Синхронизация · в очереди ${sync.pending}`;
-  if (sync.state === "synced") return `Синхронизировано · отправлено ${sync.pushed}, получено ${sync.pulled}`;
+  if (sync.state === "synced") {
+    return `Синхронизировано · отправлено ${sync.pushed}, получено ${sync.pulled}`;
+  }
   if (sync.state === "offline") return `Офлайн · в очереди ${sync.pending}`;
   if (sync.state === "error") return `${sync.message} · в очереди ${sync.pending}`;
   return `Готово · в очереди ${sync.pending}`;
 }
 
-function syncTone(sync: ReturnType<typeof useRuntimeStatus>["sync"]): "ok" | "loading" | "warning" | "error" {
+function syncTone(
+  sync: ReturnType<typeof useRuntimeStatus>["sync"]
+): "ok" | "loading" | "warning" | "error" {
   if (sync.state === "syncing") return "loading";
   if (sync.state === "error") return "error";
   if (sync.state === "offline") return "warning";

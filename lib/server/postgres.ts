@@ -1,11 +1,8 @@
 import "server-only";
 
-import { mkdir } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
-import { PGlite } from "@electric-sql/pglite";
 import { Pool, type PoolClient } from "pg";
 
-export type ServerDatabaseDriver = "postgres" | "pglite";
+export type ServerDatabaseDriver = "postgres";
 
 export type ServerQueryResult<Row extends object = Record<string, unknown>> = {
   rows: Row[];
@@ -20,14 +17,10 @@ export interface ServerSqlClient {
 }
 
 const connectionString = process.env.DATABASE_URL?.trim();
-const requestedDriver = process.env.PROSMET_DATABASE_DRIVER?.trim().toLowerCase();
-const configuredPgliteDir = process.env.PROSMET_PGLITE_DIR?.trim();
 
 const globalForDatabase = globalThis as typeof globalThis & {
   prosmetPool?: Pool;
-  prosmetPglite?: Promise<PGlite>;
   prosmetSchema?: Promise<void>;
-  prosmetSchemaDriver?: ServerDatabaseDriver;
 };
 
 const SCHEMA_SQL = `
@@ -96,12 +89,53 @@ const SCHEMA_SQL = `
     FOREIGN KEY (tenant_id) REFERENCES prosmet_tenants(id) ON DELETE CASCADE
   );
 
+  CREATE TABLE IF NOT EXISTS prosmet_estimate_revisions (
+    tenant_id TEXT NOT NULL,
+    estimate_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    payload_json JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (tenant_id, estimate_id, revision),
+    FOREIGN KEY (tenant_id) REFERENCES prosmet_tenants(id) ON DELETE CASCADE
+  );
+
   CREATE TABLE IF NOT EXISTS prosmet_documents (
     tenant_id TEXT NOT NULL,
     id TEXT NOT NULL,
     thread_id TEXT,
     revision INTEGER NOT NULL DEFAULT 1,
     status TEXT NOT NULL DEFAULT 'draft',
+    payload_json JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (tenant_id, id),
+    FOREIGN KEY (tenant_id) REFERENCES prosmet_tenants(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS prosmet_document_revisions (
+    tenant_id TEXT NOT NULL,
+    document_id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    payload_json JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (tenant_id, document_id, revision),
+    FOREIGN KEY (tenant_id) REFERENCES prosmet_tenants(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS prosmet_prices (
+    tenant_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    payload_json JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (tenant_id, id),
+    FOREIGN KEY (tenant_id) REFERENCES prosmet_tenants(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS prosmet_files (
+    tenant_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    thread_id TEXT,
     payload_json JSONB NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -129,56 +163,24 @@ const SCHEMA_SQL = `
     ADD COLUMN IF NOT EXISTS error_text TEXT;
 `;
 
-function resolveDriver(): ServerDatabaseDriver | null {
-  if (requestedDriver === "pglite") return "pglite";
-  if (requestedDriver === "postgres") return connectionString ? "postgres" : null;
-  if (connectionString?.startsWith("pglite:")) return "pglite";
-  if (connectionString) return "postgres";
-  if (configuredPgliteDir) return "pglite";
-  if (process.env.NODE_ENV !== "production") return "pglite";
-  return null;
-}
-
-export function serverDatabaseDriver() {
-  return resolveDriver();
+export function serverDatabaseDriver(): ServerDatabaseDriver | null {
+  return connectionString ? "postgres" : null;
 }
 
 export function postgresConfigured() {
-  return resolveDriver() !== null;
+  return Boolean(connectionString);
 }
 
 function getNetworkPool() {
-  if (!connectionString || resolveDriver() !== "postgres") {
-    throw new Error("Network PostgreSQL is not configured");
-  }
+  if (!connectionString) throw new Error("DATABASE_URL is not configured");
   globalForDatabase.prosmetPool ??= new Pool({
     connectionString,
-    max: 10,
+    max: 12,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 5_000,
     application_name: "prosmet"
   });
   return globalForDatabase.prosmetPool;
-}
-
-async function getEmbeddedPostgres() {
-  if (resolveDriver() !== "pglite") {
-    throw new Error("Embedded PostgreSQL is not configured");
-  }
-  globalForDatabase.prosmetPglite ??= (async () => {
-    const dataDir =
-      configuredPgliteDir ||
-      (connectionString?.startsWith("pglite:")
-        ? connectionString.slice("pglite:".length)
-        : ".prosmet-server-pg");
-    const absoluteDir = resolve(dataDir || ".prosmet-server-pg");
-    await mkdir(dirname(absoluteDir), { recursive: true });
-    return PGlite.create(absoluteDir);
-  })().catch((error) => {
-    globalForDatabase.prosmetPglite = undefined;
-    throw error;
-  });
-  return globalForDatabase.prosmetPglite;
 }
 
 function networkClient(client: Pool | PoolClient): ServerSqlClient {
@@ -193,49 +195,19 @@ function networkClient(client: Pool | PoolClient): ServerSqlClient {
   };
 }
 
-function embeddedClient(client: Pick<PGlite, "query">): ServerSqlClient {
-  return {
-    async query<Row extends object>(sql: string, params: readonly unknown[] = []) {
-      const result = await client.query<Row>(sql, [...params]);
-      return {
-        rows: result.rows,
-        rowCount: result.affectedRows ?? 0
-      };
-    }
-  };
-}
-
 export async function getServerDatabase(): Promise<ServerSqlClient> {
-  const driver = resolveDriver();
-  if (driver === "postgres") return networkClient(getNetworkPool());
-  if (driver === "pglite") return embeddedClient(await getEmbeddedPostgres());
-  throw new Error("Server database is not configured");
+  return networkClient(getNetworkPool());
 }
 
 export async function ensureServerSchema() {
-  const driver = resolveDriver();
-  if (!driver) return;
-
-  if (
-    globalForDatabase.prosmetSchema &&
-    globalForDatabase.prosmetSchemaDriver === driver
-  ) {
-    return globalForDatabase.prosmetSchema;
-  }
-
-  globalForDatabase.prosmetSchemaDriver = driver;
-  globalForDatabase.prosmetSchema = (async () => {
-    if (driver === "postgres") {
-      await getNetworkPool().query(SCHEMA_SQL);
-    } else {
-      await (await getEmbeddedPostgres()).exec(SCHEMA_SQL);
-    }
-  })().catch((error) => {
-    globalForDatabase.prosmetSchema = undefined;
-    globalForDatabase.prosmetSchemaDriver = undefined;
-    throw error;
-  });
-
+  if (!connectionString) return;
+  globalForDatabase.prosmetSchema ??= getNetworkPool()
+    .query(SCHEMA_SQL)
+    .then(() => undefined)
+    .catch((error) => {
+      globalForDatabase.prosmetSchema = undefined;
+      throw error;
+    });
   await globalForDatabase.prosmetSchema;
 }
 
@@ -243,31 +215,18 @@ export async function withServerTransaction<T>(
   operation: (client: ServerSqlClient) => Promise<T>
 ): Promise<T> {
   await ensureServerSchema();
-  const driver = resolveDriver();
-
-  if (driver === "postgres") {
-    const client = await getNetworkPool().connect();
-    try {
-      await client.query("BEGIN");
-      const value = await operation(networkClient(client));
-      await client.query("COMMIT");
-      return value;
-    } catch (error) {
-      await client.query("ROLLBACK");
-      throw error;
-    } finally {
-      client.release();
-    }
+  const client = await getNetworkPool().connect();
+  try {
+    await client.query("BEGIN");
+    const value = await operation(networkClient(client));
+    await client.query("COMMIT");
+    return value;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
   }
-
-  if (driver === "pglite") {
-    const database = await getEmbeddedPostgres();
-    return database.transaction(async (transaction) =>
-      operation(embeddedClient(transaction))
-    );
-  }
-
-  throw new Error("Server database is not configured");
 }
 
 export async function beginAgentRun(input: {
@@ -337,14 +296,13 @@ export async function finishAgentRun(input: {
 }
 
 export async function checkServerDatabase() {
-  const driver = resolveDriver();
-  if (!driver) {
+  if (!connectionString) {
     return {
       configured: false,
       connected: false,
       driver: null,
       latencyMs: null,
-      message: "Server database is not configured"
+      message: "DATABASE_URL is not configured"
     };
   }
 
@@ -355,7 +313,7 @@ export async function checkServerDatabase() {
     return {
       configured: true,
       connected: true,
-      driver,
+      driver: "postgres" as const,
       latencyMs: Date.now() - started,
       message: null
     };
@@ -363,7 +321,7 @@ export async function checkServerDatabase() {
     return {
       configured: true,
       connected: false,
-      driver,
+      driver: "postgres" as const,
       latencyMs: Date.now() - started,
       message: error instanceof Error ? error.message : "PostgreSQL connection failed"
     };

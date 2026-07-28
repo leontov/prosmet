@@ -10,18 +10,27 @@ async function openMenuIfMobile(page: import("@playwright/test").Page) {
   if (await button.isVisible()) await button.click();
 }
 
+function visibleSidebar(page: import("@playwright/test").Page) {
+  return page.locator('[data-testid="app-sidebar"]:visible');
+}
+
+function visibleInspector(page: import("@playwright/test").Page) {
+  return page.locator('[data-testid="right-inspector"]:visible');
+}
+
 function watchRuntimeErrors(page: import("@playwright/test").Page) {
   const errors: string[] = [];
   page.on("console", (message) => {
     if (message.type() === "error") errors.push(message.text());
   });
   page.on("pageerror", (error) => errors.push(error.message));
+  page.on("crash", () => errors.push("Page crashed"));
   return errors;
 }
 
 function relevantRuntimeErrors(errors: string[]) {
   return errors.filter((message) =>
-    /Content Security Policy|Refused to execute inline script|Refused to evaluate|blocks the use of ['"]eval['"]|unsafe-eval|EvalError|hydration|Connection closed|randomUUID is not a function|sql-wasm|both async and sync fetching|wasm streaming compile failed|ZodError|messageId.*Required/i.test(
+    /Content Security Policy|Refused to execute inline script|Refused to evaluate|blocks the use of ['"]eval['"]|unsafe-eval|EvalError|hydration|Connection closed|randomUUID is not a function|sql-wasm|both async and sync fetching|wasm streaming compile failed|ZodError|messageId.*Required|Maximum update depth exceeded|Too many re-renders|Page crashed|out of memory/i.test(
       message
     )
   );
@@ -31,7 +40,7 @@ test.beforeAll(async () => {
   await mkdir("artifacts/screenshots", { recursive: true });
 });
 
-test("plain HTTP boots without native crypto.randomUUID and serves local assets", async ({ page }) => {
+test("plain HTTP boots with native IndexedDB and no browser WASM", async ({ page }) => {
   const runtimeErrors = watchRuntimeErrors(page);
   await page.addInitScript(() => {
     try {
@@ -40,24 +49,72 @@ test("plain HTTP boots without native crypto.randomUUID and serves local assets"
         value: undefined
       });
     } catch {
-      // The page compatibility script must still leave the application usable.
+      // The compatibility helper must still leave the application usable.
     }
   });
 
   const response = await page.goto("/");
   expect(response?.ok()).toBeTruthy();
+  expect(response?.headers()["cache-control"] ?? "").toContain("no-store");
   await expect(page.getByTestId("chat-empty-state")).toBeVisible();
   await expect(composer(page)).toBeVisible();
 
-  for (const asset of ["/favicon.ico", "/sql-wasm.wasm", "/sql-wasm-browser.wasm"]) {
-    const assetResponse = await page.request.get(asset);
-    expect(assetResponse.ok(), `${asset} must be published`).toBeTruthy();
+  const favicon = await page.request.get("/favicon.ico");
+  expect(favicon.ok()).toBeTruthy();
+
+  const localDatabase = await page.evaluate(async () => {
+    const databases = await indexedDB.databases();
+    return databases.find((database) => database.name === "prosmet-cache-v3");
+  });
+  expect(localDatabase?.name).toBe("prosmet-cache-v3");
+
+  for (const obsolete of ["/sql-wasm.wasm", "/sql-wasm-browser.wasm"]) {
+    const asset = await page.request.get(obsolete);
+    expect(asset.status()).toBe(404);
   }
 
   expect(relevantRuntimeErrors(runtimeErrors)).toEqual([]);
 });
 
-test("Codex desktop shell hydrates without CSP errors and exposes both sidebars", async ({
+test("hydrated client remains responsive instead of entering a refresh loop", async ({
+  page
+}) => {
+  const runtimeErrors = watchRuntimeErrors(page);
+  await page.goto("/");
+  await expect(page.getByTestId("chat-empty-state")).toBeVisible();
+
+  const completedFrames = await page.evaluate(
+    () =>
+      new Promise<number>((resolve, reject) => {
+        let frames = 0;
+        const timeout = window.setTimeout(
+          () => reject(new Error(`Browser stopped responding after ${frames} animation frames`)),
+          3000
+        );
+        const next = () => {
+          frames += 1;
+          if (frames >= 12) {
+            window.clearTimeout(timeout);
+            resolve(frames);
+            return;
+          }
+          window.requestAnimationFrame(next);
+        };
+        window.requestAnimationFrame(next);
+      })
+  );
+  expect(completedFrames).toBe(12);
+
+  await composer(page).fill("Проверка отзывчивости интерфейса");
+  await expect(composer(page)).toHaveValue("Проверка отзывчивости интерфейса");
+  await composer(page).fill("");
+  await expect(composer(page)).toHaveValue("");
+
+  await page.waitForTimeout(1500);
+  expect(relevantRuntimeErrors(runtimeErrors)).toEqual([]);
+});
+
+test("Codex desktop shell hydrates without eval and exposes both sidebars", async ({
   page
 }, testInfo) => {
   const runtimeErrors = watchRuntimeErrors(page);
@@ -69,15 +126,16 @@ test("Codex desktop shell hydrates without CSP errors and exposes both sidebars"
   const csp = response?.headers()["content-security-policy"] ?? "";
   expect(csp).toContain("script-src");
   expect(csp).toContain("'unsafe-inline'");
-  expect(csp).toContain("'unsafe-eval'");
-  expect(csp).toContain("'wasm-unsafe-eval'");
+  expect(csp).not.toContain("'unsafe-eval'");
+  expect(csp).not.toContain("'wasm-unsafe-eval'");
 
   if (testInfo.project.name === "desktop-chromium") {
-    await expect(page.getByTestId("app-sidebar")).toBeVisible();
-    const inspector = page.getByTestId("right-inspector");
-    await expect(inspector).toBeVisible();
+    await expect(visibleSidebar(page)).toHaveCount(1);
+    const inspector = visibleInspector(page);
+    await expect(inspector).toHaveCount(1);
     await expect(inspector.getByText("Рабочий контекст", { exact: true })).toBeVisible();
     await expect(inspector.getByText("PostgreSQL", { exact: true })).toBeVisible();
+    await expect(inspector.getByText("IndexedDB", { exact: true })).toBeVisible();
     await expect(inspector.getByText(/Подключено/)).toBeVisible({ timeout: 30_000 });
   } else {
     await expect(page.getByRole("button", { name: "Открыть меню" })).toBeVisible();
@@ -88,12 +146,16 @@ test("Codex desktop shell hydrates without CSP errors and exposes both sidebars"
   expect(backend.ok()).toBeTruthy();
   const status = (await backend.json()) as {
     ok?: boolean;
-    database?: { connected?: boolean };
+    database?: { connected?: boolean; driver?: string };
     agent?: { streaming?: boolean };
+    localFirst?: { browserCache?: string; wasm?: boolean };
   };
   expect(status.ok).toBe(true);
   expect(status.database?.connected).toBe(true);
+  expect(status.database?.driver).toBe("postgres");
   expect(status.agent?.streaming).toBe(true);
+  expect(status.localFirst?.browserCache).toBe("IndexedDB");
+  expect(status.localFirst?.wasm).toBe(false);
   expect(relevantRuntimeErrors(runtimeErrors)).toEqual([]);
 
   await page.screenshot({
@@ -102,7 +164,7 @@ test("Codex desktop shell hydrates without CSP errors and exposes both sidebars"
   });
 });
 
-test("streaming chat emits schema-valid AG-UI activity and creates an editable estimate", async ({
+test("streaming chat creates a technology card and editable estimate", async ({
   page
 }, testInfo) => {
   const runtimeErrors = watchRuntimeErrors(page);
@@ -134,13 +196,13 @@ test("streaming chat emits schema-valid AG-UI activity and creates an editable e
 
   const dbExists = await page.evaluate(async () => {
     const databases = await indexedDB.databases();
-    return databases.some((database) => database.name === "prosmet-local-v2");
+    return databases.some((database) => database.name === "prosmet-cache-v3");
   });
   expect(dbExists).toBeTruthy();
   expect(relevantRuntimeErrors(runtimeErrors)).toEqual([]);
 
   await openMenuIfMobile(page);
-  await expect(page.getByTestId("app-sidebar")).toHaveCount(1);
+  await expect(visibleSidebar(page)).toHaveCount(1);
   await page.screenshot({
     path: `artifacts/screenshots/estimate-${testInfo.project.name}.png`,
     fullPage: true

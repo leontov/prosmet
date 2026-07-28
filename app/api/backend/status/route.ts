@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   const database = await checkServerDatabase();
-  const ok = database.connected || !database.configured;
+  const ok = Boolean(database.connected);
   return Response.json(
     {
       ok,
@@ -19,9 +19,10 @@ export async function GET() {
       },
       database,
       localFirst: {
-        browserDatabase: "SQLite WASM",
-        browserPersistence: "IndexedDB",
-        syncEndpoint: "/api/sync"
+        browserCache: "IndexedDB",
+        serverAuthority: "PostgreSQL",
+        syncEndpoint: "/api/sync",
+        wasm: false
       },
       time: new Date().toISOString()
     },

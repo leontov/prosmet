@@ -5,18 +5,24 @@ COMMIT_SHA="${1:?commit sha is required}"
 PORT="${2:-3200}"
 ROOT="${HOME}/.prosmet"
 RELEASE="${ROOT}/releases/${COMMIT_SHA}"
-DATA_DIR="${ROOT}/data/postgres"
 PID_FILE="${ROOT}/prosmet.pid"
 LOG_FILE="${ROOT}/prosmet.log"
+DATABASE_ENV="${ROOT}/database.env"
 
-mkdir -p "${RELEASE}/.next" "${DATA_DIR}"
+if [[ ! -f "${DATABASE_ENV}" ]]; then
+  echo "Missing ${DATABASE_ENV}; run deployment/provision-postgres.sh first" >&2
+  exit 1
+fi
+
+# shellcheck disable=SC1090
+source "${DATABASE_ENV}"
+: "${DATABASE_URL:?DATABASE_URL is required}"
+
+mkdir -p "${RELEASE}/.next"
 rm -rf "${RELEASE:?}"/*
 cp -a .next/standalone/. "${RELEASE}/"
 cp -a .next/static "${RELEASE}/.next/static"
 cp -a public "${RELEASE}/public"
-
-test -s "${RELEASE}/public/sql-wasm.wasm"
-test -s "${RELEASE}/public/sql-wasm-browser.wasm"
 
 if [[ -f "${PID_FILE}" ]]; then
   OLD_PID="$(cat "${PID_FILE}" || true)"
@@ -40,8 +46,8 @@ env \
   NODE_ENV=production \
   PORT="${PORT}" \
   HOSTNAME=0.0.0.0 \
-  PROSMET_DATABASE_DRIVER=pglite \
-  PROSMET_PGLITE_DIR="${DATA_DIR}" \
+  PROSMET_DATABASE_DRIVER=postgres \
+  DATABASE_URL="${DATABASE_URL}" \
   PROSMET_DEFAULT_PROVIDER="${PROSMET_DEFAULT_PROVIDER:-rules}" \
   PROSMET_SESSION_SECRET="${PROSMET_SESSION_SECRET:-}" \
   BETTER_AUTH_SECRET="${BETTER_AUTH_SECRET:-}" \
@@ -62,7 +68,8 @@ BASE_URL="http://127.0.0.1:${PORT}"
 for attempt in $(seq 1 60); do
   if curl -fsS "${BASE_URL}/api/health" > "${ROOT}/primary-health.json" && \
      curl -fsS "${BASE_URL}/api/backend/status" > "${ROOT}/primary-backend.json" && \
-     grep -q '"connected":true' "${ROOT}/primary-backend.json"; then
+     grep -q '"connected":true' "${ROOT}/primary-backend.json" && \
+     grep -q '"driver":"postgres"' "${ROOT}/primary-backend.json"; then
     break
   fi
   if [[ "${attempt}" == "60" ]]; then
@@ -72,8 +79,10 @@ for attempt in $(seq 1 60); do
   sleep 2
 done
 
-curl -fsS "${BASE_URL}/sql-wasm.wasm" -o /dev/null
-curl -fsS "${BASE_URL}/sql-wasm-browser.wasm" -o /dev/null
+curl --fail --silent --show-error \
+  -H 'content-type: application/json' \
+  -d '{"deviceId":"deployment-probe","operations":[]}' \
+  "${BASE_URL}/api/sync" > "${ROOT}/primary-sync.json"
 
 curl --fail --silent --show-error --no-buffer --max-time 60 \
   -H 'content-type: application/json' \
@@ -114,4 +123,4 @@ for (const item of events) {
 console.log(`Validated ${events.length} AG-UI events`);
 NODE
 
-echo "Prosmet is healthy at ${BASE_URL}"
+echo "Prosmet is healthy at ${BASE_URL} with PostgreSQL"

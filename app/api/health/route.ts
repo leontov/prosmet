@@ -12,7 +12,7 @@ export async function GET() {
     {
       ok,
       service: "prosmet",
-      version: "2.0.0",
+      version: "2.1.0",
       time: new Date().toISOString(),
       frontend: {
         framework: "Next.js",
@@ -31,8 +31,9 @@ export async function GET() {
       },
       database,
       localFirst: {
-        sqliteWasm: true,
-        indexedDbPersistence: true,
+        browserCache: "IndexedDB",
+        browserWasm: false,
+        serverAuthority: "PostgreSQL",
         offlineOutbox: true,
         bidirectionalSync: true
       },

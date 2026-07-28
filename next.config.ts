@@ -2,14 +2,10 @@ import type { NextConfig } from "next";
 
 const isDevelopment = process.env.NODE_ENV !== "production";
 
-// The current SQL.js browser glue performs dynamic code evaluation while
-// preparing its WebAssembly module. Keep the permission explicit and covered
-// by browser tests; all scripts still have to originate from this application.
 const scriptSources = [
   "'self'",
   "'unsafe-inline'",
-  "'unsafe-eval'",
-  "'wasm-unsafe-eval'"
+  ...(isDevelopment ? ["'unsafe-eval'"] : [])
 ].join(" ");
 
 const connectSources = [
@@ -27,15 +23,30 @@ const contentSecurityPolicy = [
   "worker-src 'self' blob:",
   "font-src 'self' data:",
   "object-src 'none'",
-  "frame-ancestors 'self'",
+  "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'"
 ].join("; ");
 
+const securityHeaders = [
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "X-Frame-Options", value: "DENY" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+  { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
+  { key: "X-DNS-Prefetch-Control", value: "off" },
+  {
+    key: "Permissions-Policy",
+    value: "camera=(), geolocation=(), payment=(), usb=(), browsing-topics=()"
+  },
+  { key: "Content-Security-Policy", value: contentSecurityPolicy }
+];
+
 const nextConfig: NextConfig = {
   output: "standalone",
   reactStrictMode: true,
-  serverExternalPackages: ["@electric-sql/pglite"],
+  poweredByHeader: false,
+  compress: true,
   experimental: {
     serverActions: {
       bodySizeLimit: "20mb"
@@ -44,17 +55,25 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
-        source: "/(.*)",
+        source: "/",
         headers: [
-          { key: "X-Content-Type-Options", value: "nosniff" },
-          { key: "X-Frame-Options", value: "SAMEORIGIN" },
-          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-          { key: "Permissions-Policy", value: "camera=(), geolocation=(), payment=()" },
+          ...securityHeaders,
           {
-            key: "Content-Security-Policy",
-            value: contentSecurityPolicy
+            key: "Cache-Control",
+            value: "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0"
           }
         ]
+      },
+      {
+        source: "/api/:path*",
+        headers: [
+          ...securityHeaders,
+          { key: "Cache-Control", value: "no-store" }
+        ]
+      },
+      {
+        source: "/(.*)",
+        headers: securityHeaders
       }
     ];
   }

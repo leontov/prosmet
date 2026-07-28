@@ -6,6 +6,7 @@ import type {
   CompleteAttachment,
   PendingAttachment
 } from "@assistant-ui/react";
+import { browserUuid } from "@/lib/platform/browser-crypto";
 import { deleteFile, loadFile, storeFile, toDataUrl } from "@/lib/local/files";
 
 const MAX_FILE_BYTES = 50 * 1024 * 1024;
@@ -54,7 +55,7 @@ export class ProsmetAttachmentAdapter implements AttachmentAdapter {
     if (file.size > MAX_FILE_BYTES) {
       throw new Error(`Файл больше ${MAX_FILE_BYTES / 1024 / 1024} МБ.`);
     }
-    const id = `attachment_${crypto.randomUUID()}`;
+    const id = `attachment_${browserUuid()}`;
     await storeFile(file, this.threadId, id);
     return {
       id,
@@ -72,7 +73,7 @@ export class ProsmetAttachmentAdapter implements AttachmentAdapter {
 
   async send(attachment: PendingAttachment): Promise<CompleteAttachment> {
     const stored = await loadFile(attachment.id);
-    if (!stored) throw new Error(`Файл «${attachment.name}» отсутствует в локальной базе.`);
+    if (!stored) throw new Error(`Файл «${attachment.name}» отсутствует в локальном кэше.`);
 
     if (isText(stored.name, stored.mimeType)) {
       if (stored.sizeBytes > MAX_TEXT_BYTES) {

@@ -1,6 +1,21 @@
 "use client";
 
-import { getDatabase } from "@/lib/local/database";
+import { EstimateDraftSchema } from "@/lib/domain/estimate";
+import { browserUuid } from "@/lib/platform/browser-crypto";
+import {
+  LOCAL_STORES,
+  getAllRecords,
+  getRecord,
+  putRecord,
+  requestResult,
+  withLocalTransaction
+} from "@/lib/local/idb";
+import type {
+  LocalDocument,
+  LocalPrice,
+  LocalThread,
+  OutboxRecord
+} from "@/lib/local/repository";
 
 export type SyncStatus =
   | { state: "idle"; pending: number; cursor: number }
@@ -9,24 +24,55 @@ export type SyncStatus =
   | { state: "offline"; pending: number; cursor: number }
   | { state: "error"; pending: number; cursor: number; message: string };
 
-type OutboxRow = {
-  id: string;
-  entityType: string;
-  entityId: string;
-  operation: "upsert" | "delete";
-  payloadJson: string;
-  createdAt: string;
+type SyncStateRecord = {
+  scope: "server";
+  deviceId: string;
+  cursor: number;
+  updatedAt: string;
 };
 
 type RemoteOperation = {
   cursor: number;
   operationId: string;
   deviceId: string;
-  entityType: string;
+  entityType: OutboxRecord["entityType"];
   entityId: string;
   operation: "upsert" | "delete";
   payload: unknown;
   createdAt: string;
+};
+
+type MessageRecord = {
+  key: string;
+  threadId: string;
+  messageId: string;
+  parentId: string | null;
+  ordinal: number;
+  message: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type EstimateRecord = {
+  id: string;
+  threadId?: string;
+  title: string;
+  status: string;
+  revision: number;
+  draft: unknown;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type DocumentRecord = {
+  id: string;
+  threadId?: string;
+  title: string;
+  status: LocalDocument["status"];
+  revision: number;
+  document: LocalDocument;
+  createdAt: string;
+  updatedAt: string;
 };
 
 function record(value: unknown): Record<string, unknown> {
@@ -40,170 +86,45 @@ function now() {
 }
 
 async function syncIdentity() {
-  const database = await getDatabase();
-  const row = database.first<{ deviceId: string; cursor: string | null }>(
-    `SELECT device_id AS deviceId, cursor FROM sync_state WHERE scope = 'server'`
-  );
-  if (row) {
-    return { deviceId: row.deviceId, cursor: Number(row.cursor) || 0 };
-  }
+  const existing = await getRecord<SyncStateRecord>(LOCAL_STORES.syncState, "server");
+  if (existing) return existing;
 
-  const deviceId = `device:${crypto.randomUUID()}`;
-  await database.write((sqlite) => {
-    sqlite.run(
-      `INSERT INTO sync_state (scope, cursor, device_id, updated_at)
-       VALUES ('server', '0', ?, ?)`,
-      [deviceId, now()]
-    );
-  });
-  return { deviceId, cursor: 0 };
+  const identity: SyncStateRecord = {
+    scope: "server",
+    deviceId: `device:${browserUuid()}`,
+    cursor: 0,
+    updatedAt: now()
+  };
+  await putRecord(LOCAL_STORES.syncState, identity);
+  return identity;
 }
 
 export async function getSyncSummary() {
-  const database = await getDatabase();
-  const pending =
-    database.first<{ value: number }>("SELECT COUNT(*) AS value FROM outbox")?.value ?? 0;
-  const identity = await syncIdentity();
-  return { pending: Number(pending), cursor: identity.cursor, deviceId: identity.deviceId };
+  const [identity, outbox] = await Promise.all([
+    syncIdentity(),
+    getAllRecords<OutboxRecord>(LOCAL_STORES.outbox)
+  ]);
+  return {
+    pending: outbox.filter((item) => item.attempts < 8).length,
+    cursor: identity.cursor,
+    deviceId: identity.deviceId
+  };
 }
 
-function applyThread(
-  sqlite: import("sql.js").Database,
-  entityId: string,
-  payload: Record<string, unknown>
-) {
+function localThread(entityId: string, payload: Record<string, unknown>): LocalThread {
   const timestamp = now();
-  sqlite.run(
-    `INSERT OR IGNORE INTO threads
-      (id, title, object_name, status, pinned, created_at, updated_at)
-     VALUES (?, NULL, '', 'active', 0, ?, ?)`,
-    [entityId, timestamp, timestamp]
-  );
-
-  if (Object.hasOwn(payload, "title")) {
-    sqlite.run("UPDATE threads SET title = ?, updated_at = ? WHERE id = ?", [
-      typeof payload.title === "string" && payload.title.trim() ? payload.title : null,
-      timestamp,
-      entityId
-    ]);
-  }
-  if (Object.hasOwn(payload, "objectName")) {
-    sqlite.run("UPDATE threads SET object_name = ?, updated_at = ? WHERE id = ?", [
-      typeof payload.objectName === "string" ? payload.objectName : "",
-      timestamp,
-      entityId
-    ]);
-  }
-  if (Object.hasOwn(payload, "status")) {
-    sqlite.run("UPDATE threads SET status = ?, updated_at = ? WHERE id = ?", [
-      payload.status === "archived" ? "archived" : "active",
-      timestamp,
-      entityId
-    ]);
-  }
-  if (Object.hasOwn(payload, "pinned")) {
-    sqlite.run("UPDATE threads SET pinned = ?, updated_at = ? WHERE id = ?", [
-      payload.pinned ? 1 : 0,
-      timestamp,
-      entityId
-    ]);
-  }
-}
-
-function applyMessage(
-  sqlite: import("sql.js").Database,
-  entityId: string,
-  payload: Record<string, unknown>
-) {
-  const threadId = typeof payload.threadId === "string" ? payload.threadId : "";
-  const message = record(payload.message);
-  if (!threadId || !Object.keys(message).length) return;
-  const timestamp = now();
-  applyThread(sqlite, threadId, {});
-  const ordinal =
-    sqlite
-      .prepare("SELECT COALESCE(MAX(ordinal), 0) + 1 AS value FROM messages WHERE thread_id = ?")
-      .getAsObject([threadId]).value ?? 1;
-  sqlite.run(
-    `INSERT INTO messages
-      (thread_id, message_id, parent_id, ordinal, payload_json, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(thread_id, message_id) DO UPDATE SET
-       parent_id = excluded.parent_id,
-       payload_json = excluded.payload_json,
-       updated_at = excluded.updated_at`,
-    [
-      threadId,
-      entityId,
-      typeof payload.parentId === "string" ? payload.parentId : null,
-      Number(ordinal) || 1,
-      JSON.stringify(message),
-      timestamp,
-      timestamp
-    ]
-  );
-}
-
-function applyEstimate(
-  sqlite: import("sql.js").Database,
-  entityId: string,
-  payload: Record<string, unknown>
-) {
-  const timestamp = now();
-  sqlite.run(
-    `INSERT INTO estimates
-      (id, thread_id, title, status, revision, payload_json, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET
-       thread_id = COALESCE(excluded.thread_id, estimates.thread_id),
-       title = excluded.title,
-       status = excluded.status,
-       revision = excluded.revision,
-       payload_json = excluded.payload_json,
-       updated_at = excluded.updated_at`,
-    [
-      entityId,
-      typeof payload.threadId === "string" ? payload.threadId : null,
-      typeof payload.title === "string" ? payload.title : "Смета",
-      typeof payload.status === "string" ? payload.status : "draft",
-      Number(payload.revision) || 1,
-      JSON.stringify(payload),
-      timestamp,
-      timestamp
-    ]
-  );
-}
-
-function applyDocument(
-  sqlite: import("sql.js").Database,
-  entityId: string,
-  payload: Record<string, unknown>
-) {
-  const timestamp = now();
-  sqlite.run(
-    `INSERT INTO documents
-      (id, thread_id, type, title, status, revision, payload_json, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET
-       thread_id = COALESCE(excluded.thread_id, documents.thread_id),
-       type = excluded.type,
-       title = excluded.title,
-       status = excluded.status,
-       revision = excluded.revision,
-       payload_json = excluded.payload_json,
-       updated_at = excluded.updated_at`,
-    [
-      entityId,
-      typeof payload.threadId === "string" ? payload.threadId : null,
-      typeof payload.type === "string" ? payload.type : "document",
-      typeof payload.title === "string" ? payload.title : "Документ",
-      typeof payload.status === "string" ? payload.status : "draft",
-      Number(payload.revision) || 1,
-      JSON.stringify(payload),
-      timestamp,
-      timestamp
-    ]
-  );
+  return {
+    id: entityId,
+    title:
+      typeof payload.title === "string" && payload.title.trim()
+        ? payload.title.trim()
+        : undefined,
+    objectName: typeof payload.objectName === "string" ? payload.objectName : "",
+    status: payload.status === "archived" ? "archived" : "active",
+    pinned: Boolean(payload.pinned),
+    createdAt: typeof payload.createdAt === "string" ? payload.createdAt : timestamp,
+    updatedAt: typeof payload.updatedAt === "string" ? payload.updatedAt : timestamp
+  };
 }
 
 async function applyRemoteOperations(
@@ -211,49 +132,187 @@ async function applyRemoteOperations(
   ownDeviceId: string,
   cursor: number
 ) {
-  if (!operations.length) return cursor;
-  const database = await getDatabase();
-  const nextCursor = Math.max(cursor, ...operations.map((operation) => operation.cursor));
+  const nextCursor = operations.length
+    ? Math.max(cursor, ...operations.map((operation) => Number(operation.cursor) || 0))
+    : cursor;
 
-  await database.write((sqlite) => {
-    for (const operation of operations) {
-      if (operation.deviceId === ownDeviceId) continue;
-      const payload = record(operation.payload);
-      if (operation.operation === "delete") {
-        const table =
-          operation.entityType === "thread"
-            ? "threads"
-            : operation.entityType === "message"
-              ? "messages"
-              : operation.entityType === "estimate"
-                ? "estimates"
-                : operation.entityType === "document"
-                  ? "documents"
-                  : null;
-        if (table === "messages") {
-          sqlite.run("DELETE FROM messages WHERE message_id = ?", [operation.entityId]);
-        } else if (table) {
-          sqlite.run(`DELETE FROM ${table} WHERE id = ?`, [operation.entityId]);
+  await withLocalTransaction(
+    [
+      LOCAL_STORES.threads,
+      LOCAL_STORES.messages,
+      LOCAL_STORES.estimates,
+      LOCAL_STORES.documents,
+      LOCAL_STORES.prices,
+      LOCAL_STORES.files,
+      LOCAL_STORES.syncState
+    ],
+    "readwrite",
+    async (transaction) => {
+      for (const operation of operations) {
+        if (operation.deviceId === ownDeviceId) continue;
+        const payload = record(operation.payload);
+
+        if (operation.operation === "delete") {
+          if (operation.entityType === "thread") {
+            await requestResult(
+              transaction.objectStore(LOCAL_STORES.threads).delete(operation.entityId)
+            );
+            const messages = await requestResult<MessageRecord[]>(
+              transaction
+                .objectStore(LOCAL_STORES.messages)
+                .index("threadId")
+                .getAll(operation.entityId)
+            );
+            for (const message of messages) {
+              await requestResult(
+                transaction.objectStore(LOCAL_STORES.messages).delete(message.key)
+              );
+            }
+          } else if (operation.entityType === "message") {
+            const messages = await requestResult<MessageRecord[]>(
+              transaction.objectStore(LOCAL_STORES.messages).getAll()
+            );
+            const message = messages.find((item) => item.messageId === operation.entityId);
+            if (message) {
+              await requestResult(
+                transaction.objectStore(LOCAL_STORES.messages).delete(message.key)
+              );
+            }
+          } else if (operation.entityType === "estimate") {
+            await requestResult(
+              transaction.objectStore(LOCAL_STORES.estimates).delete(operation.entityId)
+            );
+          } else if (operation.entityType === "document") {
+            await requestResult(
+              transaction.objectStore(LOCAL_STORES.documents).delete(operation.entityId)
+            );
+          } else if (operation.entityType === "price") {
+            await requestResult(
+              transaction.objectStore(LOCAL_STORES.prices).delete(operation.entityId)
+            );
+          } else if (operation.entityType === "file") {
+            await requestResult(
+              transaction.objectStore(LOCAL_STORES.files).delete(operation.entityId)
+            );
+          }
+          continue;
         }
-        continue;
+
+        if (operation.entityType === "thread") {
+          const store = transaction.objectStore(LOCAL_STORES.threads);
+          const current = await requestResult<LocalThread | undefined>(
+            store.get(operation.entityId)
+          );
+          await requestResult(
+            store.put({
+              ...(current ?? localThread(operation.entityId, payload)),
+              ...localThread(operation.entityId, { ...(current ?? {}), ...payload }),
+              updatedAt: now()
+            })
+          );
+        } else if (operation.entityType === "message") {
+          const threadId = typeof payload.threadId === "string" ? payload.threadId : "";
+          const message = record(payload.message);
+          if (!threadId || !Object.keys(message).length) continue;
+          const key = `${threadId}:${operation.entityId}`;
+          const store = transaction.objectStore(LOCAL_STORES.messages);
+          const current = await requestResult<MessageRecord | undefined>(store.get(key));
+          await requestResult(
+            store.put({
+              key,
+              threadId,
+              messageId: operation.entityId,
+              parentId: typeof payload.parentId === "string" ? payload.parentId : null,
+              ordinal: Number(payload.ordinal) || current?.ordinal || Date.now(),
+              message,
+              createdAt: current?.createdAt ?? operation.createdAt ?? now(),
+              updatedAt: now()
+            } satisfies MessageRecord)
+          );
+        } else if (operation.entityType === "estimate") {
+          const parsed = EstimateDraftSchema.safeParse(payload);
+          if (!parsed.success) continue;
+          const store = transaction.objectStore(LOCAL_STORES.estimates);
+          const current = await requestResult<EstimateRecord | undefined>(
+            store.get(operation.entityId)
+          );
+          await requestResult(
+            store.put({
+              id: operation.entityId,
+              threadId:
+                typeof payload.threadId === "string" ? payload.threadId : current?.threadId,
+              title: parsed.data.title,
+              status: parsed.data.status,
+              revision: parsed.data.revision,
+              draft: parsed.data,
+              createdAt: current?.createdAt ?? operation.createdAt ?? now(),
+              updatedAt: now()
+            } satisfies EstimateRecord)
+          );
+        } else if (operation.entityType === "document") {
+          if (
+            typeof payload.title !== "string" ||
+            typeof payload.content !== "string" ||
+            typeof payload.id !== "string"
+          ) {
+            continue;
+          }
+          const document: LocalDocument = {
+            id: payload.id,
+            threadId: typeof payload.threadId === "string" ? payload.threadId : undefined,
+            type: typeof payload.type === "string" ? payload.type : "document",
+            title: payload.title,
+            status: payload.status === "approved" ? "approved" : "draft",
+            revision: Math.max(1, Number(payload.revision) || 1),
+            content: payload.content,
+            missingFields: Array.isArray(payload.missingFields)
+              ? payload.missingFields.filter(
+                  (item): item is string => typeof item === "string"
+                )
+              : [],
+            updatedAt: typeof payload.updatedAt === "string" ? payload.updatedAt : now()
+          };
+          const store = transaction.objectStore(LOCAL_STORES.documents);
+          const current = await requestResult<DocumentRecord | undefined>(
+            store.get(operation.entityId)
+          );
+          await requestResult(
+            store.put({
+              id: operation.entityId,
+              threadId: document.threadId ?? current?.threadId,
+              title: document.title,
+              status: document.status,
+              revision: document.revision,
+              document,
+              createdAt: current?.createdAt ?? operation.createdAt ?? now(),
+              updatedAt: now()
+            } satisfies DocumentRecord)
+          );
+        } else if (operation.entityType === "price") {
+          if (
+            typeof payload.id === "string" &&
+            typeof payload.name === "string" &&
+            typeof payload.unit === "string" &&
+            typeof payload.price === "number"
+          ) {
+            await requestResult(
+              transaction.objectStore(LOCAL_STORES.prices).put(payload as unknown as LocalPrice)
+            );
+          }
+        }
       }
 
-      if (operation.entityType === "thread") applyThread(sqlite, operation.entityId, payload);
-      else if (operation.entityType === "message") applyMessage(sqlite, operation.entityId, payload);
-      else if (operation.entityType === "estimate") applyEstimate(sqlite, operation.entityId, payload);
-      else if (operation.entityType === "document") applyDocument(sqlite, operation.entityId, payload);
+      await requestResult(
+        transaction.objectStore(LOCAL_STORES.syncState).put({
+          scope: "server",
+          deviceId: ownDeviceId,
+          cursor: nextCursor,
+          updatedAt: now()
+        } satisfies SyncStateRecord)
+      );
     }
+  );
 
-    sqlite.run(
-      `INSERT INTO sync_state (scope, cursor, device_id, updated_at)
-       VALUES ('server', ?, ?, ?)
-       ON CONFLICT(scope) DO UPDATE SET
-         cursor = excluded.cursor,
-         device_id = excluded.device_id,
-         updated_at = excluded.updated_at`,
-      [String(nextCursor), ownDeviceId, now()]
-    );
-  });
   return nextCursor;
 }
 
@@ -263,23 +322,15 @@ export async function syncWorkspace(): Promise<SyncStatus> {
     return { state: "offline", pending: summary.pending, cursor: summary.cursor };
   }
 
-  const database = await getDatabase();
-  const outbox = database.read<OutboxRow>(
-    `SELECT id,
-            entity_type AS entityType,
-            entity_id AS entityId,
-            operation,
-            payload_json AS payloadJson,
-            created_at AS createdAt
-       FROM outbox
-      WHERE attempts < 8
-      ORDER BY created_at ASC
-      LIMIT 250`
-  );
+  const outbox = (await getAllRecords<OutboxRecord>(LOCAL_STORES.outbox))
+    .filter((item) => item.attempts < 8)
+    .sort((left, right) => left.createdAt.localeCompare(right.createdAt))
+    .slice(0, 250);
 
   try {
     let pushed = 0;
     let cursor = summary.cursor;
+
     if (outbox.length) {
       const response = await fetch("/api/sync", {
         method: "POST",
@@ -287,13 +338,13 @@ export async function syncWorkspace(): Promise<SyncStatus> {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           deviceId: summary.deviceId,
-          operations: outbox.map((row) => ({
-            id: row.id,
-            entityType: row.entityType,
-            entityId: row.entityId,
-            operation: row.operation,
-            payload: JSON.parse(row.payloadJson),
-            createdAt: row.createdAt
+          operations: outbox.map((item) => ({
+            id: item.id,
+            entityType: item.entityType,
+            entityId: item.entityId,
+            operation: item.operation,
+            payload: item.payload,
+            createdAt: item.createdAt
           }))
         })
       });
@@ -301,9 +352,10 @@ export async function syncWorkspace(): Promise<SyncStatus> {
       const result = (await response.json()) as { accepted?: number; cursor?: number };
       pushed = Number(result.accepted) || 0;
       cursor = Math.max(cursor, Number(result.cursor) || 0);
-      await database.write((sqlite) => {
-        const placeholders = outbox.map(() => "?").join(",");
-        sqlite.run(`DELETE FROM outbox WHERE id IN (${placeholders})`, outbox.map((row) => row.id));
+
+      await withLocalTransaction(LOCAL_STORES.outbox, "readwrite", async (transaction) => {
+        const store = transaction.objectStore(LOCAL_STORES.outbox);
+        for (const item of outbox) await requestResult(store.delete(item.id));
       });
     }
 
@@ -331,11 +383,16 @@ export async function syncWorkspace(): Promise<SyncStatus> {
       pulled: operations.filter((operation) => operation.deviceId !== summary.deviceId).length
     };
   } catch (error) {
-    await database.write((sqlite) => {
-      for (const row of outbox) {
-        sqlite.run(
-          "UPDATE outbox SET attempts = attempts + 1, last_error = ? WHERE id = ?",
-          [error instanceof Error ? error.message.slice(0, 500) : "Sync failed", row.id]
+    await withLocalTransaction(LOCAL_STORES.outbox, "readwrite", async (transaction) => {
+      const store = transaction.objectStore(LOCAL_STORES.outbox);
+      for (const item of outbox) {
+        await requestResult(
+          store.put({
+            ...item,
+            attempts: item.attempts + 1,
+            lastError:
+              error instanceof Error ? error.message.slice(0, 500) : "Sync failed"
+          })
         );
       }
     });

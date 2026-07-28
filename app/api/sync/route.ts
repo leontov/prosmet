@@ -33,6 +33,109 @@ function record(value: unknown): Record<string, unknown> {
     : {};
 }
 
+async function deleteMaterialized(
+  client: ServerSqlClient,
+  tenantId: string,
+  input: SyncOperation
+) {
+  if (input.entityType === "thread") {
+    await client.query(
+      `DELETE FROM prosmet_messages WHERE tenant_id = $1 AND thread_id = $2`,
+      [tenantId, input.entityId]
+    );
+    await client.query(
+      `UPDATE prosmet_estimates SET thread_id = NULL, updated_at = NOW()
+       WHERE tenant_id = $1 AND thread_id = $2`,
+      [tenantId, input.entityId]
+    );
+    await client.query(
+      `UPDATE prosmet_documents SET thread_id = NULL, updated_at = NOW()
+       WHERE tenant_id = $1 AND thread_id = $2`,
+      [tenantId, input.entityId]
+    );
+    await client.query(
+      `UPDATE prosmet_files SET thread_id = NULL, updated_at = NOW()
+       WHERE tenant_id = $1 AND thread_id = $2`,
+      [tenantId, input.entityId]
+    );
+    await client.query(
+      `DELETE FROM prosmet_threads WHERE tenant_id = $1 AND id = $2`,
+      [tenantId, input.entityId]
+    );
+    return;
+  }
+
+  const table =
+    input.entityType === "message"
+      ? "prosmet_messages"
+      : input.entityType === "estimate"
+        ? "prosmet_estimates"
+        : input.entityType === "document"
+          ? "prosmet_documents"
+          : input.entityType === "price"
+            ? "prosmet_prices"
+            : input.entityType === "file"
+              ? "prosmet_files"
+              : null;
+  if (!table) return;
+  await client.query(`DELETE FROM ${table} WHERE tenant_id = $1 AND id = $2`, [
+    tenantId,
+    input.entityId
+  ]);
+}
+
+async function preserveEstimateRevision(
+  client: ServerSqlClient,
+  tenantId: string,
+  estimateId: string,
+  nextRevision: number
+) {
+  const existing = await client.query<{
+    revision: number;
+    payload: unknown;
+  }>(
+    `SELECT revision, payload_json AS payload
+       FROM prosmet_estimates
+      WHERE tenant_id = $1 AND id = $2`,
+    [tenantId, estimateId]
+  );
+  const previous = existing.rows[0];
+  if (!previous || Number(previous.revision) === nextRevision) return;
+  await client.query(
+    `INSERT INTO prosmet_estimate_revisions
+      (tenant_id, estimate_id, revision, payload_json, created_at)
+     VALUES ($1, $2, $3, $4::jsonb, NOW())
+     ON CONFLICT (tenant_id, estimate_id, revision) DO NOTHING`,
+    [tenantId, estimateId, Number(previous.revision), JSON.stringify(previous.payload)]
+  );
+}
+
+async function preserveDocumentRevision(
+  client: ServerSqlClient,
+  tenantId: string,
+  documentId: string,
+  nextRevision: number
+) {
+  const existing = await client.query<{
+    revision: number;
+    payload: unknown;
+  }>(
+    `SELECT revision, payload_json AS payload
+       FROM prosmet_documents
+      WHERE tenant_id = $1 AND id = $2`,
+    [tenantId, documentId]
+  );
+  const previous = existing.rows[0];
+  if (!previous || Number(previous.revision) === nextRevision) return;
+  await client.query(
+    `INSERT INTO prosmet_document_revisions
+      (tenant_id, document_id, revision, payload_json, created_at)
+     VALUES ($1, $2, $3, $4::jsonb, NOW())
+     ON CONFLICT (tenant_id, document_id, revision) DO NOTHING`,
+    [tenantId, documentId, Number(previous.revision), JSON.stringify(previous.payload)]
+  );
+}
+
 async function materialize(
   client: ServerSqlClient,
   tenantId: string,
@@ -40,22 +143,7 @@ async function materialize(
 ) {
   const payload = record(input.payload);
   if (input.operation === "delete") {
-    const table =
-      input.entityType === "thread"
-        ? "prosmet_threads"
-        : input.entityType === "message"
-          ? "prosmet_messages"
-          : input.entityType === "estimate"
-            ? "prosmet_estimates"
-            : input.entityType === "document"
-              ? "prosmet_documents"
-              : null;
-    if (table) {
-      await client.query(`DELETE FROM ${table} WHERE tenant_id = $1 AND id = $2`, [
-        tenantId,
-        input.entityId
-      ]);
-    }
+    await deleteMaterialized(client, tenantId, input);
     return;
   }
 
@@ -76,7 +164,7 @@ async function materialize(
         input.entityId,
         typeof payload.title === "string" ? payload.title : null,
         typeof payload.objectName === "string" ? payload.objectName : "",
-        typeof payload.status === "string" ? payload.status : "active",
+        payload.status === "archived" ? "archived" : "active",
         Boolean(payload.pinned),
         JSON.stringify(input.payload ?? {})
       ]
@@ -104,6 +192,8 @@ async function materialize(
   }
 
   if (input.entityType === "estimate") {
+    const revision = Math.max(1, Number(payload.revision) || 1);
+    await preserveEstimateRevision(client, tenantId, input.entityId, revision);
     await client.query(
       `INSERT INTO prosmet_estimates
         (tenant_id, id, thread_id, revision, status, payload_json, created_at, updated_at)
@@ -118,7 +208,7 @@ async function materialize(
         tenantId,
         input.entityId,
         typeof payload.threadId === "string" ? payload.threadId : null,
-        Number(payload.revision) || 1,
+        revision,
         typeof payload.status === "string" ? payload.status : "draft",
         JSON.stringify(input.payload ?? {})
       ]
@@ -127,6 +217,8 @@ async function materialize(
   }
 
   if (input.entityType === "document") {
+    const revision = Math.max(1, Number(payload.revision) || 1);
+    await preserveDocumentRevision(client, tenantId, input.entityId, revision);
     await client.query(
       `INSERT INTO prosmet_documents
         (tenant_id, id, thread_id, revision, status, payload_json, created_at, updated_at)
@@ -141,8 +233,40 @@ async function materialize(
         tenantId,
         input.entityId,
         typeof payload.threadId === "string" ? payload.threadId : null,
-        Number(payload.revision) || 1,
+        revision,
         typeof payload.status === "string" ? payload.status : "draft",
+        JSON.stringify(input.payload ?? {})
+      ]
+    );
+    return;
+  }
+
+  if (input.entityType === "price") {
+    await client.query(
+      `INSERT INTO prosmet_prices
+        (tenant_id, id, payload_json, created_at, updated_at)
+       VALUES ($1, $2, $3::jsonb, NOW(), NOW())
+       ON CONFLICT (tenant_id, id) DO UPDATE SET
+         payload_json = EXCLUDED.payload_json,
+         updated_at = NOW()`,
+      [tenantId, input.entityId, JSON.stringify(input.payload ?? {})]
+    );
+    return;
+  }
+
+  if (input.entityType === "file") {
+    await client.query(
+      `INSERT INTO prosmet_files
+        (tenant_id, id, thread_id, payload_json, created_at, updated_at)
+       VALUES ($1, $2, $3, $4::jsonb, NOW(), NOW())
+       ON CONFLICT (tenant_id, id) DO UPDATE SET
+         thread_id = COALESCE(EXCLUDED.thread_id, prosmet_files.thread_id),
+         payload_json = EXCLUDED.payload_json,
+         updated_at = NOW()`,
+      [
+        tenantId,
+        input.entityId,
+        typeof payload.threadId === "string" ? payload.threadId : null,
         JSON.stringify(input.payload ?? {})
       ]
     );
@@ -151,10 +275,7 @@ async function materialize(
 
 export async function POST(request: Request) {
   if (!postgresConfigured()) {
-    return Response.json(
-      { error: "server_database_not_configured" },
-      { status: 503 }
-    );
+    return Response.json({ error: "server_database_not_configured" }, { status: 503 });
   }
 
   let input: z.infer<typeof pushSchema>;
@@ -224,10 +345,7 @@ export async function POST(request: Request) {
 
 export async function GET(request: Request) {
   if (!postgresConfigured()) {
-    return Response.json(
-      { error: "server_database_not_configured" },
-      { status: 503 }
-    );
+    return Response.json({ error: "server_database_not_configured" }, { status: 503 });
   }
 
   const url = new URL(request.url);
