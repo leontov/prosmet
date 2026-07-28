@@ -1,0 +1,55 @@
+name: Expose Prosmet 3200
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/expose-3200.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prosmet-expose-3200
+  cancel-in-progress: true
+
+jobs:
+  expose:
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 10
+    steps:
+      - name: Verify Primary runner and listener
+        run: |
+          set -Eeuo pipefail
+          test "${{ runner.name }}" = "prosmet-primary"
+          ss -H -ltnp 'sport = :3200' || true
+          curl -fsS http://127.0.0.1:3200/api/health
+
+      - name: Open TCP 3200 in host firewall
+        run: |
+          set -Eeuo pipefail
+          if command -v ufw >/dev/null 2>&1; then
+            STATUS="$(sudo -n ufw status 2>/dev/null || true)"
+            echo "$STATUS"
+            if echo "$STATUS" | grep -qi '^Status: active'; then
+              sudo -n ufw allow 3200/tcp
+            fi
+          fi
+
+          if command -v firewall-cmd >/dev/null 2>&1 && sudo -n firewall-cmd --state >/dev/null 2>&1; then
+            sudo -n firewall-cmd --permanent --add-port=3200/tcp
+            sudo -n firewall-cmd --reload
+          fi
+
+          if command -v iptables >/dev/null 2>&1 && sudo -n iptables -S INPUT >/dev/null 2>&1; then
+            sudo -n iptables -C INPUT -p tcp --dport 3200 -j ACCEPT 2>/dev/null || \
+              sudo -n iptables -I INPUT 1 -p tcp --dport 3200 -j ACCEPT
+          fi
+
+      - name: Verify listener after firewall update
+        run: |
+          set -Eeuo pipefail
+          ss -H -ltnp 'sport = :3200'
+          curl -fsS http://127.0.0.1:3200/api/backend/status | grep -q '"connected":true'
+          echo "Prosmet is listening on 0.0.0.0:3200"
