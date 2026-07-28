@@ -19,41 +19,44 @@ jobs:
       CI: "1"
       NEXT_TELEMETRY_DISABLED: "1"
       PROSMET_DEFAULT_PROVIDER: "rules"
-      PROSMET_DATABASE_DRIVER: "pglite"
-      PROSMET_PGLITE_DIR: ${{ runner.temp }}/prosmet-pr-${{ github.run_id }}-pg
     steps:
       - name: Verify runner
         run: |
           echo "Runner: ${{ runner.name }}"
           test "${{ runner.name }}" = "prosmet-primary"
+
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: "22.16.0"
-      - name: Prepare evidence
+
+      - name: Provision PostgreSQL
         run: |
-          rm -rf "$PROSMET_PGLITE_DIR"
-          mkdir -p artifacts/logs artifacts/screenshots "$PROSMET_PGLITE_DIR"
+          set -Eeuo pipefail
+          bash deployment/provision-postgres.sh
+          source "$HOME/.prosmet/database.env"
+          echo "::add-mask::$DATABASE_URL"
+          echo "PROSMET_DATABASE_DRIVER=postgres" >> "$GITHUB_ENV"
+          echo "DATABASE_URL=$DATABASE_URL" >> "$GITHUB_ENV"
+
+      - name: Prepare evidence
+        run: mkdir -p artifacts/logs artifacts/screenshots
+
       - name: Lockfile
         run: |
-          if [ ! -f package-lock.json ]; then npm install --package-lock-only --ignore-scripts --no-audit --no-fund; fi
+          if [ ! -f package-lock.json ]; then
+            npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          fi
+
       - run: npm ci --no-audit --no-fund
       - run: npm run source:contract
       - run: npm run typecheck
       - run: npm run test
       - run: npm run build
-      - name: Verify embedded PostgreSQL backend
-        shell: bash
-        run: |
-          node --input-type=module <<'NODE'
-          process.env.PROSMET_DATABASE_DRIVER = "pglite";
-          const { checkServerDatabase } = await import("./.next/server/app/api/backend/status/route.js").catch(() => ({ checkServerDatabase: null }));
-          console.log("PGlite runtime will be exercised by Next.js browser E2E", Boolean(checkServerDatabase));
-          NODE
       - run: npx playwright install chromium
       - run: npm run e2e
-      - if: always()
-        run: rm -rf "$PROSMET_PGLITE_DIR"
+
       - if: always()
         uses: actions/upload-artifact@v4
         with:
