@@ -1,18 +1,32 @@
 import { expect, test } from "@playwright/test";
 
 const DB_NAME = "prosmet-cache-v3";
+const REQUIRED_STORES = ["threads", "outbox", "syncState"];
 
-async function openDatabase(page: import("@playwright/test").Page) {
-  await page.evaluate(async (databaseName) => {
-    await new Promise<void>((resolve, reject) => {
-      const request = indexedDB.open(databaseName, 1);
-      request.onsuccess = () => {
-        request.result.close();
-        resolve();
-      };
-      request.onerror = () => reject(request.error ?? new Error("IndexedDB open failed"));
-    });
-  }, DB_NAME);
+async function waitForDatabase(page: import("@playwright/test").Page) {
+  await expect
+    .poll(
+      () =>
+        page.evaluate(async ({ databaseName, requiredStores }) => {
+          const databases = await indexedDB.databases();
+          const metadata = databases.find((database) => database.name === databaseName);
+          if (!metadata || Number(metadata.version) < 2) return false;
+          return new Promise<boolean>((resolve) => {
+            const request = indexedDB.open(databaseName);
+            request.onerror = () => resolve(false);
+            request.onsuccess = () => {
+              const database = request.result;
+              const ready = requiredStores.every((store) =>
+                database.objectStoreNames.contains(store)
+              );
+              database.close();
+              resolve(ready);
+            };
+          });
+        }, { databaseName: DB_NAME, requiredStores: REQUIRED_STORES }),
+      { timeout: 15_000, message: "Application IndexedDB schema was not ready" }
+    )
+    .toBe(true);
 }
 
 async function readLocalState(
@@ -27,34 +41,162 @@ async function readLocalState(
         deviceId: string | null;
         thread: Record<string, unknown> | null;
       }>((resolve, reject) => {
-        const request = indexedDB.open(databaseName, 1);
+        const request = indexedDB.open(databaseName);
         request.onerror = () => reject(request.error ?? new Error("IndexedDB open failed"));
+        request.onblocked = () => reject(new Error("IndexedDB open was blocked"));
         request.onsuccess = () => {
           const database = request.result;
-          const transaction = database.transaction(
-            ["outbox", "syncState", "threads"],
-            "readonly"
-          );
-          const outboxRequest = transaction.objectStore("outbox").count();
-          const syncRequest = transaction.objectStore("syncState").get("server");
-          const threadRequest = transaction.objectStore("threads").get(threadId);
-          transaction.onerror = () =>
-            reject(transaction.error ?? new Error("IndexedDB transaction failed"));
-          transaction.oncomplete = () => {
-            const sync = syncRequest.result as
-              | { cursor?: number; deviceId?: string }
-              | undefined;
-            resolve({
-              outbox: outboxRequest.result,
-              cursor: Number(sync?.cursor) || 0,
-              deviceId: sync?.deviceId ?? null,
-              thread: (threadRequest.result as Record<string, unknown> | undefined) ?? null
-            });
+          try {
+            const transaction = database.transaction(
+              ["outbox", "syncState", "threads"],
+              "readonly"
+            );
+            const outboxRequest = transaction.objectStore("outbox").count();
+            const syncRequest = transaction.objectStore("syncState").get("server");
+            const threadRequest = transaction.objectStore("threads").get(threadId);
+            transaction.onabort = () => {
+              database.close();
+              reject(transaction.error ?? new Error("IndexedDB transaction aborted"));
+            };
+            transaction.onerror = () => {
+              database.close();
+              reject(transaction.error ?? new Error("IndexedDB transaction failed"));
+            };
+            transaction.oncomplete = () => {
+              const sync = syncRequest.result as
+                | { cursor?: number; deviceId?: string }
+                | undefined;
+              resolve({
+                outbox: outboxRequest.result,
+                cursor: Number(sync?.cursor) || 0,
+                deviceId: sync?.deviceId ?? null,
+                thread: (threadRequest.result as Record<string, unknown> | undefined) ?? null
+              });
+              database.close();
+            };
+          } catch (error) {
             database.close();
-          };
+            reject(error);
+          }
         };
       }),
     { databaseName: DB_NAME, threadId }
+  );
+}
+
+async function seedOutbox(
+  page: import("@playwright/test").Page,
+  input: {
+    threadId: string;
+    operationId: string;
+    sourceDeviceId: string;
+    createdAt: string;
+    title: string;
+  }
+) {
+  await page.evaluate(
+    async ({ databaseName, input }) =>
+      new Promise<void>((resolve, reject) => {
+        const request = indexedDB.open(databaseName);
+        request.onerror = () => reject(request.error ?? new Error("IndexedDB open failed"));
+        request.onblocked = () => reject(new Error("IndexedDB open was blocked"));
+        request.onsuccess = () => {
+          const database = request.result;
+          try {
+            const transaction = database.transaction(
+              ["threads", "outbox", "syncState"],
+              "readwrite"
+            );
+            const payload = {
+              id: input.threadId,
+              title: input.title,
+              objectName: "Primary PostgreSQL verification",
+              status: "active",
+              pinned: false,
+              createdAt: input.createdAt,
+              updatedAt: input.createdAt
+            };
+            transaction.objectStore("threads").put(payload);
+            transaction.objectStore("outbox").put({
+              id: input.operationId,
+              entityType: "thread",
+              entityId: input.threadId,
+              operation: "upsert",
+              payload,
+              attempts: 0,
+              createdAt: input.createdAt,
+              lastError: null
+            });
+            transaction.objectStore("syncState").put({
+              scope: "server",
+              deviceId: input.sourceDeviceId,
+              cursor: 0,
+              updatedAt: input.createdAt
+            });
+            transaction.onabort = () => {
+              database.close();
+              reject(transaction.error ?? new Error("IndexedDB write aborted"));
+            };
+            transaction.onerror = () => {
+              database.close();
+              reject(transaction.error ?? new Error("IndexedDB write failed"));
+            };
+            transaction.oncomplete = () => {
+              database.close();
+              resolve();
+            };
+          } catch (error) {
+            database.close();
+            reject(error);
+          }
+        };
+      }),
+    { databaseName: DB_NAME, input }
+  );
+}
+
+async function simulateSecondDevice(
+  page: import("@playwright/test").Page,
+  input: { threadId: string; pullDeviceId: string; createdAt: string }
+) {
+  await page.evaluate(
+    async ({ databaseName, input }) =>
+      new Promise<void>((resolve, reject) => {
+        const request = indexedDB.open(databaseName);
+        request.onerror = () => reject(request.error ?? new Error("IndexedDB open failed"));
+        request.onsuccess = () => {
+          const database = request.result;
+          try {
+            const transaction = database.transaction(
+              ["threads", "syncState"],
+              "readwrite"
+            );
+            transaction.objectStore("threads").delete(input.threadId);
+            transaction.objectStore("syncState").put({
+              scope: "server",
+              deviceId: input.pullDeviceId,
+              cursor: 0,
+              updatedAt: input.createdAt
+            });
+            transaction.onabort = () => {
+              database.close();
+              reject(transaction.error ?? new Error("IndexedDB reset aborted"));
+            };
+            transaction.onerror = () => {
+              database.close();
+              reject(transaction.error ?? new Error("IndexedDB reset failed"));
+            };
+            transaction.oncomplete = () => {
+              database.close();
+              resolve();
+            };
+          } catch (error) {
+            database.close();
+            reject(error);
+          }
+        };
+      }),
+    { databaseName: DB_NAME, input }
   );
 }
 
@@ -66,10 +208,11 @@ test("IndexedDB outbox is committed to PostgreSQL and pulled by another device",
     if (message.type() === "error") runtimeErrors.push(message.text());
   });
   page.on("pageerror", (error) => runtimeErrors.push(error.message));
+  page.on("crash", () => runtimeErrors.push("Page crashed"));
 
   await page.goto("/");
   await expect(page.getByTestId("chat-empty-state")).toBeVisible();
-  await openDatabase(page);
+  await waitForDatabase(page);
 
   const suffix = `${testInfo.project.name}-${Date.now()}`;
   const threadId = `e2e-sync-thread-${suffix}`;
@@ -79,71 +222,19 @@ test("IndexedDB outbox is committed to PostgreSQL and pulled by another device",
   const createdAt = new Date().toISOString();
   const title = `E2E PostgreSQL ${suffix}`;
 
-  await page.evaluate(
-    async ({ databaseName, threadId, operationId, sourceDeviceId, createdAt, title }) =>
-      new Promise<void>((resolve, reject) => {
-        const request = indexedDB.open(databaseName, 1);
-        request.onerror = () => reject(request.error ?? new Error("IndexedDB open failed"));
-        request.onsuccess = () => {
-          const database = request.result;
-          const transaction = database.transaction(
-            ["threads", "outbox", "syncState"],
-            "readwrite"
-          );
-          transaction.objectStore("threads").put({
-            id: threadId,
-            title,
-            objectName: "Primary PostgreSQL verification",
-            status: "active",
-            pinned: false,
-            createdAt,
-            updatedAt: createdAt
-          });
-          transaction.objectStore("outbox").put({
-            id: operationId,
-            entityType: "thread",
-            entityId: threadId,
-            operation: "upsert",
-            payload: {
-              id: threadId,
-              title,
-              objectName: "Primary PostgreSQL verification",
-              status: "active",
-              pinned: false,
-              createdAt,
-              updatedAt: createdAt
-            },
-            attempts: 0,
-            createdAt,
-            lastError: null
-          });
-          transaction.objectStore("syncState").put({
-            scope: "server",
-            deviceId: sourceDeviceId,
-            cursor: 0,
-            updatedAt: createdAt
-          });
-          transaction.onerror = () =>
-            reject(transaction.error ?? new Error("IndexedDB write failed"));
-          transaction.oncomplete = () => {
-            database.close();
-            resolve();
-          };
-        };
-      }),
-    {
-      databaseName: DB_NAME,
-      threadId,
-      operationId,
-      sourceDeviceId,
-      createdAt,
-      title
-    }
-  );
+  await seedOutbox(page, {
+    threadId,
+    operationId,
+    sourceDeviceId,
+    createdAt,
+    title
+  });
 
-  // Reload starts the application's real sync loop: IndexedDB outbox -> /api/sync -> PostgreSQL.
+  // Reload starts the real application sync loop:
+  // IndexedDB outbox -> /api/sync -> PostgreSQL.
   await page.reload();
   await expect(page.getByTestId("chat-empty-state")).toBeVisible();
+  await waitForDatabase(page);
 
   await expect
     .poll(async () => readLocalState(page, threadId), { timeout: 30_000 })
@@ -173,38 +264,11 @@ test("IndexedDB outbox is committed to PostgreSQL and pulled by another device",
     entityType: "thread"
   });
 
-  // Simulate a second device: remove local materialization, reset cursor and use another device ID.
-  await page.evaluate(
-    async ({ databaseName, threadId, pullDeviceId, createdAt }) =>
-      new Promise<void>((resolve, reject) => {
-        const request = indexedDB.open(databaseName, 1);
-        request.onerror = () => reject(request.error ?? new Error("IndexedDB open failed"));
-        request.onsuccess = () => {
-          const database = request.result;
-          const transaction = database.transaction(
-            ["threads", "syncState"],
-            "readwrite"
-          );
-          transaction.objectStore("threads").delete(threadId);
-          transaction.objectStore("syncState").put({
-            scope: "server",
-            deviceId: pullDeviceId,
-            cursor: 0,
-            updatedAt: createdAt
-          });
-          transaction.onerror = () =>
-            reject(transaction.error ?? new Error("IndexedDB reset failed"));
-          transaction.oncomplete = () => {
-            database.close();
-            resolve();
-          };
-        };
-      }),
-    { databaseName: DB_NAME, threadId, pullDeviceId, createdAt }
-  );
+  await simulateSecondDevice(page, { threadId, pullDeviceId, createdAt });
 
   await page.reload();
   await expect(page.getByTestId("chat-empty-state")).toBeVisible();
+  await waitForDatabase(page);
 
   await expect
     .poll(async () => readLocalState(page, threadId), { timeout: 30_000 })
@@ -218,7 +282,7 @@ test("IndexedDB outbox is committed to PostgreSQL and pulled by another device",
   expect(finalState.cursor).toBeGreaterThanOrEqual(Number(serverPayload.cursor) || 1);
   expect(
     runtimeErrors.filter((message) =>
-      /Content Security Policy|unsafe-eval|wasm|sql-wasm|hydration|ZodError|Connection closed/i.test(
+      /Content Security Policy|unsafe-eval|wasm|sql-wasm|hydration|ZodError|Connection closed|IndexedDB.*not found|Page crashed/i.test(
         message
       )
     )
