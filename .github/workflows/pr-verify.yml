@@ -14,7 +14,7 @@ concurrency:
 jobs:
   verify:
     runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 60
+    timeout-minutes: 70
     env:
       CI: "1"
       NEXT_TELEMETRY_DISABLED: "1"
@@ -28,6 +28,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22.16.0"
+      - name: Prepare evidence
+        run: mkdir -p artifacts/logs artifacts/screenshots
       - name: Lockfile
         run: |
           if [ ! -f package-lock.json ]; then npm install --package-lock-only --ignore-scripts --no-audit --no-fund; fi
@@ -39,45 +41,57 @@ jobs:
       - name: Start isolated PostgreSQL
         shell: bash
         run: |
-          set -Eeuo pipefail
-          if docker info >/dev/null 2>&1; then
-            DOCKER=(docker)
-          elif sudo -n docker info >/dev/null 2>&1; then
-            DOCKER=(sudo -n docker)
-          else
-            echo "Runner cannot access Docker" >&2
-            exit 1
-          fi
+          set -o pipefail
+          (
+            set -Eeuo pipefail
 
-          "${DOCKER[@]}" rm -f prosmet-ci-postgres >/dev/null 2>&1 || true
-          "${DOCKER[@]}" pull postgres:16-alpine
-          "${DOCKER[@]}" run -d \
-            --name prosmet-ci-postgres \
-            -e POSTGRES_DB=prosmet \
-            -e POSTGRES_USER=prosmet \
-            -e POSTGRES_PASSWORD=prosmet-ci \
-            -p 127.0.0.1::5432 \
-            --health-cmd='pg_isready -U prosmet -d prosmet' \
-            --health-interval=3s \
-            --health-timeout=3s \
-            --health-retries=20 \
-            postgres:16-alpine
-
-          PORT="$("${DOCKER[@]}" port prosmet-ci-postgres 5432/tcp | awk -F: 'END {print $NF}')"
-          test -n "$PORT"
-          echo "DATABASE_URL=postgresql://prosmet:prosmet-ci@127.0.0.1:${PORT}/prosmet" >> "$GITHUB_ENV"
-          echo "PROSMET_CI_DOCKER=${DOCKER[*]}" >> "$GITHUB_ENV"
-
-          for attempt in $(seq 1 40); do
-            STATUS="$("${DOCKER[@]}" inspect -f '{{.State.Health.Status}}' prosmet-ci-postgres 2>/dev/null || true)"
-            if [ "$STATUS" = healthy ]; then
-              echo "PostgreSQL healthy on 127.0.0.1:${PORT}"
-              exit 0
+            if ! command -v docker >/dev/null 2>&1; then
+              echo "Docker is not installed; provisioning docker.io on the self-hosted runner"
+              sudo -n apt-get update
+              sudo -n DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io
+              sudo -n systemctl enable --now docker
             fi
-            sleep 2
-          done
-          "${DOCKER[@]}" logs prosmet-ci-postgres || true
-          exit 1
+
+            if docker info >/dev/null 2>&1; then
+              DOCKER=(docker)
+            elif sudo -n docker info >/dev/null 2>&1; then
+              DOCKER=(sudo -n docker)
+            else
+              echo "Runner cannot access Docker even through passwordless sudo" >&2
+              id
+              ls -l /var/run/docker.sock || true
+              exit 1
+            fi
+
+            "${DOCKER[@]}" rm -f prosmet-ci-postgres >/dev/null 2>&1 || true
+            "${DOCKER[@]}" pull postgres:16-alpine
+            "${DOCKER[@]}" run -d \
+              --name prosmet-ci-postgres \
+              -e POSTGRES_DB=prosmet \
+              -e POSTGRES_USER=prosmet \
+              -e POSTGRES_PASSWORD=prosmet-ci \
+              -p 127.0.0.1::5432 \
+              --health-cmd='pg_isready -U prosmet -d prosmet' \
+              --health-interval=3s \
+              --health-timeout=3s \
+              --health-retries=20 \
+              postgres:16-alpine
+
+            PORT="$("${DOCKER[@]}" port prosmet-ci-postgres 5432/tcp | awk -F: 'END {print $NF}')"
+            test -n "$PORT"
+            echo "DATABASE_URL=postgresql://prosmet:prosmet-ci@127.0.0.1:${PORT}/prosmet" >> "$GITHUB_ENV"
+
+            for attempt in $(seq 1 40); do
+              STATUS="$("${DOCKER[@]}" inspect -f '{{.State.Health.Status}}' prosmet-ci-postgres 2>/dev/null || true)"
+              if [ "$STATUS" = healthy ]; then
+                echo "PostgreSQL healthy on 127.0.0.1:${PORT}"
+                exit 0
+              fi
+              sleep 2
+            done
+            "${DOCKER[@]}" logs prosmet-ci-postgres || true
+            exit 1
+          ) 2>&1 | tee artifacts/logs/postgres-start.log
       - run: npx playwright install chromium
       - run: npm run e2e
       - if: always()
