@@ -21,6 +21,7 @@
 ## Active verification
 
 - Hosted quality diagnostics and the `prosmet-primary` quality gate are configured against the same feature branch.
+- Hosted run `30325071015` reached dependency resolution and failed before compilation; the next diagnostic run persists the complete npm resolver output as an artifact.
 - A feature-branch push never deploys: canary is gated to explicit workflow dispatch or a green `main` push.
 
 ## Not yet proven
