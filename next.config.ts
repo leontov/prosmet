@@ -2,14 +2,10 @@ import type { NextConfig } from "next";
 
 const isDevelopment = process.env.NODE_ENV !== "production";
 
-// The current SQL.js browser glue performs dynamic code evaluation while
-// preparing its WebAssembly module. Keep the permission explicit and covered
-// by browser tests; all scripts still have to originate from this application.
 const scriptSources = [
   "'self'",
   "'unsafe-inline'",
-  "'unsafe-eval'",
-  "'wasm-unsafe-eval'"
+  ...(isDevelopment ? ["'unsafe-eval'"] : [])
 ].join(" ");
 
 const connectSources = [
@@ -35,7 +31,6 @@ const contentSecurityPolicy = [
 const nextConfig: NextConfig = {
   output: "standalone",
   reactStrictMode: true,
-  serverExternalPackages: ["@electric-sql/pglite"],
   experimental: {
     serverActions: {
       bodySizeLimit: "20mb"
