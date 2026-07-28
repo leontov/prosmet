@@ -226,7 +226,6 @@ if [[ ! -f "${DATA_DIR}/PG_VERSION" ]]; then
     --locale=C.UTF-8 \
     --auth-local=trust \
     --auth-host=scram-sha-256 \
-    --waldir="${DATA_DIR}/pg_wal" \
     -L "${PG_SHAREDIR}"
   rm -f "${PW_FILE}"
 
