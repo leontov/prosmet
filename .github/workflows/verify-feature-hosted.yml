@@ -36,12 +36,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          mkdir -p artifacts/ci
           if [ ! -f package-lock.json ]; then
-            npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+            npm install --package-lock-only --ignore-scripts --no-audit --no-fund 2>&1 | tee artifacts/ci/npm-lock.log
           fi
 
       - name: Install dependencies
-        run: npm ci --no-audit --no-fund
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm ci --no-audit --no-fund 2>&1 | tee artifacts/ci/npm-ci.log
 
       - name: Source contract
         run: npm run source:contract
