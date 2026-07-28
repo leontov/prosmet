@@ -48,6 +48,48 @@ async function waitForLocalCache(page: import("@playwright/test").Page) {
     .toBe(true);
 }
 
+async function waitForPersistedEstimateMessage(page: import("@playwright/test").Page) {
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          async (databaseName) =>
+            new Promise<boolean>((resolve) => {
+              const request = indexedDB.open(databaseName);
+              request.onerror = () => resolve(false);
+              request.onsuccess = () => {
+                const database = request.result;
+                try {
+                  const transaction = database.transaction("messages", "readonly");
+                  const messages = transaction.objectStore("messages").getAll();
+                  transaction.oncomplete = () => {
+                    const persisted = (messages.result as Array<{ message?: unknown }>).some(
+                      (record) =>
+                        JSON.stringify(record.message ?? {}).includes("estimate_draft")
+                    );
+                    database.close();
+                    resolve(persisted);
+                  };
+                  transaction.onerror = () => {
+                    database.close();
+                    resolve(false);
+                  };
+                } catch {
+                  database.close();
+                  resolve(false);
+                }
+              };
+            }),
+          DB_NAME
+        ),
+      {
+        timeout: 30_000,
+        message: "Completed assistant estimate message was not persisted to IndexedDB history"
+      }
+    )
+    .toBe(true);
+}
+
 async function sendPrompt(page: import("@playwright/test").Page, prompt: string) {
   await waitForLocalCache(page);
   const input = composer(page);
@@ -142,8 +184,6 @@ test("hydrated client remains responsive and keeps text typed during startup", a
   await input.fill("Проверка отзывчивости интерфейса");
   await expect(input).toHaveValue("Проверка отзывчивости интерфейса");
   await waitForLocalCache(page);
-  // The value must survive the async workspace initialisation. This is the
-  // regression that previously made the page look static and disabled Send.
   await expect(input).toHaveValue("Проверка отзывчивости интерфейса");
   await expect(page.getByRole("button", { name: "Отправить" })).toBeEnabled();
 
@@ -272,6 +312,10 @@ test("reload restores the active conversation and local estimate", async ({ page
     "Составь полную смету механизированной штукатурки 120 м² в Казани, слой 10 мм."
   );
   await expect(page.getByTestId("estimate-editor")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole("button", { name: "Остановить генерацию" })).toHaveCount(0, {
+    timeout: 30_000
+  });
+  await waitForPersistedEstimateMessage(page);
   await page.reload();
   await expect(page.getByTestId("estimate-editor")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByLabel("Название сметы")).toHaveValue(
@@ -288,8 +332,6 @@ test("stop button cancels an active streaming run", async ({ page }) => {
   );
   const stop = page.getByRole("button", { name: "Остановить генерацию" });
   await expect(stop).toBeVisible();
-  // dispatchEvent invokes the real React cancellation handler without waiting
-  // for pointer actionability while the streaming button is being replaced.
   await stop.dispatchEvent("click");
   await expect(stop).toHaveCount(0, { timeout: 10_000 });
   await expect(composer(page)).toBeEditable();
