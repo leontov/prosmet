@@ -61,10 +61,12 @@ export function LocalWorkspaceProvider({ children }: { children: ReactNode }) {
         setThreads(storedThreads);
         setCurrentThreadId(next);
         await repository.setMeta(ACTIVE_THREAD_KEY, next);
+        setError(null);
         setReady(true);
       } catch (reason) {
         if (!cancelled) {
           setError(reason instanceof Error ? reason.message : "Не удалось открыть локальную базу");
+          setReady(false);
         }
       }
     })();
@@ -125,28 +127,6 @@ export function LocalWorkspaceProvider({ children }: { children: ReactNode }) {
     }),
     [ready, error, currentThreadId, threads, refresh, selectThread, createThread, mutate]
   );
-
-  if (error) {
-    return (
-      <div className="grid h-dvh place-items-center bg-white px-6 text-center">
-        <div className="max-w-md">
-          <h1 className="text-xl font-semibold">Локальная база не открылась</h1>
-          <p className="mt-3 text-sm leading-6 text-neutral-500">{error}</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!ready) {
-    return (
-      <div className="grid h-dvh place-items-center bg-white">
-        <div className="flex items-center gap-3 text-sm text-neutral-500">
-          <span className="size-4 animate-spin rounded-full border-2 border-neutral-400 border-r-transparent" />
-          Открываем локальную SQLite-базу…
-        </div>
-      </div>
-    );
-  }
 
   return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
 }
