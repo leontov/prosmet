@@ -18,7 +18,12 @@ DATABASE_NAME="prosmet"
 DATABASE_HOST="127.0.0.1"
 DATABASE_PORT="${PROSMET_POSTGRES_PORT:-55432}"
 
-mkdir -p "${ROOT}" "${PACKAGE_CACHE}" "${SOCKET_DIR}" "${RETIRED_DIR}"
+mkdir -p \
+  "${ROOT}" \
+  "${PACKAGE_CACHE}" \
+  "${SOCKET_DIR}" \
+  "${RETIRED_DIR}" \
+  "${RUNTIME_ROOT}/usr/lib/postgresql"
 chmod 700 "${ROOT}" "${PACKAGE_CACHE}" "${SOCKET_DIR}" "${RETIRED_DIR}"
 
 if [[ ! -s "${PASSWORD_FILE}" ]]; then
@@ -69,7 +74,6 @@ try {
 NODE
 }
 
-# Respect a real externally managed PostgreSQL when the owner supplies one.
 if [[ -n "${DATABASE_URL:-}" ]] && probe_database_url "${DATABASE_URL}" >/dev/null 2>&1; then
   PG_BINDIR="external"
   umask 077
@@ -93,7 +97,6 @@ retire_path() {
   echo "Retired ${source} to ${destination}"
 }
 
-# Stop and retire the incompatible embedded/WASM experiment once.
 if [[ -f "${LEGACY_PID_FILE}" ]]; then
   LEGACY_PID="$(cat "${LEGACY_PID_FILE}" 2>/dev/null || true)"
   if [[ "${LEGACY_PID}" =~ ^[0-9]+$ ]] && kill -0 "${LEGACY_PID}" 2>/dev/null; then
@@ -108,9 +111,16 @@ fi
 retire_path "${LEGACY_DATA_DIR}" "embedded-postgres"
 
 find_pg_bindir() {
-  find "${RUNTIME_ROOT}/usr/lib/postgresql" \
-    -mindepth 3 -maxdepth 3 -type f -name postgres -print 2>/dev/null \
-    | sort -V | tail -n 1 | xargs -r dirname
+  local binary
+  binary="$(
+    find "${RUNTIME_ROOT}/usr/lib/postgresql" \
+      -mindepth 3 -maxdepth 3 -type f -name postgres -print 2>/dev/null \
+      | sort -V | tail -n 1 || true
+  )"
+  if [[ -n "${binary}" ]]; then
+    dirname "${binary}"
+  fi
+  return 0
 }
 
 PG_BINDIR="$(find_pg_bindir)"
@@ -183,7 +193,7 @@ PG_LIBDIR="${RUNTIME_ROOT}/usr/lib/x86_64-linux-gnu:${RUNTIME_ROOT}/lib/x86_64-l
 export PATH="${PG_BINDIR}:${PATH}"
 export LD_LIBRARY_PATH="${PG_LIBDIR}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 
-missing_libraries="$(ldd "${PG_BINDIR}/postgres" 2>/dev/null | awk '/not found/{print $1}' | paste -sd, -)"
+missing_libraries="$(ldd "${PG_BINDIR}/postgres" 2>/dev/null | awk '/not found/{print $1}' | paste -sd, - || true)"
 if [[ -n "${missing_libraries}" ]]; then
   echo "PostgreSQL package has unresolved runtime libraries: ${missing_libraries}" >&2
   ldd "${PG_BINDIR}/postgres" >&2 || true
