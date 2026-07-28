@@ -3,6 +3,21 @@
 import type { Content, TDocumentDefinitions } from "pdfmake/interfaces";
 import { calculateEstimate, type EstimateDraft } from "@/lib/domain/estimate";
 
+type VirtualFileSystem = Record<string, string>;
+
+type PdfDocument = {
+  getBlob: (callback: (blob: Blob) => void) => void;
+  download: (filename?: string, callback?: () => void, options?: unknown) => void;
+};
+
+type PdfMakeApi = {
+  vfs?: VirtualFileSystem;
+  addVirtualFileSystem?: (vfs: VirtualFileSystem) => void;
+  createPdf: (definition: TDocumentDefinitions) => PdfDocument;
+};
+
+let pdfMakePromise: Promise<PdfMakeApi> | null = null;
+
 function safeName(value: string) {
   return (
     value
@@ -17,31 +32,76 @@ function saveBlob(blob: Blob, filename: string) {
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = filename;
+  anchor.style.display = "none";
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 500);
+  window.setTimeout(() => URL.revokeObjectURL(url), 2_000);
 }
 
-export function estimatePdfFilename(draft: EstimateDraft) {
-  return `${safeName(draft.title)}-v${draft.revision}.pdf`;
+function isVirtualFileSystem(value: unknown): value is VirtualFileSystem {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const entries = Object.entries(value as Record<string, unknown>);
+  return (
+    entries.length > 0 &&
+    entries.every(([, content]) => typeof content === "string") &&
+    entries.some(([name]) => /\.(?:ttf|otf)$/i.test(name))
+  );
 }
 
-export async function createEstimatePdfBlob(draft: EstimateDraft) {
-  const [{ default: pdfMake }, fonts] = await Promise.all([
+function extractVirtualFileSystem(moduleValue: unknown) {
+  const module = moduleValue as {
+    default?: unknown;
+    pdfMake?: { vfs?: unknown };
+    vfs?: unknown;
+  };
+  const defaultValue = module.default as
+    | { pdfMake?: { vfs?: unknown }; vfs?: unknown }
+    | undefined;
+  const candidates: unknown[] = [
+    module.default,
+    module,
+    module.pdfMake?.vfs,
+    module.vfs,
+    defaultValue?.pdfMake?.vfs,
+    defaultValue?.vfs
+  ];
+  return candidates.find(isVirtualFileSystem) ?? null;
+}
+
+async function loadPdfMake() {
+  pdfMakePromise ??= Promise.all([
     import("pdfmake/build/pdfmake"),
     import("pdfmake/build/vfs_fonts")
-  ]);
-  const fontSource = fonts as unknown as {
-    default?: unknown;
-    pdfMake?: { vfs?: Record<string, string> };
-  };
-  const defaultValue = fontSource.default as
-    | { pdfMake?: { vfs?: Record<string, string> }; vfs?: Record<string, string> }
-    | undefined;
-  const vfs = fontSource.pdfMake?.vfs ?? defaultValue?.pdfMake?.vfs ?? defaultValue?.vfs;
-  if (vfs) (pdfMake as unknown as { vfs: Record<string, string> }).vfs = vfs;
+  ]).then(([pdfModule, fontModule]) => {
+    const moduleValue = pdfModule as unknown as {
+      default?: PdfMakeApi;
+      createPdf?: PdfMakeApi["createPdf"];
+    };
+    const pdfMake = (moduleValue.default ?? moduleValue) as PdfMakeApi;
+    if (typeof pdfMake.createPdf !== "function") {
+      throw new Error("PDF-движок не загрузился в браузере");
+    }
 
+    const vfs = extractVirtualFileSystem(fontModule);
+    if (!vfs) {
+      throw new Error("Встроенные шрифты PDF не загрузились");
+    }
+
+    // pdfmake >= 0.2.15 exports vfs_fonts as the VFS object itself. Older
+    // bundles exposed nested pdfMake.vfs. Prefer the public registration API
+    // and retain assignment only for compatible older builds.
+    if (typeof pdfMake.addVirtualFileSystem === "function") {
+      pdfMake.addVirtualFileSystem(vfs);
+    } else {
+      pdfMake.vfs = vfs;
+    }
+    return pdfMake;
+  });
+  return pdfMakePromise;
+}
+
+function estimatePdfDefinition(draft: EstimateDraft): TDocumentDefinitions {
   const calculation = calculateEstimate(draft);
   const body: any[][] = [
     [
@@ -153,35 +213,41 @@ export async function createEstimatePdfBlob(draft: EstimateDraft) {
     );
   }
 
-  const definition: TDocumentDefinitions = {
+  return {
     pageSize: "A4",
     pageMargins: [28, 32, 28, 32],
     defaultStyle: { fontSize: 8 },
+    info: {
+      title: draft.title,
+      author: draft.contractor || "Просметчик",
+      subject: draft.objectName || "Строительная смета",
+      creator: "Просметчик"
+    },
     content
   };
+}
 
-  // pdfmake 0.2.x exposes getBlob through a completion callback. Treating it
-  // as a promise leaves the export action pending forever and the browser never
-  // receives a download. Wrap the stable callback API and add a bounded timeout
-  // so a malformed document cannot freeze the workspace indefinitely.
-  const pdfDocument = pdfMake.createPdf(definition) as unknown as {
-    getBlob: (callback: (blob: Blob) => void) => void;
-  };
-  return await new Promise<Blob>((resolve, reject) => {
+function withPdfTimeout<T>(
+  label: string,
+  operation: (resolve: (value: T) => void) => void
+) {
+  return new Promise<T>((resolve, reject) => {
     let settled = false;
     const timer = window.setTimeout(() => {
       if (settled) return;
       settled = true;
-      reject(new Error("PDF не был сформирован за отведённое время"));
+      reject(new Error(`${label} не завершён за отведённое время`));
     }, 30_000);
 
+    const complete = (value: T) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      resolve(value);
+    };
+
     try {
-      pdfDocument.getBlob((blob) => {
-        if (settled) return;
-        settled = true;
-        window.clearTimeout(timer);
-        resolve(blob);
-      });
+      operation(complete);
     } catch (error) {
       settled = true;
       window.clearTimeout(timer);
@@ -190,9 +256,29 @@ export async function createEstimatePdfBlob(draft: EstimateDraft) {
   });
 }
 
+async function createEstimatePdfDocument(draft: EstimateDraft) {
+  const pdfMake = await loadPdfMake();
+  return pdfMake.createPdf(estimatePdfDefinition(draft));
+}
+
+export function estimatePdfFilename(draft: EstimateDraft) {
+  return `${safeName(draft.title)}-v${draft.revision}.pdf`;
+}
+
+export async function createEstimatePdfBlob(draft: EstimateDraft) {
+  const pdfDocument = await createEstimatePdfDocument(draft);
+  return withPdfTimeout<Blob>("Формирование PDF", (resolve) => {
+    pdfDocument.getBlob(resolve);
+  });
+}
+
 export async function exportEstimatePdf(draft: EstimateDraft) {
-  const blob = await createEstimatePdfBlob(draft);
-  saveBlob(blob, estimatePdfFilename(draft));
+  const pdfDocument = await createEstimatePdfDocument(draft);
+  await withPdfTimeout<void>("Загрузка PDF", (resolve) => {
+    // Official pdfmake 0.2 client helper. Using it directly produces a real
+    // browser download event and avoids a fragile delayed blob-anchor click.
+    pdfDocument.download(estimatePdfFilename(draft), () => resolve());
+  });
 }
 
 export async function exportEstimateXlsx(draft: EstimateDraft) {
