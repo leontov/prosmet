@@ -105,6 +105,8 @@ test("all workspace sections and thread history actions are functional", async (
   await send(page, "Сделай коммерческое предложение по текущей смете.");
   const documentEditor = page.getByTestId("document-editor");
   await expect(documentEditor).toBeVisible({ timeout: 30_000 });
+  const documentTitle = documentEditor.getByLabel("Название документа");
+  await documentTitle.fill("Коммерческое предложение на выполнение строительных работ — E2E");
   await documentEditor.getByRole("button", { name: "Сохранить", exact: true }).click();
   await expect(documentEditor.getByRole("button", { name: "Сохранено", exact: true })).toBeVisible();
 
@@ -112,9 +114,10 @@ test("all workspace sections and thread history actions are functional", async (
   const documentsView = page.getByTestId("documents-view");
   await expect(documentsView).toBeVisible();
   await expect(
-    documentsView.getByText("Коммерческое предложение на выполнение строительных работ", {
-      exact: true
-    })
+    documentsView.getByText(
+      "Коммерческое предложение на выполнение строительных работ — E2E",
+      { exact: true }
+    )
   ).toBeVisible();
   if (testInfo.project.name === "desktop-chromium") {
     const docDownload = page.waitForEvent("download");
