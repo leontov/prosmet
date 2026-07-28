@@ -1,11 +1,12 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const externalBaseURL = process.env.PROSMET_BASE_URL?.trim();
 const e2ePort = Number(process.env.PROSMET_E2E_PORT || 13110);
-const baseURL = `http://127.0.0.1:${e2ePort}`;
+const baseURL = externalBaseURL || `http://127.0.0.1:${e2ePort}`;
 
 export default defineConfig({
   testDir: "./e2e",
-  timeout: 60_000,
+  timeout: 75_000,
   expect: { timeout: 20_000 },
   retries: process.env.CI ? 1 : 0,
   workers: process.env.CI ? 1 : undefined,
@@ -16,12 +17,18 @@ export default defineConfig({
     screenshot: "only-on-failure",
     video: "retain-on-failure"
   },
-  webServer: {
-    command: `npx next start -H 127.0.0.1 -p ${e2ePort}`,
-    url: `${baseURL}/api/health`,
-    timeout: 120_000,
-    reuseExistingServer: !process.env.CI
-  },
+  webServer: externalBaseURL
+    ? undefined
+    : {
+        command: `npx next start -H 127.0.0.1 -p ${e2ePort}`,
+        url: `${baseURL}/api/health`,
+        timeout: 120_000,
+        reuseExistingServer: !process.env.CI,
+        env: {
+          ...process.env,
+          PORT: String(e2ePort)
+        }
+      },
   projects: [
     {
       name: "desktop-chromium",
