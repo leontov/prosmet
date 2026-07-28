@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateEstimate, validateForApproval, type EstimateDraft } from "@/lib/domain/estimate";
+import { calculateEstimate, validateForApproval, type EstimateDraft } from "./estimate";
 
 function draft(): EstimateDraft {
   return {
