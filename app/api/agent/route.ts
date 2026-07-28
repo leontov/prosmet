@@ -133,19 +133,24 @@ function sleep(ms: number, signal: AbortSignal) {
 
 function initialState(body: Record<string, unknown>, provider: string) {
   const incoming = asRecord(body.state);
-  return {
+  const base = {
     project: {},
     activeEstimate: null,
     estimateRevision: 0,
     documents: [],
     priceContext: {},
     workTrace: [],
-    sync: { status: "server-connected" },
-    provider: { id: provider, status: "available" },
-    validation: {},
+    validation: {}
+  };
+  return {
+    ...base,
     ...incoming,
     sync: { ...asRecord(incoming.sync), status: "server-connected" },
-    provider: { ...asRecord(incoming.provider), id: provider, status: "available" }
+    provider: {
+      ...asRecord(incoming.provider),
+      id: provider,
+      status: "available"
+    }
   };
 }
 
