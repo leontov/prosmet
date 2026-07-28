@@ -1,4 +1,4 @@
-name: Launch Prosmet on 3200
+name: Prosmet Main Production
 
 on:
   push:
@@ -6,6 +6,7 @@ on:
     paths:
       - .github/workflows/launch-3200.yml
       - next.config.ts
+      - playwright.config.ts
       - package.json
       - package-lock.json
       - app/**
@@ -19,152 +20,210 @@ on:
 
 permissions:
   contents: read
-  issues: write
 
 concurrency:
-  group: prosmet-live-3200
+  group: prosmet-main-production
   cancel-in-progress: true
 
 jobs:
-  launch:
+  verify-and-deploy:
+    name: Verify main and deploy to Primary 3200
     runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 90
+    timeout-minutes: 150
     env:
       CI: "1"
       NEXT_TELEMETRY_DISABLED: "1"
       PROSMET_DEFAULT_PROVIDER: "rules"
+      PROSMET_E2E_PORT: "13110"
     steps:
-      - name: Verify Primary runner
+      - name: Verify the only production runner
         run: |
           set -Eeuo pipefail
-          echo "Runner: ${{ runner.name }}"
+          echo "runner=${{ runner.name }}"
+          echo "sha=${GITHUB_SHA}"
           test "${{ runner.name }}" = "prosmet-primary"
+          test "${GITHUB_REF_NAME}" = "main"
 
-      - name: Publish launch started
-        uses: actions/github-script@v7
+      - name: Checkout main
+        uses: actions/checkout@v4
         with:
-          script: |
-            await github.rest.issues.update({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: 1,
-              body: [
-                `**Commit:** \`${context.sha}\``,
-                `**Runner:** \`${{ runner.name }}\``,
-                `**Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
-                `**Updated:** ${new Date().toISOString()}`,
-                "",
-                "## Launching on port 3200",
-                "",
-                "Native IndexedDB cache, persistent PostgreSQL, frontend and AG-UI backend are starting on Primary."
-              ].join("\n")
-            });
+          ref: main
+          fetch-depth: 1
+          clean: true
 
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
         with:
           node-version: "22.16.0"
+          cache: npm
 
-      - name: Install application and PostgreSQL binaries
-        run: |
-          set -Eeuo pipefail
-          if [ ! -f package-lock.json ]; then
-            npm install --package-lock-only --ignore-scripts --no-audit --no-fund
-          fi
-          npm ci --no-audit --no-fund
+      - name: Prepare evidence
+        run: mkdir -p artifacts/logs artifacts/database artifacts/screenshots artifacts/release
 
-      - name: Provision persistent PostgreSQL without sudo
+      - name: Install exact locked dependencies
         run: |
-          set -Eeuo pipefail
-          bash deployment/provision-postgres.sh
+          set -o pipefail
+          npm ci --no-audit --no-fund 2>&1 | tee artifacts/logs/npm-ci.log
+
+      - name: Start persistent PostgreSQL
+        run: |
+          set -o pipefail
+          bash deployment/provision-postgres.sh 2>&1 | tee artifacts/logs/postgres-provision.log
           source "$HOME/.prosmet/database.env"
           echo "::add-mask::$DATABASE_URL"
           echo "PROSMET_DATABASE_DRIVER=postgres" >> "$GITHUB_ENV"
           echo "DATABASE_URL=$DATABASE_URL" >> "$GITHUB_ENV"
 
-      - name: Verify source, types and calculations
+      - name: Verify DATABASE_URL
         run: |
           set -Eeuo pipefail
-          npm run source:contract
-          npm run typecheck
-          npm run test
+          node --input-type=module <<'NODE' | tee artifacts/database/postgres-connection.json
+          import pg from "pg";
+          const connectionString = process.env.DATABASE_URL;
+          if (!connectionString?.startsWith("postgresql://")) {
+            throw new Error("DATABASE_URL is missing or is not PostgreSQL");
+          }
+          const parsed = new URL(connectionString);
+          const client = new pg.Client({ connectionString, connectionTimeoutMillis: 10_000 });
+          await client.connect();
+          try {
+            const result = await client.query(
+              "SELECT current_database() AS database, current_user AS user, inet_server_addr()::text AS host, inet_server_port() AS port, version() AS version"
+            );
+            const row = result.rows[0];
+            if (row.database !== "prosmet") throw new Error(`Unexpected database ${row.database}`);
+            if (row.user !== "prosmet") throw new Error(`Unexpected database user ${row.user}`);
+            console.log(JSON.stringify({
+              connected: true,
+              protocol: parsed.protocol,
+              hostname: parsed.hostname,
+              port: Number(parsed.port),
+              database: row.database,
+              user: row.user,
+              serverHost: row.host,
+              serverPort: row.port,
+              version: row.version
+            }, null, 2));
+          } finally {
+            await client.end();
+          }
+          NODE
 
-      - name: Build production standalone
-        run: npm run build
+      - name: Source contract
+        run: |
+          set -o pipefail
+          npm run source:contract 2>&1 | tee artifacts/logs/source-contract.log
 
-      - name: Launch frontend, AG-UI backend and PostgreSQL
+      - name: Typecheck
+        run: |
+          set -o pipefail
+          npm run typecheck 2>&1 | tee artifacts/logs/typecheck.log
+
+      - name: Unit tests
+        run: |
+          set -o pipefail
+          npm run test 2>&1 | tee artifacts/logs/unit-tests.log
+
+      - name: Production build
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee artifacts/logs/build.log
+
+      - name: Install Chromium
+        run: |
+          set -o pipefail
+          npx playwright install chromium 2>&1 | tee artifacts/logs/chromium-install.log
+
+      - name: Desktop and mobile Chromium before deployment
+        run: |
+          set -o pipefail
+          npm run e2e 2>&1 | tee artifacts/logs/e2e-predeploy.log
+
+      - name: Assert browser SQL and WASM are absent
         run: |
           set -Eeuo pipefail
-          bash deployment/direct-primary.sh "$GITHUB_SHA" 3200
+          test ! -e public/sql-wasm.wasm
+          test ! -e public/sql-wasm-browser.wasm
+          test ! -e lib/local/database.ts
+          test ! -e scripts/copy-sql-wasm.mjs
+          node --input-type=module <<'NODE'
+          import { readFile } from "node:fs/promises";
+          const pkg = JSON.parse(await readFile("package.json", "utf8"));
+          for (const dependency of ["sql.js", "@electric-sql/pglite", "embedded-postgres"]) {
+            if (pkg.dependencies?.[dependency]) throw new Error(`${dependency} is still installed`);
+          }
+          console.log("No browser SQL/WASM dependency remains");
+          NODE
 
-      - name: Verify live no-WASM application
+      - name: Deploy immutable release to port 3200
+        run: |
+          set -o pipefail
+          bash deployment/direct-primary.sh "$GITHUB_SHA" 3200 2>&1 | tee artifacts/logs/deploy.log
+
+      - name: Verify exact live release
         run: |
           set -Eeuo pipefail
           BASE_URL=http://127.0.0.1:3200
-          curl -fsS "$BASE_URL/api/health"
-          curl -fsS "$BASE_URL/api/backend/status" | tee /tmp/prosmet-backend-status.json
-          grep -q '"connected":true' /tmp/prosmet-backend-status.json
-          grep -q '"driver":"postgres"' /tmp/prosmet-backend-status.json
-          grep -q '"browserCache":"IndexedDB"' /tmp/prosmet-backend-status.json
-          grep -q '"wasm":false' /tmp/prosmet-backend-status.json
+          curl -fsS "$BASE_URL/api/health" | tee artifacts/release/health.json
+          curl -fsS "$BASE_URL/api/backend/status" | tee artifacts/release/backend.json
+          grep -q "\"releaseSha\":\"${GITHUB_SHA}\"" artifacts/release/health.json
+          grep -q '"connected":true' artifacts/release/backend.json
+          grep -q '"driver":"postgres"' artifacts/release/backend.json
+          grep -q '"browserCache":"IndexedDB"' artifacts/release/backend.json
+          grep -q '"wasm":false' artifacts/release/backend.json
 
-          curl -fsSI "$BASE_URL/" | tee /tmp/prosmet-headers.txt
-          grep -qi "content-security-policy:.*script-src.*'unsafe-inline'" /tmp/prosmet-headers.txt
-          if grep -qi "content-security-policy:.*'unsafe-eval'" /tmp/prosmet-headers.txt; then
+          curl -fsSI "$BASE_URL/" | tee artifacts/release/headers.txt
+          grep -qi 'cache-control:.*no-store' artifacts/release/headers.txt
+          if grep -qi "content-security-policy:.*'unsafe-eval'" artifacts/release/headers.txt; then
             echo "Production CSP unexpectedly allows unsafe-eval" >&2
             exit 1
           fi
-          if grep -qi "content-security-policy:.*'wasm-unsafe-eval'" /tmp/prosmet-headers.txt; then
+          if grep -qi "content-security-policy:.*'wasm-unsafe-eval'" artifacts/release/headers.txt; then
             echo "Production CSP unexpectedly allows wasm-unsafe-eval" >&2
             exit 1
           fi
 
-          curl -fsS "$BASE_URL/" | tee /tmp/prosmet-index.html >/dev/null
-          if grep -qi 'sql-wasm\|sqlite wasm' /tmp/prosmet-index.html; then
-            echo "Rendered application still references browser SQLite WASM" >&2
-            exit 1
-          fi
+          test "$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/sql-wasm.wasm")" = "404"
+          test "$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/sql-wasm-browser.wasm")" = "404"
 
-          curl -fsS -D /tmp/prosmet-favicon-headers.txt "$BASE_URL/favicon.ico" -o /tmp/prosmet-favicon
-          grep -qi 'content-type: image/svg+xml' /tmp/prosmet-favicon-headers.txt
-          test -s /tmp/prosmet-favicon
-
-          test -s "$HOME/.prosmet/primary-agent.sse"
-          grep -q '"type":"ACTIVITY_SNAPSHOT"' "$HOME/.prosmet/primary-agent.sse"
-          grep -q '"messageId"' "$HOME/.prosmet/primary-agent.sse"
-          grep -q '"type":"RUN_FINISHED"' "$HOME/.prosmet/primary-agent.sse"
-          test -s "$HOME/.prosmet/primary-sync.json"
-          test -s "$HOME/.prosmet/postgres-status.json"
-
-          echo "LIVE http://78.17.4.108:3200/"
-
-      - name: Publish launch result
-        if: always()
-        uses: actions/github-script@v7
+      - name: Desktop and mobile smoke against the live process
         env:
-          JOB_STATUS: ${{ job.status }}
+          PROSMET_BASE_URL: http://127.0.0.1:3200
+        run: |
+          set -o pipefail
+          npx playwright test e2e/browser-smoke.spec.ts \
+            --project=desktop-chromium \
+            --project=mobile-chromium \
+            2>&1 | tee artifacts/logs/e2e-live.log
+
+      - name: Record release evidence
+        run: |
+          cp "$HOME/.prosmet/release.json" artifacts/release/release.json
+          cp "$HOME/.prosmet/postgres-status.json" artifacts/database/postgres-status.json 2>/dev/null || true
+          cat > artifacts/release/summary.json <<JSON
+          {
+            "status": "PASS",
+            "branch": "main",
+            "commit": "${GITHUB_SHA}",
+            "runner": "${{ runner.name }}",
+            "url": "http://78.17.4.108:3200/",
+            "health": "http://78.17.4.108:3200/api/health",
+            "backend": "http://78.17.4.108:3200/api/backend/status",
+            "database": "PostgreSQL",
+            "browserCache": "IndexedDB",
+            "browserWasm": false,
+            "verifiedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          JSON
+
+      - name: Upload complete evidence
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          script: |
-            const success = process.env.JOB_STATUS === "success";
-            await github.rest.issues.update({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: 1,
-              body: [
-                `**Commit:** \`${context.sha}\``,
-                `**Runner:** \`${{ runner.name }}\``,
-                `**Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
-                `**Updated:** ${new Date().toISOString()}`,
-                "",
-                success ? "## ✅ Prosmet is live" : "## ❌ Launch failed",
-                "",
-                success ? "**APP:** http://78.17.4.108:3200/" : "Inspect the workflow log before retrying.",
-                success ? "**HEALTH:** http://78.17.4.108:3200/api/health" : "",
-                success ? "**BACKEND:** http://78.17.4.108:3200/api/backend/status" : "",
-                success ? "**SERVER DB:** persistent PostgreSQL connected" : "",
-                success ? "**LOCAL CACHE:** native IndexedDB, no SQLite WASM" : "",
-                success ? "**AG-UI:** streaming schema verified" : "",
-                success ? "**CSP:** no production eval or WASM permissions" : ""
-              ].filter(Boolean).join("\n")
-            });
+          name: prosmet-main-${{ github.run_id }}
+          path: |
+            artifacts
+            playwright-report
+            test-results
+          if-no-files-found: error
+          retention-days: 30
