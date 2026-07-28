@@ -12,12 +12,40 @@ import { getRepository } from "@/lib/local/repository";
 import { useLocalWorkspace } from "@/lib/local/context";
 
 export function MyRuntimeProvider({ children }: { children: ReactNode }) {
-  const {
-    currentThreadId,
-    refresh,
-    createThread,
-    selectThread
-  } = useLocalWorkspace();
+  const { currentThreadId, refresh, createThread, selectThread } = useLocalWorkspace();
+
+  // useAgUiRuntime intentionally keeps one AgUiThreadRuntimeCore in a ref and
+  // loads history only when that core is created. The local workspace starts
+  // with an optimistic thread ID and then resolves the remembered IndexedDB
+  // thread. Keying the inner provider guarantees a fresh core and a real
+  // history load for the resolved thread instead of showing an empty static
+  // shell after reload.
+  return (
+    <ThreadRuntimeProvider
+      key={currentThreadId}
+      currentThreadId={currentThreadId}
+      refresh={refresh}
+      createThread={createThread}
+      selectThread={selectThread}
+    >
+      {children}
+    </ThreadRuntimeProvider>
+  );
+}
+
+function ThreadRuntimeProvider({
+  children,
+  currentThreadId,
+  refresh,
+  createThread,
+  selectThread
+}: {
+  children: ReactNode;
+  currentThreadId: string;
+  refresh: () => Promise<void>;
+  createThread: () => Promise<string>;
+  selectThread: (id: string) => Promise<void>;
+}) {
   const agentUrl = process.env.NEXT_PUBLIC_AGUI_AGENT_URL?.trim() || "/api/agent";
 
   const agent = useMemo(
@@ -56,7 +84,9 @@ export function MyRuntimeProvider({ children }: { children: ReactNode }) {
       onSwitchToThread: async (threadId: string) => {
         await selectThread(threadId);
         const loaded = await (await getRepository()).loadMessages(threadId);
-        return { messages: loaded.messages.map((entry) => entry.message) };
+        return {
+          messages: loaded.messages.map((entry) => entry.message)
+        };
       }
     }),
     [currentThreadId, createThread, selectThread]
