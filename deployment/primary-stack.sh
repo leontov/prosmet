@@ -11,6 +11,19 @@ POSTGRES_VOLUME="prosmet-postgres-data"
 APP_CONTAINER="prosmet"
 BIND_ADDRESS="0.0.0.0"
 
+if docker info >/dev/null 2>&1; then
+  DOCKER=(docker)
+elif sudo -n docker info >/dev/null 2>&1; then
+  DOCKER=(sudo -n docker)
+else
+  echo "Docker is unavailable to the Prosmet deployment runner" >&2
+  exit 1
+fi
+
+dkr() {
+  "${DOCKER[@]}" "$@"
+}
+
 if [[ "$MODE" == "canary" ]]; then
   APP_CONTAINER="prosmet-canary"
   PUBLIC_PORT="13100"
@@ -32,15 +45,15 @@ if [[ ! -f "$ROOT/app.secret" ]]; then
 fi
 APP_SECRET="$(tr -d '\r\n' < "$ROOT/app.secret")"
 
-if ! docker network inspect "$NETWORK" >/dev/null 2>&1; then
-  docker network create "$NETWORK" >/dev/null
+if ! dkr network inspect "$NETWORK" >/dev/null 2>&1; then
+  dkr network create "$NETWORK" >/dev/null
 fi
 
-docker volume inspect "$POSTGRES_VOLUME" >/dev/null 2>&1 || \
-  docker volume create "$POSTGRES_VOLUME" >/dev/null
+dkr volume inspect "$POSTGRES_VOLUME" >/dev/null 2>&1 || \
+  dkr volume create "$POSTGRES_VOLUME" >/dev/null
 
-if ! docker inspect "$POSTGRES_CONTAINER" >/dev/null 2>&1; then
-  docker run -d \
+if ! dkr inspect "$POSTGRES_CONTAINER" >/dev/null 2>&1; then
+  dkr run -d \
     --name "$POSTGRES_CONTAINER" \
     --restart unless-stopped \
     --network "$NETWORK" \
@@ -54,15 +67,15 @@ if ! docker inspect "$POSTGRES_CONTAINER" >/dev/null 2>&1; then
     --health-retries=20 \
     postgres:16-alpine >/dev/null
 else
-  docker start "$POSTGRES_CONTAINER" >/dev/null 2>&1 || true
+  dkr start "$POSTGRES_CONTAINER" >/dev/null 2>&1 || true
 fi
 
 for attempt in $(seq 1 40); do
-  if [[ "$(docker inspect -f '{{.State.Health.Status}}' "$POSTGRES_CONTAINER" 2>/dev/null || true)" == "healthy" ]]; then
+  if [[ "$(dkr inspect -f '{{.State.Health.Status}}' "$POSTGRES_CONTAINER" 2>/dev/null || true)" == "healthy" ]]; then
     break
   fi
   if [[ "$attempt" == "40" ]]; then
-    docker logs "$POSTGRES_CONTAINER" || true
+    dkr logs "$POSTGRES_CONTAINER" || true
     echo "PostgreSQL did not become healthy" >&2
     exit 1
   fi
@@ -90,9 +103,9 @@ for optional_name in \
 done
 chmod 600 "$ROOT/runtime.env"
 
-docker rm -f "$APP_CONTAINER" >/dev/null 2>&1 || true
+dkr rm -f "$APP_CONTAINER" >/dev/null 2>&1 || true
 
-docker run -d \
+dkr run -d \
   --name "$APP_CONTAINER" \
   --restart unless-stopped \
   --network "$NETWORK" \
@@ -114,7 +127,7 @@ for attempt in $(seq 1 40); do
     fi
   fi
   if [[ "$attempt" == "40" ]]; then
-    docker logs "$APP_CONTAINER" || true
+    dkr logs "$APP_CONTAINER" || true
     echo "Prosmet frontend/backend did not become healthy" >&2
     exit 1
   fi
