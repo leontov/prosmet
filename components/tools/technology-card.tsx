@@ -115,7 +115,7 @@ export function TechnologyCard({
           {!running && (
             <div className="mt-4 flex items-center gap-2 rounded-xl bg-emerald-50 px-3 py-2.5 text-xs text-emerald-800">
               <CheckCircle2Icon className="size-4" />
-              Состав работ сформирован до расчёта сметы.
+              Подготовил технологическую карту: состав работ сформирован до расчёта сметы.
             </div>
           )}
         </div>
