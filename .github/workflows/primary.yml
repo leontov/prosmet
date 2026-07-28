@@ -22,7 +22,7 @@ jobs:
       CI: "1"
       NEXT_TELEMETRY_DISABLED: "1"
       PROSMET_DEFAULT_PROVIDER: "rules"
-      DEPLOY_PORT: "3100"
+      DEPLOY_PORT: "3200"
     steps:
       - name: Verify runner identity
         id: runner
@@ -93,7 +93,7 @@ jobs:
         id: chromium
         if: steps.install.outcome == 'success'
         continue-on-error: true
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install chromium
 
       - name: Desktop and mobile E2E
         id: e2e
@@ -158,6 +158,12 @@ jobs:
         run: |
           set -euo pipefail
           docker rm -f prosmet >/dev/null 2>&1 || true
+
+          if command -v ss >/dev/null 2>&1 && ss -H -ltn "sport = :${DEPLOY_PORT}" | grep -q .; then
+            echo "Port ${DEPLOY_PORT} is occupied by another service. Prosmet will not delete or replace it."
+            exit 1
+          fi
+
           docker run -d \
             --name prosmet \
             --restart unless-stopped \
@@ -242,7 +248,7 @@ jobs:
               ["desktop/mobile E2E", process.env.E2E_GATE],
               ["Docker image", process.env.IMAGE_GATE],
               ["canary", process.env.CANARY_GATE],
-              ["Primary deploy", process.env.DEPLOY_GATE],
+              ["Primary deploy", process.env.DEPLOY_GATE]
             ];
             const icon = (value) => value === "success" ? "✅" : value === "skipped" ? "⏭️" : "❌";
             const body = [
@@ -256,14 +262,14 @@ jobs:
               ...checks.map(([name, value]) => `| ${name} | ${icon(value)} ${value || "not-run"} |`),
               "",
               process.env.DEPLOY_GATE === "success"
-                ? "**LIVE:** http://78.17.4.108:3100/"
-                : "Deployment is blocked until every required gate passes.",
+                ? "**LIVE:** http://78.17.4.108:3200/"
+                : "Deployment is blocked until every required gate passes."
             ].join("\n");
             const issues = await github.paginate(github.rest.issues.listForRepo, {
               owner: context.repo.owner,
               repo: context.repo.repo,
               state: "open",
-              per_page: 100,
+              per_page: 100
             });
             const existing = issues.find((issue) => !issue.pull_request && issue.title === title);
             if (existing) {
@@ -271,14 +277,14 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: existing.number,
-                body,
+                body
               });
             } else {
               await github.rest.issues.create({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 title,
-                body,
+                body
               });
             }
 
