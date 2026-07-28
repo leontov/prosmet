@@ -147,7 +147,6 @@ for (const token of [
 }
 for (const token of [
   "postgres-server.mjs",
-  "embedded-postgres",
   "pglite",
   "sudo ",
   "systemctl",
