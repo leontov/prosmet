@@ -1,0 +1,324 @@
+name: Prosmet live 3200 server-first
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/live-3200-server-first.yml
+      - app/**
+      - components/**
+      - lib/**
+      - deployment/**
+      - next.config.ts
+      - package.json
+      - package-lock.json
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: prosmet-live-3200-server-first
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 90
+    env:
+      CI: "1"
+      NEXT_TELEMETRY_DISABLED: "1"
+      PROSMET_DEFAULT_PROVIDER: "rules"
+      APP_PORT: "3200"
+    steps:
+      - name: Verify Primary runner
+        run: |
+          set -Eeuo pipefail
+          echo "runner=${{ runner.name }}"
+          test "${{ runner.name }}" = "prosmet-primary"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          clean: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.16.0"
+
+      - name: Install dependencies
+        run: |
+          set -Eeuo pipefail
+          npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          npm ci --no-audit --no-fund
+
+      - name: Reject browser WASM architecture
+        run: |
+          set -Eeuo pipefail
+          test ! -e lib/local/database.ts
+          test ! -e public/sql-wasm.wasm
+          test ! -e public/sql-wasm-browser.wasm
+          ! grep -RIn --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=.next \
+            -E 'sql\.js|sql-wasm|SQLite WASM|wasm-unsafe-eval' \
+            app components lib next.config.ts package.json
+
+      - name: Provision real PostgreSQL
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ROOT="$HOME/.prosmet"
+          mkdir -p "$ROOT"
+
+          db_ok() {
+            if [ ! -s "$ROOT/database.env" ]; then return 1; fi
+            # shellcheck disable=SC1090
+            source "$ROOT/database.env"
+            DATABASE_URL="$DATABASE_URL" node --input-type=module <<'NODE'
+          import pg from "pg";
+          const client = new pg.Client({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 3000 });
+          await client.connect();
+          try {
+            const result = await client.query("select current_database() as database, current_user as username");
+            if (!result.rows[0]?.database) process.exit(2);
+          } finally {
+            await client.end();
+          }
+          NODE
+          }
+
+          if ! db_ok; then
+            if sudo -n true >/dev/null 2>&1; then
+              sudo -n apt-get update
+              sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql postgresql-client
+              sudo -n systemctl enable --now postgresql
+              DB_USER="prosmet_app"
+              DB_NAME="prosmet"
+              DB_PASSWORD="$(openssl rand -hex 32)"
+              sudo -n -u postgres psql -v ON_ERROR_STOP=1 <<SQL
+          DO \$\$
+          BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${DB_USER}') THEN
+              CREATE ROLE ${DB_USER} LOGIN PASSWORD '${DB_PASSWORD}';
+            ELSE
+              ALTER ROLE ${DB_USER} WITH LOGIN PASSWORD '${DB_PASSWORD}';
+            END IF;
+          END
+          \$\$;
+          SQL
+              if ! sudo -n -u postgres psql -tAc "select 1 from pg_database where datname='${DB_NAME}'" | grep -q 1; then
+                sudo -n -u postgres createdb -O "$DB_USER" "$DB_NAME"
+              fi
+              umask 077
+              cat > "$ROOT/database.env" <<ENV
+          export PROSMET_DATABASE_DRIVER=postgres
+          export DATABASE_URL='postgresql://${DB_USER}:${DB_PASSWORD}@127.0.0.1:5432/${DB_NAME}'
+          ENV
+            elif [ -x deployment/provision-postgres.sh ]; then
+              bash deployment/provision-postgres.sh
+            else
+              echo "No working PostgreSQL and no permitted provisioning path" >&2
+              exit 1
+            fi
+          fi
+
+          # shellcheck disable=SC1090
+          source "$ROOT/database.env"
+          echo "::add-mask::$DATABASE_URL"
+          echo "PROSMET_DATABASE_DRIVER=postgres" >> "$GITHUB_ENV"
+          echo "DATABASE_URL=$DATABASE_URL" >> "$GITHUB_ENV"
+          db_ok
+
+      - name: Verify source, types and calculations
+        run: |
+          set -Eeuo pipefail
+          npm run source:contract
+          npm run typecheck
+          npm run test
+
+      - name: Build production application
+        run: npm run build
+
+      - name: Deploy frontend and backend on port 3200
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ROOT="$HOME/.prosmet"
+          RELEASE="$ROOT/releases/$GITHUB_SHA"
+          PID_FILE="$ROOT/prosmet.pid"
+          LOG_FILE="$ROOT/prosmet.log"
+          mkdir -p "$RELEASE/.next"
+          rm -rf "$RELEASE"/*
+          cp -a .next/standalone/. "$RELEASE/"
+          cp -a .next/static "$RELEASE/.next/static"
+          cp -a public "$RELEASE/public"
+
+          if [ -s "$PID_FILE" ]; then
+            OLD_PID="$(cat "$PID_FILE" || true)"
+            if [[ "$OLD_PID" =~ ^[0-9]+$ ]] && kill -0 "$OLD_PID" 2>/dev/null; then
+              kill "$OLD_PID" || true
+              for _ in $(seq 1 20); do
+                kill -0 "$OLD_PID" 2>/dev/null || break
+                sleep 1
+              done
+            fi
+          fi
+
+          if ss -H -ltn "sport = :$APP_PORT" | grep -q .; then
+            if command -v fuser >/dev/null 2>&1; then
+              sudo -n fuser -k "$APP_PORT/tcp" 2>/dev/null || fuser -k "$APP_PORT/tcp" 2>/dev/null || true
+              sleep 2
+            fi
+          fi
+          if ss -H -ltn "sport = :$APP_PORT" | grep -q .; then
+            echo "Port $APP_PORT is still occupied" >&2
+            ss -H -ltnp "sport = :$APP_PORT" || true
+            exit 1
+          fi
+
+          # shellcheck disable=SC1090
+          source "$ROOT/database.env"
+          cd "$RELEASE"
+          env \
+            RUNNER_TRACKING_ID= \
+            NODE_ENV=production \
+            PORT="$APP_PORT" \
+            HOSTNAME=0.0.0.0 \
+            PROSMET_DATABASE_DRIVER=postgres \
+            DATABASE_URL="$DATABASE_URL" \
+            PROSMET_DEFAULT_PROVIDER="$PROSMET_DEFAULT_PROVIDER" \
+            NEXT_PUBLIC_AGUI_AGENT_URL=/api/agent \
+            nohup node server.js > "$LOG_FILE" 2>&1 < /dev/null &
+          APP_PID=$!
+          echo "$APP_PID" > "$PID_FILE"
+
+          for attempt in $(seq 1 90); do
+            if curl -fsS "http://127.0.0.1:$APP_PORT/api/health" >/tmp/prosmet-health.json && \
+               curl -fsS "http://127.0.0.1:$APP_PORT/api/backend/status" >/tmp/prosmet-backend.json && \
+               grep -q '"connected":true' /tmp/prosmet-backend.json && \
+               grep -q '"driver":"postgres"' /tmp/prosmet-backend.json; then
+              break
+            fi
+            if ! kill -0 "$APP_PID" 2>/dev/null; then
+              tail -n 300 "$LOG_FILE" || true
+              exit 1
+            fi
+            if [ "$attempt" = 90 ]; then
+              tail -n 300 "$LOG_FILE" || true
+              exit 1
+            fi
+            sleep 2
+          done
+
+      - name: Verify APIs and AG-UI streaming
+        run: |
+          set -Eeuo pipefail
+          BASE="http://127.0.0.1:$APP_PORT"
+          curl -fsS "$BASE/api/health" | tee /tmp/prosmet-health.json
+          curl -fsS "$BASE/api/backend/status" | tee /tmp/prosmet-backend.json
+          grep -q '"connected":true' /tmp/prosmet-backend.json
+          grep -q '"driver":"postgres"' /tmp/prosmet-backend.json
+          grep -q '"browserCache":"IndexedDB"' /tmp/prosmet-backend.json
+          grep -q '"wasm":false' /tmp/prosmet-backend.json
+
+          curl -fsS "$BASE/api/sync?cursor=0&limit=1" | tee /tmp/prosmet-sync.json
+          curl --fail --silent --show-error --no-buffer --max-time 60 \
+            -H 'content-type: application/json' \
+            -H 'accept: text/event-stream' \
+            -d '{"threadId":"live-probe","runId":"live-probe","messages":[{"id":"probe-user","role":"user","content":[{"type":"text","text":"Составь краткую тестовую смету штукатурки 10 м²"}]}],"tools":[],"context":{},"state":{}}' \
+            "$BASE/api/agent" | tee /tmp/prosmet-agent.sse
+          grep -q '"type":"RUN_STARTED"' /tmp/prosmet-agent.sse
+          grep -q '"type":"TEXT_MESSAGE_CONTENT"' /tmp/prosmet-agent.sse
+          grep -q '"type":"RUN_FINISHED"' /tmp/prosmet-agent.sse
+
+          curl -fsSI "$BASE/" | tee /tmp/prosmet-headers.txt
+          if grep -qi "content-security-policy:.*'unsafe-eval'" /tmp/prosmet-headers.txt; then
+            echo "Production CSP still permits unsafe-eval" >&2
+            exit 1
+          fi
+          if grep -qi "content-security-policy:.*wasm" /tmp/prosmet-headers.txt; then
+            echo "Production CSP still permits WASM" >&2
+            exit 1
+          fi
+
+      - name: Verify interactive browser, not static HTML
+        run: |
+          set -Eeuo pipefail
+          npx playwright install chromium
+          mkdir -p artifacts/screenshots
+          APP_PORT="$APP_PORT" node --input-type=module <<'NODE'
+          import { chromium } from "playwright";
+          const base = `http://127.0.0.1:${process.env.APP_PORT}`;
+          const browser = await chromium.launch({ headless: true });
+          const page = await browser.newPage({ viewport: { width: 1440, height: 960 } });
+          const errors = [];
+          page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+          page.on("console", (message) => {
+            if (message.type() === "error") errors.push(`console: ${message.text()}`);
+          });
+          try {
+            const response = await page.goto(base, { waitUntil: "domcontentloaded", timeout: 60000 });
+            if (!response?.ok()) throw new Error(`Page HTTP ${response?.status()}`);
+            const composer = page.getByLabel("Сообщение Просметчику");
+            await composer.waitFor({ state: "visible", timeout: 30000 });
+            await composer.fill("Составь тестовую смету механизированной штукатурки 12 м²");
+            const send = page.getByRole("button", { name: "Отправить" });
+            await send.click();
+            await page.getByTestId("estimate-editor").waitFor({ state: "visible", timeout: 45000 });
+            const dynamicText = await page.getByTestId("estimate-editor").innerText();
+            if (!dynamicText.includes("Интерактивная смета")) {
+              throw new Error("Interactive estimate did not render");
+            }
+            const databases = await page.evaluate(async () =>
+              (await indexedDB.databases()).map((entry) => entry.name)
+            );
+            if (!databases.includes("prosmet-cache-v3")) {
+              throw new Error(`IndexedDB cache missing: ${JSON.stringify(databases)}`);
+            }
+            await page.screenshot({ path: "artifacts/screenshots/prosmet-live-3200.png", fullPage: true });
+            const relevant = errors.filter((message) =>
+              /hydration|content security policy|wasm|sql-wasm|uncaught|typeerror|referenceerror|zoderror/i.test(message)
+            );
+            if (relevant.length) throw new Error(relevant.join("\n"));
+          } finally {
+            await browser.close();
+          }
+          NODE
+
+      - name: Publish live status
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          JOB_STATUS: ${{ job.status }}
+        with:
+          script: |
+            const ok = process.env.JOB_STATUS === "success";
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 1,
+              body: [
+                `**Commit:** \`${context.sha}\``,
+                `**Runner:** \`${{ runner.name }}\``,
+                `**Run:** ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                `**Updated:** ${new Date().toISOString()}`,
+                "",
+                ok ? "## ✅ Просметчик работает динамически" : "## ❌ Запуск заблокирован проверкой",
+                "",
+                ok ? "**APP:** http://78.17.4.108:3200/" : "Смотрите упавший шаг workflow.",
+                ok ? "**BACKEND:** Next.js Node + AG-UI SSE" : "",
+                ok ? "**SERVER DB:** PostgreSQL connected" : "",
+                ok ? "**LOCAL CACHE:** IndexedDB, без WASM" : "",
+                ok ? "**BROWSER:** composer → streaming → estimate editor PASS" : "",
+                ok ? "**CSP:** no eval / no WASM" : ""
+              ].filter(Boolean).join("\n")
+            });
+
+      - name: Upload browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prosmet-live-3200-${{ github.run_id }}
+          path: artifacts
+          if-no-files-found: ignore
+          retention-days: 30
