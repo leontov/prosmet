@@ -35,11 +35,8 @@ jobs:
       - name: Prepare evidence
         run: mkdir -p artifacts/logs artifacts/screenshots
 
-      - name: Lockfile
-        run: |
-          if [ ! -f package-lock.json ]; then
-            npm install --package-lock-only --ignore-scripts --no-audit --no-fund
-          fi
+      - name: Refresh dependency lock
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
 
       - name: Install application and PostgreSQL binaries
         run: npm ci --no-audit --no-fund 2>&1 | tee artifacts/logs/npm-ci.log
