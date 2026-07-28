@@ -23,7 +23,11 @@ function saveBlob(blob: Blob, filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 500);
 }
 
-export async function exportEstimatePdf(draft: EstimateDraft) {
+export function estimatePdfFilename(draft: EstimateDraft) {
+  return `${safeName(draft.title)}-v${draft.revision}.pdf`;
+}
+
+export async function createEstimatePdfBlob(draft: EstimateDraft) {
   const [{ default: pdfMake }, fonts] = await Promise.all([
     import("pdfmake/build/pdfmake"),
     import("pdfmake/build/vfs_fonts")
@@ -78,6 +82,14 @@ export async function exportEstimatePdf(draft: EstimateDraft) {
     }
   }
 
+  const projectDetails: Content[] = [
+    { text: `Объект: ${draft.objectName || "—"}` },
+    { text: `Заказчик: ${draft.customer || "—"}` },
+    { text: `Подрядчик: ${draft.contractor || "—"}` },
+    { text: `Регион: ${draft.region || "—"}` },
+    { text: `Метод: ${draft.method}` }
+  ];
+
   const content: Content[] = [
     {
       text: draft.title,
@@ -88,11 +100,7 @@ export async function exportEstimatePdf(draft: EstimateDraft) {
     },
     {
       columns: [
-        [
-          { text: `Объект: ${draft.objectName || "—"}` },
-          { text: `Регион: ${draft.region || "—"}` },
-          { text: `Метод: ${draft.method}` }
-        ],
+        projectDetails,
         [
           { text: `Дата: ${draft.date}`, alignment: "right" },
           { text: `Версия: ${draft.revision}`, alignment: "right" },
@@ -152,14 +160,18 @@ export async function exportEstimatePdf(draft: EstimateDraft) {
     content
   };
 
-  const blob = await new Promise<Blob>((resolve, reject) => {
+  return new Promise<Blob>((resolve, reject) => {
     try {
       pdfMake.createPdf(definition).getBlob((value: Blob) => resolve(value));
     } catch (error) {
       reject(error);
     }
   });
-  saveBlob(blob, `${safeName(draft.title)}-v${draft.revision}.pdf`);
+}
+
+export async function exportEstimatePdf(draft: EstimateDraft) {
+  const blob = await createEstimatePdfBlob(draft);
+  saveBlob(blob, estimatePdfFilename(draft));
 }
 
 export async function exportEstimateXlsx(draft: EstimateDraft) {
