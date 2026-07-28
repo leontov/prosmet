@@ -33,7 +33,17 @@ import {
 } from "@/components/attachments";
 import { MarkdownText } from "@/components/markdown-text";
 
-const isNew = (state: any) =>
+interface EmptyThreadState {
+  thread: {
+    messages: readonly unknown[];
+    isLoading: boolean;
+  };
+  threads: {
+    isLoading: boolean;
+  };
+}
+
+const isNew = (state: EmptyThreadState) =>
   state.thread.messages.length === 0 &&
   (!state.thread.isLoading || state.threads.isLoading);
 
