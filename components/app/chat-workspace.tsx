@@ -16,6 +16,7 @@ import {
   FolderKanbanIcon,
   FolderOpenIcon,
   MenuIcon,
+  MessageSquareTextIcon,
   MoreHorizontalIcon,
   PanelLeftCloseIcon,
   PanelRightOpenIcon,
@@ -51,21 +52,27 @@ const suggestions = Suggestions([
   },
   {
     title: "Кровля с демонтажом шифера",
-    label: "ремонт основания, профлист, доборные элементы",
+    label: "ремонт основания, новое покрытие и доборные элементы",
     prompt:
-      "Составь смету замены кровли: демонтировать старый шифер, локально отремонтировать основание и смонтировать профлист. Сначала сформируй технологическую карту и покажи допущения."
+      "Составь смету замены кровли 160 м² в Казани: демонтировать старый шифер, локально отремонтировать основание и смонтировать новое покрытие. Сначала сформируй технологическую карту и покажи все допущения."
   },
   {
     title: "Монтаж отопления дома",
     label: "оборудование, материалы, работы и пусконаладка",
     prompt:
-      "Подготовь профессиональную смету монтажа отопления частного дома. Уточни только критичные исходные данные, затем составь технологическую карту, ресурсную ведомость и смету."
+      "Подготовь профессиональную смету монтажа отопления частного дома 160 м² в Альметьевске. Уточни только критичные исходные данные, затем составь технологическую карту, ресурсную ведомость и смету."
+  },
+  {
+    title: "Электромонтаж квартиры",
+    label: "кабели, щит, точки, измерения и пусконаладка",
+    prompt:
+      "Составь полную смету электромонтажа квартиры 74 м² в Казани. Сначала определи технологию и состав системы, затем покажи редактируемую смету и список данных, которые нужно подтвердить."
   },
   {
     title: "Смета → КП → договор",
     label: "полный комплект документов в одном чате",
     prompt:
-      "Создай пример полной сметы ремонта помещения, затем коммерческое предложение и договор. Все результаты покажи как редактируемые документы в этом чате."
+      "Создай пример полной сметы ремонта помещения 80 м², затем коммерческое предложение и договор. Все результаты покажи как редактируемые документы в этом чате."
   }
 ]);
 
@@ -146,6 +153,7 @@ export function ChatWorkspace() {
       setDeleteTarget(null);
       setLeftMobileOpen(false);
       setRightMobileOpen(false);
+      setView("chat");
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
@@ -175,6 +183,12 @@ export function ChatWorkspace() {
     setLeftMobileOpen(false);
   };
 
+  const archiveThread = async (threadId: string) => {
+    await workspace.archiveThread(threadId);
+    setMenuId(null);
+    setLeftMobileOpen(false);
+  };
+
   const beginRename = (thread: LocalThread) => {
     setMenuId(null);
     setRenameTarget(thread);
@@ -191,7 +205,32 @@ export function ChatWorkspace() {
     if (!deleteTarget) return;
     await workspace.deleteThread(deleteTarget.id);
     setDeleteTarget(null);
+    setLeftMobileOpen(false);
   };
+
+  const renderThread = (thread: LocalThread, pinned = false) => (
+    <ThreadRow
+      key={thread.id}
+      thread={thread}
+      active={thread.id === workspace.currentThreadId}
+      pinned={pinned}
+      menuOpen={menuId === thread.id}
+      onOpen={() => void openThread(thread.id)}
+      onMenu={() => setMenuId((current) => (current === thread.id ? null : thread.id))}
+      onRename={() => beginRename(thread)}
+      onPin={() =>
+        void workspace.togglePin(thread.id, !thread.pinned).then(() => setMenuId(null))
+      }
+      onArchive={() => void archiveThread(thread.id)}
+      onRestore={() =>
+        void workspace.restoreThread(thread.id).then(() => setMenuId(null))
+      }
+      onDelete={() => {
+        setMenuId(null);
+        setDeleteTarget(thread);
+      }}
+    />
+  );
 
   const leftSidebar = (
     <aside
@@ -279,31 +318,7 @@ export function ChatWorkspace() {
           </div>
           <div className="px-2 pt-2">
             {pinnedThreads.length ? (
-              <div className="grid gap-1">
-                {pinnedThreads.map((thread) => (
-                  <ThreadRow
-                    key={thread.id}
-                    thread={thread}
-                    active={thread.id === workspace.currentThreadId && view === "chat"}
-                    pinned
-                    menuOpen={menuId === thread.id}
-                    onOpen={() => void openThread(thread.id)}
-                    onMenu={() => setMenuId((current) => (current === thread.id ? null : thread.id))}
-                    onRename={() => beginRename(thread)}
-                    onPin={() =>
-                      void workspace.togglePin(thread.id, false).then(() => setMenuId(null))
-                    }
-                    onArchive={() =>
-                      void workspace.archiveThread(thread.id).then(() => setMenuId(null))
-                    }
-                    onRestore={() => undefined}
-                    onDelete={() => {
-                      setMenuId(null);
-                      setDeleteTarget(thread);
-                    }}
-                  />
-                ))}
-              </div>
+              <div className="grid gap-1">{pinnedThreads.map((thread) => renderThread(thread, true))}</div>
             ) : (
               <div className="rounded-xl border border-dashed border-[#cfd5e7] px-3 py-3 text-[11px] leading-5 text-[#7b8190]">
                 Закрепите важный чат через меню <strong>•••</strong> — он появится здесь.
@@ -333,32 +348,7 @@ export function ChatWorkspace() {
 
       <div className="prosmet-scrollbar min-h-0 flex-1 overflow-y-auto px-2 pb-4 pt-2">
         {historyThreads.length ? (
-          <div className="grid gap-0.5">
-            {historyThreads.map((thread) => (
-              <ThreadRow
-                key={thread.id}
-                thread={thread}
-                active={thread.id === workspace.currentThreadId && view === "chat"}
-                menuOpen={menuId === thread.id}
-                onOpen={() => void openThread(thread.id)}
-                onMenu={() => setMenuId((current) => (current === thread.id ? null : thread.id))}
-                onRename={() => beginRename(thread)}
-                onPin={() =>
-                  void workspace.togglePin(thread.id, !thread.pinned).then(() => setMenuId(null))
-                }
-                onArchive={() =>
-                  void workspace.archiveThread(thread.id).then(() => setMenuId(null))
-                }
-                onRestore={() =>
-                  void workspace.restoreThread(thread.id).then(() => setMenuId(null))
-                }
-                onDelete={() => {
-                  setMenuId(null);
-                  setDeleteTarget(thread);
-                }}
-              />
-            ))}
-          </div>
+          <div className="grid gap-0.5">{historyThreads.map((thread) => renderThread(thread))}</div>
         ) : (
           <p className="px-2 py-4 text-xs leading-5 text-neutral-500">
             {query
@@ -434,7 +424,7 @@ export function ChatWorkspace() {
   const headerSubtitle =
     view === "chat"
       ? currentThread?.objectName || "Просметчик · AI-сметная контора"
-      : "Просметчик · рабочее пространство";
+      : "Вспомогательный обзор · основной процесс остаётся в чате";
 
   return (
     <AuiProvider value={aui}>
@@ -496,6 +486,15 @@ export function ChatWorkspace() {
               </div>
 
               <div className="flex items-center gap-1">
+                {view !== "chat" ? (
+                  <button
+                    type="button"
+                    onClick={() => navigate("chat")}
+                    className="hidden h-8 items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 text-xs font-medium text-neutral-700 hover:bg-neutral-50 sm:inline-flex"
+                  >
+                    <MessageSquareTextIcon className="size-3.5" /> Вернуться в чат
+                  </button>
+                ) : null}
                 <HeaderIcon
                   label="Рабочий контекст"
                   onClick={() => {
@@ -528,17 +527,46 @@ export function ChatWorkspace() {
               </div>
             ) : null}
 
-            <div className="min-h-0 flex-1">
-              {view === "chat" ? (
+            <div className="relative min-h-0 flex-1 overflow-hidden" data-testid="universal-chat-canvas">
+              <div
+                className={cn(
+                  "h-full transition-opacity",
+                  view !== "chat" && "pointer-events-none opacity-35"
+                )}
+                aria-hidden={view !== "chat"}
+              >
                 <ProsmetThread />
-              ) : (
-                <WorkspaceLibrary
-                  view={view as LibraryView}
-                  onOpenThread={openThread}
-                  onStartNew={startNew}
-                  onNavigate={navigate}
-                />
-              )}
+              </div>
+
+              {view !== "chat" ? (
+                <section
+                  className="absolute inset-0 z-30 flex min-h-0 flex-col bg-white/96 backdrop-blur-[2px]"
+                  data-testid="workspace-overlay"
+                >
+                  <div className="flex h-11 shrink-0 items-center justify-between border-b border-neutral-200 bg-white px-3 sm:px-4">
+                    <div className="flex min-w-0 items-center gap-2 text-xs text-neutral-500">
+                      <MessageSquareTextIcon className="size-3.5 shrink-0" />
+                      <span className="truncate">Чат остаётся источником состояния и истории</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => navigate("chat")}
+                      aria-label="Вернуться в чат"
+                      className="inline-flex h-8 items-center gap-2 rounded-lg bg-neutral-900 px-3 text-xs font-medium text-white hover:bg-black"
+                    >
+                      <XIcon className="size-3.5" /> Закрыть обзор
+                    </button>
+                  </div>
+                  <div className="min-h-0 flex-1">
+                    <WorkspaceLibrary
+                      view={view as LibraryView}
+                      onOpenThread={openThread}
+                      onStartNew={startNew}
+                      onNavigate={navigate}
+                    />
+                  </div>
+                </section>
+              ) : null}
             </div>
           </main>
 
