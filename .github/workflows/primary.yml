@@ -17,7 +17,7 @@ jobs:
   verify-and-deploy:
     name: Verify and deploy on prosmet-primary
     runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 60
+    timeout-minutes: 75
     env:
       CI: "1"
       NEXT_TELEMETRY_DISABLED: "1"
@@ -29,7 +29,7 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          set -euo pipefail
+          set -Eeuo pipefail
           echo "Runner: ${{ runner.name }}"
           echo "OS: ${{ runner.os }} / ${{ runner.arch }}"
           test "${{ runner.name }}" = "prosmet-primary"
@@ -48,13 +48,17 @@ jobs:
         with:
           node-version: "22.16.0"
 
+      - name: Prepare evidence
+        if: steps.node.outcome == 'success'
+        run: mkdir -p artifacts/logs artifacts/screenshots
+
       - name: Create lockfile when repository is freshly initialized
         id: lockfile
         if: steps.node.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
-          set -euo pipefail
+          set -Eeuo pipefail
           if [ ! -f package-lock.json ]; then
             npm install --package-lock-only --ignore-scripts --no-audit --no-fund
           fi
@@ -63,43 +67,64 @@ jobs:
         id: install
         if: steps.lockfile.outcome == 'success'
         continue-on-error: true
-        run: npm ci --no-audit --no-fund
+        shell: bash
+        run: |
+          set -o pipefail
+          npm ci --no-audit --no-fund 2>&1 | tee artifacts/logs/npm-ci.log
 
       - name: Source contract
         id: source_contract
         if: steps.install.outcome == 'success'
         continue-on-error: true
-        run: npm run source:contract
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run source:contract 2>&1 | tee artifacts/logs/source-contract.log
 
       - name: TypeScript
         id: typecheck
         if: steps.install.outcome == 'success'
         continue-on-error: true
-        run: npm run typecheck
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run typecheck 2>&1 | tee artifacts/logs/typecheck.log
 
       - name: Unit tests
         id: unit_tests
         if: steps.install.outcome == 'success'
         continue-on-error: true
-        run: npm run test
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run test 2>&1 | tee artifacts/logs/unit-tests.log
 
       - name: Production build
         id: build
         if: steps.install.outcome == 'success'
         continue-on-error: true
-        run: npm run build
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee artifacts/logs/build.log
 
-      - name: Install Chromium
+      - name: Install Playwright Chromium
         id: chromium
         if: steps.install.outcome == 'success'
         continue-on-error: true
-        run: npx playwright install chromium
+        shell: bash
+        run: |
+          set -o pipefail
+          npx playwright install chromium 2>&1 | tee artifacts/logs/chromium.log
 
-      - name: Desktop and mobile E2E
+      - name: Desktop and mobile Chromium E2E
         id: e2e
         if: steps.build.outcome == 'success' && steps.chromium.outcome == 'success'
         continue-on-error: true
-        run: npm run e2e
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run e2e 2>&1 | tee artifacts/logs/e2e.log
 
       - name: Build immutable production image
         id: image
@@ -107,115 +132,40 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          set -euo pipefail
+          set -Eeuo pipefail
           docker build --pull -t "prosmet:${GITHUB_SHA}" .
           docker tag "prosmet:${GITHUB_SHA}" prosmet:latest
 
-      - name: Deploy and probe canary frontend and backend
+      - name: Deploy canary app, backend and PostgreSQL
         id: canary
         if: steps.image.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
-          set -euo pipefail
-          mkdir -p /opt/prosmet artifacts
-          if [ ! -f /opt/prosmet/.env ]; then
-            cat > /opt/prosmet/.env <<'ENV'
-          NODE_ENV=production
-          PROSMET_DEFAULT_PROVIDER=rules
-          NEXT_PUBLIC_AGUI_AGENT_URL=/api/agent
-          ENV
-            chmod 600 /opt/prosmet/.env
-          fi
+          set -Eeuo pipefail
+          bash deployment/primary-stack.sh canary "prosmet:${GITHUB_SHA}" 13100
+          cp /opt/prosmet/prosmet-canary-health.json artifacts/canary-health.json
+          cp /opt/prosmet/prosmet-canary-backend.json artifacts/canary-backend.json
+          cp /opt/prosmet/prosmet-canary-agent.sse artifacts/canary-agent.sse
 
-          probe_backend() {
-            local base_url="$1"
-            local output="$2"
-            curl --fail --silent --show-error --no-buffer --max-time 45 \
-              -H 'content-type: application/json' \
-              -H 'accept: text/event-stream' \
-              -d '{"threadId":"deployment-probe","runId":"deployment-probe","messages":[{"id":"probe-user","role":"user","content":[{"type":"text","text":"Проверка backend Просметчика"}]}],"tools":[],"context":{},"state":{}}' \
-              "${base_url}/api/agent" | tee "$output"
-            grep -q '"type":"RUN_STARTED"' "$output"
-            grep -q '"type":"TEXT_MESSAGE_CONTENT"' "$output"
-            grep -q '"type":"RUN_FINISHED"' "$output"
-          }
-
-          docker rm -f prosmet-canary >/dev/null 2>&1 || true
-          docker run -d \
-            --name prosmet-canary \
-            --restart unless-stopped \
-            --env-file /opt/prosmet/.env \
-            -p 127.0.0.1:13100:3100 \
-            --health-cmd='node -e "fetch(\"http://127.0.0.1:3100/api/health\").then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"' \
-            --health-interval=10s \
-            --health-timeout=5s \
-            --health-retries=12 \
-            "prosmet:${GITHUB_SHA}"
-
-          for attempt in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:13100/api/health >artifacts/canary-health.json; then
-              if probe_backend http://127.0.0.1:13100 artifacts/canary-agent.sse; then
-                cat artifacts/canary-health.json
-                exit 0
-              fi
-            fi
-            sleep 2
-          done
-          docker logs prosmet-canary
-          exit 1
-
-      - name: Promote canary and start Primary frontend and backend
+      - name: Promote frontend, backend and PostgreSQL to Primary
         id: deploy
         if: steps.canary.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
-          set -euo pipefail
-
-          probe_backend() {
-            local base_url="$1"
-            local output="$2"
-            curl --fail --silent --show-error --no-buffer --max-time 45 \
-              -H 'content-type: application/json' \
-              -H 'accept: text/event-stream' \
-              -d '{"threadId":"deployment-probe","runId":"deployment-probe","messages":[{"id":"probe-user","role":"user","content":[{"type":"text","text":"Проверка backend Просметчика"}]}],"tools":[],"context":{},"state":{}}' \
-              "${base_url}/api/agent" | tee "$output"
-            grep -q '"type":"RUN_STARTED"' "$output"
-            grep -q '"type":"TEXT_MESSAGE_CONTENT"' "$output"
-            grep -q '"type":"RUN_FINISHED"' "$output"
-          }
-
-          docker rm -f prosmet >/dev/null 2>&1 || true
-
+          set -Eeuo pipefail
           if command -v ss >/dev/null 2>&1 && ss -H -ltn "sport = :${DEPLOY_PORT}" | grep -q .; then
-            echo "Port ${DEPLOY_PORT} is occupied by another service. Prosmet will not delete or replace it."
-            exit 1
-          fi
-
-          docker run -d \
-            --name prosmet \
-            --restart unless-stopped \
-            --env-file /opt/prosmet/.env \
-            -p "${DEPLOY_PORT}:3100" \
-            --health-cmd='node -e "fetch(\"http://127.0.0.1:3100/api/health\").then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"' \
-            --health-interval=10s \
-            --health-timeout=5s \
-            --health-retries=12 \
-            "prosmet:${GITHUB_SHA}"
-
-          for attempt in $(seq 1 30); do
-            if curl -fsS "http://127.0.0.1:${DEPLOY_PORT}/api/health" >artifacts/primary-health.json; then
-              if probe_backend "http://127.0.0.1:${DEPLOY_PORT}" artifacts/primary-agent.sse; then
-                cat artifacts/primary-health.json
-                docker rm -f prosmet-canary >/dev/null 2>&1 || true
-                exit 0
-              fi
+            if ! docker inspect prosmet >/dev/null 2>&1; then
+              echo "Port ${DEPLOY_PORT} is occupied by another service. Prosmet will not replace it."
+              exit 1
             fi
-            sleep 2
-          done
-          docker logs prosmet
-          exit 1
+          fi
+          bash deployment/primary-stack.sh primary "prosmet:${GITHUB_SHA}" "${DEPLOY_PORT}"
+          docker rm -f prosmet-canary >/dev/null 2>&1 || true
+          cp /opt/prosmet/prosmet-health.json artifacts/primary-health.json
+          cp /opt/prosmet/prosmet-backend.json artifacts/primary-backend.json
+          cp /opt/prosmet/prosmet-agent.sse artifacts/primary-agent.sse
 
       - name: Write release evidence
         if: always()
@@ -230,13 +180,15 @@ jobs:
             "deployedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "url": "http://78.17.4.108:${DEPLOY_PORT}/",
             "health": "http://78.17.4.108:${DEPLOY_PORT}/api/health",
-            "backend": "http://78.17.4.108:${DEPLOY_PORT}/api/agent",
+            "backendStatus": "http://78.17.4.108:${DEPLOY_PORT}/api/backend/status",
+            "agent": "http://78.17.4.108:${DEPLOY_PORT}/api/agent",
+            "sync": "http://78.17.4.108:${DEPLOY_PORT}/api/sync",
             "image": "prosmet:${GITHUB_SHA}",
             "gate": "${{ steps.deploy.outcome }}"
           }
           JSON
 
-      - name: Upload browser and release evidence
+      - name: Upload browser, logs and release evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -279,10 +231,10 @@ jobs:
               ["unit tests", process.env.UNIT_GATE],
               ["production build", process.env.BUILD_GATE],
               ["Chromium", process.env.CHROMIUM_GATE],
-              ["desktop/mobile E2E", process.env.E2E_GATE],
+              ["desktop/mobile Chromium E2E", process.env.E2E_GATE],
               ["Docker image", process.env.IMAGE_GATE],
-              ["canary frontend/backend", process.env.CANARY_GATE],
-              ["Primary frontend/backend", process.env.DEPLOY_GATE]
+              ["canary app/backend/PostgreSQL", process.env.CANARY_GATE],
+              ["Primary app/backend/PostgreSQL", process.env.DEPLOY_GATE]
             ];
             const icon = (value) => value === "success" ? "✅" : value === "skipped" ? "⏭️" : "❌";
             const body = [
@@ -296,7 +248,7 @@ jobs:
               ...checks.map(([name, value]) => `| ${name} | ${icon(value)} ${value || "not-run"} |`),
               "",
               process.env.DEPLOY_GATE === "success"
-                ? "**LIVE:** http://78.17.4.108:3200/\n\n**BACKEND:** http://78.17.4.108:3200/api/agent"
+                ? "**LIVE:** http://78.17.4.108:3200/\n\n**BACKEND:** http://78.17.4.108:3200/api/backend/status"
                 : "Deployment is blocked until every required gate passes."
             ].join("\n");
             const issues = await github.paginate(github.rest.issues.listForRepo, {
@@ -328,6 +280,7 @@ jobs:
         run: |
           docker logs prosmet-canary 2>/dev/null || true
           docker logs prosmet 2>/dev/null || true
+          docker logs prosmet-postgres 2>/dev/null || true
 
       - name: Enforce green release gate
         if: always()
@@ -345,7 +298,7 @@ jobs:
           CANARY_GATE: ${{ steps.canary.outcome }}
           DEPLOY_GATE: ${{ steps.deploy.outcome }}
         run: |
-          set -euo pipefail
+          set -Eeuo pipefail
           test "$RUNNER_GATE" = success
           test "$INSTALL_GATE" = success
           test "$SOURCE_GATE" = success
