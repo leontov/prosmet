@@ -19,7 +19,10 @@ if [[ -f "${PID_FILE}" ]]; then
   OLD_PID="$(cat "${PID_FILE}" || true)"
   if [[ "${OLD_PID}" =~ ^[0-9]+$ ]] && kill -0 "${OLD_PID}" 2>/dev/null; then
     kill "${OLD_PID}" || true
-    sleep 2
+    for attempt in $(seq 1 15); do
+      kill -0 "${OLD_PID}" 2>/dev/null || break
+      sleep 1
+    done
   fi
 fi
 
@@ -30,12 +33,23 @@ fi
 
 cd "${RELEASE}"
 env \
+  RUNNER_TRACKING_ID= \
   NODE_ENV=production \
   PORT="${PORT}" \
   HOSTNAME=0.0.0.0 \
   PROSMET_DATABASE_DRIVER=pglite \
   PROSMET_PGLITE_DIR="${DATA_DIR}" \
   PROSMET_DEFAULT_PROVIDER="${PROSMET_DEFAULT_PROVIDER:-rules}" \
+  PROSMET_SESSION_SECRET="${PROSMET_SESSION_SECRET:-}" \
+  BETTER_AUTH_SECRET="${BETTER_AUTH_SECRET:-}" \
+  MIMO_API_KEY="${MIMO_API_KEY:-}" \
+  MIMO_BASE_URL="${MIMO_BASE_URL:-}" \
+  MIMO_MODEL="${MIMO_MODEL:-}" \
+  OPENAI_COMPATIBLE_API_KEY="${OPENAI_COMPATIBLE_API_KEY:-}" \
+  OPENAI_COMPATIBLE_BASE_URL="${OPENAI_COMPATIBLE_BASE_URL:-}" \
+  OPENAI_COMPATIBLE_MODEL="${OPENAI_COMPATIBLE_MODEL:-}" \
+  OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-}" \
+  OLLAMA_MODEL="${OLLAMA_MODEL:-}" \
   NEXT_PUBLIC_AGUI_AGENT_URL=/api/agent \
   nohup node server.js > "${LOG_FILE}" 2>&1 < /dev/null &
 APP_PID=$!
