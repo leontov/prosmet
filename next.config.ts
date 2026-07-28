@@ -2,11 +2,14 @@ import type { NextConfig } from "next";
 
 const isDevelopment = process.env.NODE_ENV !== "production";
 
+// The current SQL.js browser glue performs dynamic code evaluation while
+// preparing its WebAssembly module. Keep the permission explicit and covered
+// by browser tests; all scripts still have to originate from this application.
 const scriptSources = [
   "'self'",
   "'unsafe-inline'",
-  "'wasm-unsafe-eval'",
-  ...(isDevelopment ? ["'unsafe-eval'"] : [])
+  "'unsafe-eval'",
+  "'wasm-unsafe-eval'"
 ].join(" ");
 
 const connectSources = [
