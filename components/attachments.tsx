@@ -21,15 +21,19 @@ function useObjectUrl(file: File | undefined) {
 
   useEffect(() => {
     if (!file) {
-      setUrl(undefined);
-      return;
+      const frame = window.requestAnimationFrame(() => setUrl(undefined));
+      return () => window.cancelAnimationFrame(frame);
     }
+
     const next = URL.createObjectURL(file);
-    setUrl(next);
-    return () => URL.revokeObjectURL(next);
+    const frame = window.requestAnimationFrame(() => setUrl(next));
+    return () => {
+      window.cancelAnimationFrame(frame);
+      URL.revokeObjectURL(next);
+    };
   }, [file]);
 
-  return url;
+  return file ? url : undefined;
 }
 
 const AttachmentTile: FC<{ removable: boolean }> = ({ removable }) => {
