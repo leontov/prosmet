@@ -56,8 +56,8 @@ test("a measurer can edit an estimate on site and hand it to a client", async ({
   await expect(handoff).toBeVisible({ timeout: 30_000 });
   await expect(editor).toBeVisible({ timeout: 30_000 });
 
-  await editor.getByLabel("Объект").fill("Квартира Ивановых, Казань");
-  await editor.getByLabel("Заказчик").fill("Иванов Алексей");
+  await expect(editor.getByLabel("Объект")).toHaveValue("Квартира Ивановых, Казань");
+  await expect(editor.getByLabel("Заказчик")).toHaveValue("Иванов Алексей");
   const workPrice = editor.getByLabel("Цена позиции 1").last();
   await workPrice.fill("650");
   await expect(workPrice).toHaveValue("650");
