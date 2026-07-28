@@ -17,12 +17,18 @@ jobs:
   verify-and-deploy:
     name: Verify and deploy on prosmet-primary
     runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 75
+    timeout-minutes: 90
     env:
       CI: "1"
       NEXT_TELEMETRY_DISABLED: "1"
-      PROSMET_DEFAULT_PROVIDER: "rules"
+      PROSMET_DEFAULT_PROVIDER: ${{ vars.PROSMET_DEFAULT_PROVIDER || 'rules' }}
       DEPLOY_PORT: "3200"
+      MIMO_API_KEY: ${{ secrets.MIMO_API_KEY }}
+      MIMO_BASE_URL: ${{ vars.MIMO_BASE_URL }}
+      MIMO_MODEL: ${{ vars.MIMO_MODEL }}
+      OPENAI_COMPATIBLE_API_KEY: ${{ secrets.OPENAI_COMPATIBLE_API_KEY }}
+      OPENAI_COMPATIBLE_BASE_URL: ${{ vars.OPENAI_COMPATIBLE_BASE_URL }}
+      OPENAI_COMPATIBLE_MODEL: ${{ vars.OPENAI_COMPATIBLE_MODEL }}
     steps:
       - name: Verify runner identity
         id: runner
@@ -133,8 +139,21 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          docker build --pull -t "prosmet:${GITHUB_SHA}" .
-          docker tag "prosmet:${GITHUB_SHA}" prosmet:latest
+          if ! command -v docker >/dev/null 2>&1; then
+            sudo -n apt-get update
+            sudo -n DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io
+            sudo -n systemctl enable --now docker
+          fi
+          if docker info >/dev/null 2>&1; then
+            DOCKER=(docker)
+          elif sudo -n docker info >/dev/null 2>&1; then
+            DOCKER=(sudo -n docker)
+          else
+            echo "Runner cannot access Docker" >&2
+            exit 1
+          fi
+          "${DOCKER[@]}" build --pull -t "prosmet:${GITHUB_SHA}" .
+          "${DOCKER[@]}" tag "prosmet:${GITHUB_SHA}" prosmet:latest
 
       - name: Deploy canary app, backend and PostgreSQL
         id: canary
@@ -155,14 +174,19 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
+          if docker info >/dev/null 2>&1; then
+            DOCKER=(docker)
+          else
+            DOCKER=(sudo -n docker)
+          fi
           if command -v ss >/dev/null 2>&1 && ss -H -ltn "sport = :${DEPLOY_PORT}" | grep -q .; then
-            if ! docker inspect prosmet >/dev/null 2>&1; then
+            if ! "${DOCKER[@]}" inspect prosmet >/dev/null 2>&1; then
               echo "Port ${DEPLOY_PORT} is occupied by another service. Prosmet will not replace it."
               exit 1
             fi
           fi
           bash deployment/primary-stack.sh primary "prosmet:${GITHUB_SHA}" "${DEPLOY_PORT}"
-          docker rm -f prosmet-canary >/dev/null 2>&1 || true
+          "${DOCKER[@]}" rm -f prosmet-canary >/dev/null 2>&1 || true
           cp /opt/prosmet/prosmet-health.json artifacts/primary-health.json
           cp /opt/prosmet/prosmet-backend.json artifacts/primary-backend.json
           cp /opt/prosmet/prosmet-agent.sse artifacts/primary-agent.sse
@@ -278,9 +302,16 @@ jobs:
         if: always() && steps.deploy.outcome != 'success'
         shell: bash
         run: |
-          docker logs prosmet-canary 2>/dev/null || true
-          docker logs prosmet 2>/dev/null || true
-          docker logs prosmet-postgres 2>/dev/null || true
+          if docker info >/dev/null 2>&1; then
+            DOCKER=(docker)
+          elif sudo -n docker info >/dev/null 2>&1; then
+            DOCKER=(sudo -n docker)
+          else
+            exit 0
+          fi
+          "${DOCKER[@]}" logs prosmet-canary 2>/dev/null || true
+          "${DOCKER[@]}" logs prosmet 2>/dev/null || true
+          "${DOCKER[@]}" logs prosmet-postgres 2>/dev/null || true
 
       - name: Enforce green release gate
         if: always()
