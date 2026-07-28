@@ -2,6 +2,7 @@ import EmbeddedPostgres from "embedded-postgres";
 import { Client } from "pg";
 import {
   access,
+  chmod,
   mkdir,
   readdir,
   rename,
@@ -45,10 +46,19 @@ async function exists(path) {
   }
 }
 
+async function secureDirectory(path) {
+  await chmod(path, 0o700);
+}
+
 async function prepareDataDirectory() {
-  await mkdir(dirname(databaseDir), { recursive: true });
-  if (await exists(resolve(databaseDir, "PG_VERSION"))) return true;
+  const parent = dirname(databaseDir);
+  await mkdir(parent, { recursive: true, mode: 0o700 });
+  await secureDirectory(parent);
+
   if (!(await exists(databaseDir))) return false;
+  await secureDirectory(databaseDir);
+
+  if (await exists(resolve(databaseDir, "PG_VERSION"))) return true;
 
   const entries = await readdir(databaseDir);
   if (entries.length === 0) {
@@ -65,10 +75,11 @@ async function prepareDataDirectory() {
 }
 
 const alreadyInitialised = await prepareDataDirectory();
-await mkdir(dirname(readyFile), { recursive: true });
+await mkdir(dirname(readyFile), { recursive: true, mode: 0o700 });
+await secureDirectory(dirname(readyFile));
 
 console.log(
-  `[prosmet/postgres] launcher uid=${
+  `[prosmet/postgres] launcher uid=$${
     typeof process.getuid === "function" ? process.getuid() : "unknown"
   } root=${runningAsRoot}`
 );
@@ -107,8 +118,10 @@ try {
   if (!alreadyInitialised) {
     console.log(`[prosmet/postgres] initialising cluster at ${databaseDir}`);
     await postgres.initialise();
+    await secureDirectory(databaseDir);
   }
 
+  await secureDirectory(databaseDir);
   await postgres.start();
 
   const admin = new Client({
