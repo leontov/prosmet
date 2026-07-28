@@ -32,7 +32,9 @@ const required = [
   "lib/exports/estimate.ts",
   "deployment/direct-primary.sh",
   "deployment/primary-stack.sh",
-  "public/sql-wasm.wasm"
+  "scripts/copy-sql-wasm.mjs",
+  "public/sql-wasm.wasm",
+  "public/sql-wasm-browser.wasm"
 ];
 
 for (const path of required) {
@@ -73,6 +75,7 @@ for (const token of [
   "TOOL_CALL_END",
   "STATE_SNAPSHOT",
   "ACTIVITY_SNAPSHOT",
+  "messageId: activityMessageId",
   "RUN_FINISHED",
   "RUN_ERROR",
   "beginAgentRun",
@@ -125,6 +128,9 @@ for (const token of [
 const localDb = await read("lib/local/database.ts");
 for (const token of [
   'import("sql.js")',
+  "sqlJsAssetUrl",
+  'file === "sql-wasm-browser.wasm"',
+  'return "/sql-wasm.wasm"',
   "BEGIN IMMEDIATE",
   "this.db.export()",
   "CREATE TABLE IF NOT EXISTS threads",
@@ -134,6 +140,13 @@ for (const token of [
   "CREATE TABLE IF NOT EXISTS files",
   "CREATE TABLE IF NOT EXISTS outbox"
 ]) requireToken(localDb, token, "sqlite-wasm");
+
+const wasmCopy = await read("scripts/copy-sql-wasm.mjs");
+for (const token of [
+  '"sql-wasm.wasm"',
+  '"sql-wasm-browser.wasm"',
+  "copyFile"
+]) requireToken(wasmCopy, token, "sqlite-wasm-assets");
 
 const idb = await read("lib/local/idb.ts");
 for (const token of [
@@ -187,6 +200,9 @@ for (const token of [
   "PROSMET_DATABASE_DRIVER=pglite",
   "PROSMET_PGLITE_DIR",
   "RUNNER_TRACKING_ID=",
+  "sql-wasm-browser.wasm",
+  "ACTIVITY_SNAPSHOT",
+  "is missing messageId",
   "/api/backend/status",
   "/api/agent"
 ]) requireToken(directDeployment, token, "direct-primary");
