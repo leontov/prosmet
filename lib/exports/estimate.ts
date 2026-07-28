@@ -160,13 +160,10 @@ export async function createEstimatePdfBlob(draft: EstimateDraft) {
     content
   };
 
-  return new Promise<Blob>((resolve, reject) => {
-    try {
-      pdfMake.createPdf(definition).getBlob((value: Blob) => resolve(value));
-    } catch (error) {
-      reject(error);
-    }
-  });
+  const document = pdfMake.createPdf(definition) as unknown as {
+    getBlob: () => Promise<Blob>;
+  };
+  return document.getBlob();
 }
 
 export async function exportEstimatePdf(draft: EstimateDraft) {
