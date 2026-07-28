@@ -21,20 +21,17 @@ const required = [
   "components/tools/estimate-editor.tsx",
   "components/tools/document-editor.tsx",
   "lib/domain/estimate.ts",
-  "lib/local/database.ts",
   "lib/local/idb.ts",
   "lib/local/repository.ts",
+  "lib/local/files.ts",
   "lib/local/sync.ts",
   "lib/local/attachment-adapter.ts",
   "lib/server/identity.ts",
   "lib/server/postgres.ts",
   "lib/server/rules-agent.ts",
   "lib/exports/estimate.ts",
-  "deployment/direct-primary.sh",
-  "deployment/primary-stack.sh",
-  "scripts/copy-sql-wasm.mjs",
-  "public/sql-wasm.wasm",
-  "public/sql-wasm-browser.wasm"
+  "deployment/provision-postgres.sh",
+  "deployment/direct-primary.sh"
 ];
 
 for (const path of required) {
@@ -62,7 +59,7 @@ for (const token of [
   "ThreadHistoryAdapter",
   "threadList"
 ]) requireToken(runtime, token, "runtime");
-forbidToken(runtime, "useLocalRuntime", "runtime");
+for (const token of ["useLocalRuntime", "localStorage"]) forbidToken(runtime, token, "runtime");
 
 const route = await read("app/api/agent/route.ts");
 for (const token of [
@@ -97,10 +94,11 @@ for (const token of [
   'data-testid="right-inspector"',
   "Рабочий контекст",
   "PostgreSQL",
-  "SQLite WASM",
+  "IndexedDB",
   "Синхронизация",
   "Артефакты"
 ]) requireToken(inspector, token, "right-inspector");
+forbidToken(inspector, "SQLite WASM", "right-inspector");
 
 const chat = await read("components/chat/prosmet-thread.tsx");
 for (const token of [
@@ -125,62 +123,84 @@ for (const token of [
   "workspace_status"
 ]) requireToken(toolkit, token, "toolkit");
 
-const localDb = await read("lib/local/database.ts");
-for (const token of [
-  'import("sql.js")',
-  "sqlJsAssetUrl",
-  'file === "sql-wasm-browser.wasm"',
-  'return "/sql-wasm.wasm"',
-  "BEGIN IMMEDIATE",
-  "this.db.export()",
-  "CREATE TABLE IF NOT EXISTS threads",
-  "CREATE TABLE IF NOT EXISTS estimates",
-  "CREATE TABLE IF NOT EXISTS documents",
-  "CREATE TABLE IF NOT EXISTS prices",
-  "CREATE TABLE IF NOT EXISTS files",
-  "CREATE TABLE IF NOT EXISTS outbox"
-]) requireToken(localDb, token, "sqlite-wasm");
-
-const wasmCopy = await read("scripts/copy-sql-wasm.mjs");
-for (const token of [
-  '"sql-wasm.wasm"',
-  '"sql-wasm-browser.wasm"',
-  "copyFile"
-]) requireToken(wasmCopy, token, "sqlite-wasm-assets");
-
 const idb = await read("lib/local/idb.ts");
 for (const token of [
-  'const DB_NAME = "prosmet-local-v2"',
-  "transactionDone(transaction)",
-  "const done = transactionDone(transaction)",
+  'const DB_NAME = "prosmet-cache-v3"',
+  "indexedDB.open",
+  "LOCAL_STORES",
+  'threads: "threads"',
+  'messages: "messages"',
+  'estimates: "estimates"',
+  'documents: "documents"',
+  'prices: "prices"',
+  'files: "files"',
+  'outbox: "outbox"',
+  'syncState: "syncState"',
+  "withLocalTransaction",
   "requestResult",
   "OPEN_TIMEOUT_MS"
-]) requireToken(idb, token, "indexeddb");
+]) requireToken(idb, token, "native-indexeddb");
+for (const token of ["sql.js", "sqlite", "WebAssembly", "wasm"]) {
+  forbidToken(idb, token, "native-indexeddb");
+}
+
+const repository = await read("lib/local/repository.ts");
+for (const token of [
+  "ProsmetRepository",
+  "appendMessage",
+  "saveEstimate",
+  "saveConfirmedPrices",
+  "saveDocument",
+  "OutboxRecord",
+  "LOCAL_STORES",
+  "withLocalTransaction"
+]) requireToken(repository, token, "local-repository");
+for (const token of ["getDatabase", "sql.js", "sqlite.run", "localStorage"]) {
+  forbidToken(repository, token, "local-repository");
+}
+
+const files = await read("lib/local/files.ts");
+for (const token of [
+  "storeFile",
+  "loadFile",
+  "deleteFile",
+  "LOCAL_STORES.files",
+  "sha256Hex"
+]) requireToken(files, token, "local-files");
+for (const token of ["getDatabase", "sql.js", "sqlite.run"]) {
+  forbidToken(files, token, "local-files");
+}
 
 const postgres = await read("lib/server/postgres.ts");
 for (const token of [
-  "@electric-sql/pglite",
-  "PGlite.create",
+  "Pool",
   "ServerSqlClient",
-  "PROSMET_DATABASE_DRIVER",
-  "PROSMET_PGLITE_DIR",
   "DATABASE_URL",
   "prosmet_sync_operations",
   "prosmet_threads",
   "prosmet_messages",
   "prosmet_estimates",
+  "prosmet_estimate_revisions",
   "prosmet_documents",
+  "prosmet_document_revisions",
+  "prosmet_prices",
+  "prosmet_files",
   "prosmet_agent_runs",
   "withServerTransaction"
-]) requireToken(postgres, token, "server-database");
+]) requireToken(postgres, token, "server-postgres");
+for (const token of ["@electric-sql/pglite", "PGlite", "PROSMET_PGLITE_DIR"]) {
+  forbidToken(postgres, token, "server-postgres");
+}
 
 const syncRoute = await read("app/api/sync/route.ts");
 for (const token of [
   "resolveServerIdentity",
   "getServerDatabase",
-  "ServerSqlClient",
   "prosmet_sync_operations",
-  "materialize",
+  "prosmet_prices",
+  "prosmet_files",
+  "preserveEstimateRevision",
+  "preserveDocumentRevision",
   "export async function POST",
   "export async function GET"
 ]) requireToken(syncRoute, token, "sync-api");
@@ -188,43 +208,58 @@ for (const token of [
 const localSync = await read("lib/local/sync.ts");
 for (const token of [
   "syncWorkspace",
-  "SELECT COUNT(*) AS value FROM outbox",
+  "getAllRecords<OutboxRecord>",
   'fetch("/api/sync"',
   "applyRemoteOperations",
-  "sync_state"
+  "LOCAL_STORES.syncState"
 ]) requireToken(localSync, token, "local-sync");
+for (const token of ["getDatabase", "sql.js", "sync_state", "sqlite.run"]) {
+  forbidToken(localSync, token, "local-sync");
+}
+
+const provision = await read("deployment/provision-postgres.sh");
+for (const token of [
+  "postgresql-client",
+  "systemctl enable --now postgresql",
+  "CREATE ROLE",
+  "createdb",
+  "DATABASE_URL",
+  "database.env"
+]) requireToken(provision, token, "postgres-provisioning");
 
 const directDeployment = await read("deployment/direct-primary.sh");
 for (const token of [
   ".next/standalone",
-  "PROSMET_DATABASE_DRIVER=pglite",
-  "PROSMET_PGLITE_DIR",
+  "PROSMET_DATABASE_DRIVER=postgres",
+  "DATABASE_URL",
+  "database.env",
   "RUNNER_TRACKING_ID=",
-  "sql-wasm-browser.wasm",
   "ACTIVITY_SNAPSHOT",
   "is missing messageId",
   "/api/backend/status",
+  "/api/sync",
   "/api/agent"
 ]) requireToken(directDeployment, token, "direct-primary");
+for (const token of ["pglite", "PROSMET_PGLITE_DIR", "sql-wasm", "wasm"]) {
+  forbidToken(directDeployment, token, "direct-primary");
+}
 
-const networkDeployment = await read("deployment/primary-stack.sh");
-for (const token of [
-  "postgres:16-alpine",
-  "prosmet-postgres",
-  "DATABASE_URL=postgresql://prosmet",
-  "/api/backend/status",
-  "/api/agent"
-]) requireToken(networkDeployment, token, "network-primary");
+const nextConfig = await read("next.config.ts");
+forbidToken(nextConfig, "'wasm-unsafe-eval'", "csp");
+if (!nextConfig.includes("...(isDevelopment ? [\"'unsafe-eval'\"] : [])")) {
+  failures.push("csp:production-unsafe-eval-must-be-disabled");
+}
 
-const localFiles = [
+for (const path of [
   "app/MyRuntimeProvider.tsx",
   "components/tools/estimate-editor.tsx",
   "components/tools/document-editor.tsx",
   "lib/local/repository.ts",
   "lib/local/files.ts",
   "lib/local/sync.ts"
-];
-for (const path of localFiles) forbidToken(await read(path), "localStorage", path);
+]) {
+  forbidToken(await read(path), "localStorage", path);
+}
 
 const estimate = await read("components/tools/estimate-editor.tsx");
 for (const token of [
@@ -242,14 +277,34 @@ for (const dependency of [
   "@assistant-ui/react-ag-ui",
   "@ag-ui/client",
   "@ag-ui/core",
-  "@electric-sql/pglite",
-  "sql.js",
   "decimal.js",
   "exceljs",
   "pdfmake",
   "pg"
 ]) {
   if (!pkg.dependencies?.[dependency]) failures.push(`dependency:${dependency}`);
+}
+for (const forbidden of ["sql.js", "@electric-sql/pglite"]) {
+  if (pkg.dependencies?.[forbidden]) failures.push(`forbidden-dependency:${forbidden}`);
+}
+for (const forbiddenScript of ["copy:wasm", "postinstall", "prebuild"]) {
+  if (pkg.scripts?.[forbiddenScript]?.includes("wasm")) {
+    failures.push(`forbidden-script:${forbiddenScript}`);
+  }
+}
+
+for (const obsolete of [
+  "lib/local/database.ts",
+  "scripts/copy-sql-wasm.mjs",
+  "public/sql-wasm.wasm",
+  "public/sql-wasm-browser.wasm"
+]) {
+  try {
+    await access(resolve(root, obsolete));
+    failures.push(`obsolete:${obsolete}`);
+  } catch {
+    // Expected: the browser runtime no longer ships SQLite WASM.
+  }
 }
 
 if (failures.length) {
