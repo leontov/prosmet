@@ -1,6 +1,6 @@
 "use client";
 
-import type { TDocumentDefinitions } from "pdfmake/interfaces";
+import type { Content, TDocumentDefinitions } from "pdfmake/interfaces";
 import { calculateEstimate, type EstimateDraft } from "@/lib/domain/estimate";
 
 function safeName(value: string) {
@@ -70,69 +70,86 @@ export async function exportEstimatePdf(draft: EstimateDraft) {
         item.unit,
         item.quantity,
         { text: item.unitPrice.toFixed(2), alignment: "right" },
-        { text: (calculation.itemAmounts[item.id] ?? 0).toFixed(2), alignment: "right" }
+        {
+          text: (calculation.itemAmounts[item.id] ?? 0).toFixed(2),
+          alignment: "right"
+        }
       ]);
     }
+  }
+
+  const content: Content[] = [
+    {
+      text: draft.title,
+      fontSize: 15,
+      bold: true,
+      alignment: "center",
+      margin: [0, 0, 0, 12]
+    },
+    {
+      columns: [
+        [
+          { text: `Объект: ${draft.objectName || "—"}` },
+          { text: `Регион: ${draft.region || "—"}` },
+          { text: `Метод: ${draft.method}` }
+        ],
+        [
+          { text: `Дата: ${draft.date}`, alignment: "right" },
+          { text: `Версия: ${draft.revision}`, alignment: "right" },
+          { text: `Статус: ${draft.status}`, alignment: "right" }
+        ]
+      ],
+      margin: [0, 0, 0, 10]
+    },
+    {
+      table: {
+        headerRows: 1,
+        widths: [18, 45, "*", 28, 42, 48, 52],
+        body
+      },
+      layout: {
+        fillColor: (rowIndex: number) => (rowIndex === 0 ? "#e8e8e8" : null),
+        hLineColor: () => "#b8b8b8",
+        vLineColor: () => "#b8b8b8"
+      }
+    },
+    {
+      margin: [0, 12, 0, 0],
+      alignment: "right",
+      stack: [
+        { text: `Прямые затраты: ${calculation.directCost.toFixed(2)} ${draft.currency}` },
+        { text: `Накладные: ${calculation.overhead.toFixed(2)} ${draft.currency}` },
+        { text: `Прибыль: ${calculation.profit.toFixed(2)} ${draft.currency}` },
+        { text: `Скидка: ${calculation.discount.toFixed(2)} ${draft.currency}` },
+        { text: `НДС: ${calculation.vat.toFixed(2)} ${draft.currency}` },
+        {
+          text: `ИТОГО: ${calculation.total.toFixed(2)} ${draft.currency}`,
+          bold: true,
+          fontSize: 11,
+          margin: [0, 4, 0, 0]
+        }
+      ]
+    }
+  ];
+
+  if (draft.assumptions.length) {
+    content.push(
+      { text: "Допущения", bold: true, margin: [0, 14, 0, 4] },
+      { ul: draft.assumptions }
+    );
+  }
+  if (draft.warnings.length) {
+    content.push(
+      { text: "Предупреждения", bold: true, margin: [0, 12, 0, 4] },
+      { ul: draft.warnings }
+    );
   }
 
   const definition: TDocumentDefinitions = {
     pageSize: "A4",
     pageMargins: [28, 32, 28, 32],
     defaultStyle: { fontSize: 8 },
-    content: [
-      { text: draft.title, fontSize: 15, bold: true, alignment: "center", margin: [0, 0, 0, 12] },
-      {
-        columns: [
-          [
-            { text: `Объект: ${draft.objectName || "—"}` },
-            { text: `Регион: ${draft.region || "—"}` },
-            { text: `Метод: ${draft.method}` }
-          ],
-          [
-            { text: `Дата: ${draft.date}`, alignment: "right" },
-            { text: `Версия: ${draft.revision}`, alignment: "right" },
-            { text: `Статус: ${draft.status}`, alignment: "right" }
-          ]
-        ],
-        margin: [0, 0, 0, 10]
-      },
-      {
-        table: {
-          headerRows: 1,
-          widths: [18, 45, "*", 28, 42, 48, 52],
-          body
-        },
-        layout: {
-          fillColor: (rowIndex: number) => (rowIndex === 0 ? "#e8e8e8" : undefined),
-          hLineColor: () => "#b8b8b8",
-          vLineColor: () => "#b8b8b8"
-        }
-      },
-      {
-        margin: [0, 12, 0, 0],
-        alignment: "right",
-        stack: [
-          { text: `Прямые затраты: ${calculation.directCost.toFixed(2)} ${draft.currency}` },
-          { text: `Накладные: ${calculation.overhead.toFixed(2)} ${draft.currency}` },
-          { text: `Прибыль: ${calculation.profit.toFixed(2)} ${draft.currency}` },
-          { text: `Скидка: ${calculation.discount.toFixed(2)} ${draft.currency}` },
-          { text: `НДС: ${calculation.vat.toFixed(2)} ${draft.currency}` },
-          { text: `ИТОГО: ${calculation.total.toFixed(2)} ${draft.currency}`, bold: true, fontSize: 11, margin: [0, 4, 0, 0] }
-        ]
-      },
-      ...(draft.assumptions.length
-        ? [
-            { text: "Допущения", bold: true, margin: [0, 14, 0, 4] },
-            { ul: draft.assumptions }
-          ]
-        : []),
-      ...(draft.warnings.length
-        ? [
-            { text: "Предупреждения", bold: true, margin: [0, 12, 0, 4] },
-            { ul: draft.warnings }
-          ]
-        : [])
-    ]
+    content
   };
 
   pdfMake.createPdf(definition).download(`${safeName(draft.title)}-v${draft.revision}.pdf`);
@@ -174,14 +191,22 @@ export async function exportEstimateXlsx(draft: EstimateDraft) {
     "Сумма"
   ]);
   header.font = { bold: true };
-  header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE7E7E7" } };
+  header.fill = {
+    type: "pattern",
+    pattern: "solid",
+    fgColor: { argb: "FFE7E7E7" }
+  };
 
   let position = 1;
   for (const section of draft.sections) {
     const sectionRow = sheet.addRow([section.title]);
     sheet.mergeCells(sectionRow.number, 1, sectionRow.number, 10);
     sectionRow.font = { bold: true };
-    sectionRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF3F4F6" } };
+    sectionRow.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFF3F4F6" }
+    };
     for (const item of section.items) {
       const row = sheet.addRow([
         position++,

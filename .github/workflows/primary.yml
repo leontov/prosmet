@@ -29,7 +29,7 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          set -euo pipefail
+          set -Eeuo pipefail
           echo "Runner: ${{ runner.name }}"
           echo "OS: ${{ runner.os }} / ${{ runner.arch }}"
           test "${{ runner.name }}" = "prosmet-primary"
@@ -54,7 +54,7 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          set -euo pipefail
+          set -Eeuo pipefail
           if [ ! -f package-lock.json ]; then
             npm install --package-lock-only --ignore-scripts --no-audit --no-fund
           fi
@@ -63,43 +63,65 @@ jobs:
         id: install
         if: steps.lockfile.outcome == 'success'
         continue-on-error: true
-        run: npm ci --no-audit --no-fund
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p artifacts/logs
+          npm ci --no-audit --no-fund 2>&1 | tee artifacts/logs/npm-ci.log
 
       - name: Source contract
         id: source_contract
         if: steps.install.outcome == 'success'
         continue-on-error: true
-        run: npm run source:contract
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run source:contract 2>&1 | tee artifacts/logs/source-contract.log
 
       - name: TypeScript
         id: typecheck
         if: steps.install.outcome == 'success'
         continue-on-error: true
-        run: npm run typecheck
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run typecheck 2>&1 | tee artifacts/logs/typecheck.log
 
       - name: Unit tests
         id: unit_tests
         if: steps.install.outcome == 'success'
         continue-on-error: true
-        run: npm run test
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run test 2>&1 | tee artifacts/logs/unit-tests.log
 
       - name: Production build
         id: build
         if: steps.install.outcome == 'success'
         continue-on-error: true
-        run: npm run build
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee artifacts/logs/build.log
 
-      - name: Install Chromium
+      - name: Install Playwright Chromium
         id: chromium
         if: steps.install.outcome == 'success'
         continue-on-error: true
-        run: npx playwright install --with-deps chromium
+        shell: bash
+        run: |
+          set -o pipefail
+          npx playwright install chromium 2>&1 | tee artifacts/logs/chromium.log
 
       - name: Desktop and mobile E2E
         id: e2e
         if: steps.build.outcome == 'success' && steps.chromium.outcome == 'success'
         continue-on-error: true
-        run: npm run e2e
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run e2e 2>&1 | tee artifacts/logs/e2e.log
 
       - name: Build immutable production image
         id: image
@@ -107,7 +129,7 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          set -euo pipefail
+          set -Eeuo pipefail
           docker build --pull -t "prosmet:${GITHUB_SHA}" .
           docker tag "prosmet:${GITHUB_SHA}" prosmet:latest
 
@@ -117,7 +139,7 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          set -euo pipefail
+          set -Eeuo pipefail
           mkdir -p /opt/prosmet
           if [ ! -f /opt/prosmet/.env ]; then
             cat > /opt/prosmet/.env <<'ENV'
@@ -141,8 +163,7 @@ jobs:
             "prosmet:${GITHUB_SHA}"
 
           for attempt in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:13100/api/health >/tmp/prosmet-canary-health.json; then
-              cat /tmp/prosmet-canary-health.json
+            if curl -fsS http://127.0.0.1:13100/api/health | tee artifacts/canary-health.json; then
               exit 0
             fi
             sleep 2
@@ -156,7 +177,7 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          set -euo pipefail
+          set -Eeuo pipefail
           docker rm -f prosmet >/dev/null 2>&1 || true
           docker run -d \
             --name prosmet \
@@ -170,13 +191,14 @@ jobs:
             "prosmet:${GITHUB_SHA}"
 
           for attempt in $(seq 1 30); do
-            if curl -fsS "http://127.0.0.1:${DEPLOY_PORT}/api/health" >/tmp/prosmet-health.json; then
-              break
+            if curl -fsS "http://127.0.0.1:${DEPLOY_PORT}/api/health" | tee artifacts/primary-health.json; then
+              docker rm -f prosmet-canary >/dev/null 2>&1 || true
+              exit 0
             fi
             sleep 2
           done
-          curl -fsS "http://127.0.0.1:${DEPLOY_PORT}/api/health"
-          docker rm -f prosmet-canary >/dev/null 2>&1 || true
+          docker logs prosmet
+          exit 1
 
       - name: Write release evidence
         if: always()
@@ -196,7 +218,7 @@ jobs:
           }
           JSON
 
-      - name: Upload browser and release evidence
+      - name: Upload browser, logs and release evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -242,7 +264,7 @@ jobs:
               ["desktop/mobile E2E", process.env.E2E_GATE],
               ["Docker image", process.env.IMAGE_GATE],
               ["canary", process.env.CANARY_GATE],
-              ["Primary deploy", process.env.DEPLOY_GATE],
+              ["Primary deploy", process.env.DEPLOY_GATE]
             ];
             const icon = (value) => value === "success" ? "✅" : value === "skipped" ? "⏭️" : "❌";
             const body = [
@@ -257,13 +279,13 @@ jobs:
               "",
               process.env.DEPLOY_GATE === "success"
                 ? "**LIVE:** http://78.17.4.108:3100/"
-                : "Deployment is blocked until every required gate passes.",
+                : "Deployment is blocked until every required gate passes."
             ].join("\n");
             const issues = await github.paginate(github.rest.issues.listForRepo, {
               owner: context.repo.owner,
               repo: context.repo.repo,
               state: "open",
-              per_page: 100,
+              per_page: 100
             });
             const existing = issues.find((issue) => !issue.pull_request && issue.title === title);
             if (existing) {
@@ -271,14 +293,14 @@ jobs:
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: existing.number,
-                body,
+                body
               });
             } else {
               await github.rest.issues.create({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 title,
-                body,
+                body
               });
             }
 
@@ -305,7 +327,7 @@ jobs:
           CANARY_GATE: ${{ steps.canary.outcome }}
           DEPLOY_GATE: ${{ steps.deploy.outcome }}
         run: |
-          set -euo pipefail
+          set -Eeuo pipefail
           test "$RUNNER_GATE" = success
           test "$INSTALL_GATE" = success
           test "$SOURCE_GATE" = success
