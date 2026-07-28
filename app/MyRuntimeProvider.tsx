@@ -7,6 +7,7 @@ import {
 } from "@assistant-ui/react";
 import { HttpAgent } from "@ag-ui/client";
 import { useAgUiRuntime } from "@assistant-ui/react-ag-ui";
+import { ProsmetAttachmentAdapter } from "@/lib/local/attachment-adapter";
 import { getRepository } from "@/lib/local/repository";
 import { useLocalWorkspace } from "@/lib/local/context";
 
@@ -52,11 +53,16 @@ export function MyRuntimeProvider({ children }: { children: ReactNode }) {
     [workspace]
   );
 
+  const attachments = useMemo(
+    () => new ProsmetAttachmentAdapter(workspace.currentThreadId),
+    [workspace.currentThreadId]
+  );
+
   const runtime = useAgUiRuntime({
     agent,
     showThinking: false,
     autoCancelPendingToolCalls: true,
-    adapters: { history, threadList },
+    adapters: { history, threadList, attachments },
     onError(error) {
       console.error("[prosmet/ag-ui]", error);
     }
