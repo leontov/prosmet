@@ -15,19 +15,23 @@ const required = [
   "app/page.tsx",
   "app/MyRuntimeProvider.tsx",
   "app/api/agent/route.ts",
+  "app/api/health/route.ts",
   "app/api/sync/route.ts",
   "components/app/chat-workspace.tsx",
   "components/app/right-inspector.tsx",
   "components/chat/prosmet-thread.tsx",
   "components/tools/estimate-editor.tsx",
   "components/tools/document-editor.tsx",
+  "lib/local/context.tsx",
   "lib/local/idb.ts",
   "lib/local/repository.ts",
   "lib/local/files.ts",
   "lib/local/sync.ts",
   "lib/server/postgres.ts",
   "deployment/provision-postgres.sh",
-  "deployment/direct-primary.sh"
+  "deployment/direct-primary.sh",
+  "playwright.config.ts",
+  ".github/workflows/launch-3200.yml"
 ];
 for (const path of required) {
   try {
@@ -60,6 +64,16 @@ for (const token of [
   forbid(runtime, token, "assistant-ui-runtime");
 }
 
+const context = await read("lib/local/context.tsx");
+for (const token of [
+  "const [initialThreadId] = useState(newThreadId)",
+  "const [currentThreadId, setCurrentThreadId] = useState(initialThreadId)",
+  "initialThreadId;",
+  "setCurrentThreadId((current) => (current === next ? current : next))"
+]) {
+  need(context, token, "stable-thread-hydration");
+}
+
 const agent = await read("app/api/agent/route.ts");
 for (const token of [
   "RUN_STARTED",
@@ -73,9 +87,21 @@ for (const token of [
   need(agent, token, "ag-ui");
 }
 
+const health = await read("app/api/health/route.ts");
+for (const token of [
+  "PROSMET_RELEASE_SHA",
+  "releaseSha",
+  "IndexedDB",
+  "browserWasm: false",
+  "PostgreSQL"
+]) {
+  need(health, token, "health");
+}
+
 const idb = await read("lib/local/idb.ts");
 for (const token of [
   "prosmet-cache-v3",
+  "const DB_VERSION = 2",
   "indexedDB.open",
   "threads",
   "messages",
@@ -87,11 +113,13 @@ for (const token of [
   "files",
   "outbox",
   "syncState",
+  "createSchema(request.result, transaction)",
+  "missingStores",
   "withLocalTransaction"
 ]) {
   need(idb, token, "indexeddb");
 }
-for (const token of ["sql.js", "WebAssembly", "wasm"]) {
+for (const token of ["sql.js", "WebAssembly", "sql-wasm"]) {
   forbid(idb, token, "indexeddb");
 }
 
@@ -155,6 +183,20 @@ for (const token of [
   forbid(provision, token, "postgres-provision");
 }
 
+const deployment = await read("deployment/direct-primary.sh");
+for (const token of [
+  "STAGING=",
+  'rm -rf "${RELEASE}"',
+  "PROSMET_RELEASE_SHA",
+  "releaseSha",
+  "primary-agent.sse",
+  "primary-sync.json",
+  "release.json"
+]) {
+  need(deployment, token, "atomic-primary-deployment");
+}
+forbid(deployment, 'rm -rf "${RELEASE:?}"/*', "atomic-primary-deployment");
+
 const sync = await read("app/api/sync/route.ts");
 for (const token of [
   "prosmet_sync_operations",
@@ -186,6 +228,34 @@ if (!nextConfig.includes("...(isDevelopment ? [\"'unsafe-eval'\"] : [])")) {
   failures.push("csp:production-unsafe-eval-not-disabled");
 }
 need(nextConfig, "no-store, no-cache, must-revalidate", "cache-control");
+
+const playwright = await read("playwright.config.ts");
+for (const token of [
+  "PROSMET_BASE_URL",
+  "externalBaseURL",
+  "desktop-chromium",
+  "mobile-chromium"
+]) {
+  need(playwright, token, "playwright");
+}
+
+const productionWorkflow = await read(".github/workflows/launch-3200.yml");
+for (const token of [
+  "Prosmet Main Production",
+  "branches: [main]",
+  'ref: ${{ github.sha }}',
+  "npm run source:contract",
+  "npm run typecheck",
+  "npm run test",
+  "npm run build",
+  "npm run e2e",
+  "deployment/direct-primary.sh",
+  "PROSMET_BASE_URL: http://127.0.0.1:3200",
+  "releaseSha"
+]) {
+  need(productionWorkflow, token, "main-production-workflow");
+}
+forbid(productionWorkflow, "issues.update", "main-production-workflow");
 
 const pkg = JSON.parse(await read("package.json"));
 for (const dependency of [
