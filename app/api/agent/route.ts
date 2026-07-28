@@ -83,6 +83,7 @@ function requestSummary(body: Record<string, unknown>, prompt: string) {
     messageCount: messages.length,
     tools,
     hasState: Boolean(body.state && typeof body.state === "object"),
+    parentRunId: typeof body.parentRunId === "string" ? body.parentRunId : undefined,
     receivedAt: new Date().toISOString()
   };
 }
@@ -130,6 +131,47 @@ function sleep(ms: number, signal: AbortSignal) {
   });
 }
 
+function initialState(body: Record<string, unknown>, provider: string) {
+  const incoming = asRecord(body.state);
+  return {
+    project: {},
+    activeEstimate: null,
+    estimateRevision: 0,
+    documents: [],
+    priceContext: {},
+    workTrace: [],
+    sync: { status: "server-connected" },
+    provider: { id: provider, status: "available" },
+    validation: {},
+    ...incoming,
+    sync: { ...asRecord(incoming.sync), status: "server-connected" },
+    provider: { ...asRecord(incoming.provider), id: provider, status: "available" }
+  };
+}
+
+function finalState(
+  body: Record<string, unknown>,
+  provider: string,
+  resultState: Record<string, unknown>
+) {
+  const baseline = initialState(body, provider);
+  return {
+    ...baseline,
+    ...resultState,
+    sync: {
+      ...asRecord(baseline.sync),
+      ...asRecord(resultState.sync),
+      status: "server-connected"
+    },
+    provider: {
+      ...asRecord(baseline.provider),
+      ...asRecord(resultState.provider),
+      id: provider,
+      status: "available"
+    }
+  };
+}
+
 export async function POST(request: Request) {
   let body: Record<string, unknown>;
   try {
@@ -154,6 +196,8 @@ export async function POST(request: Request) {
       : randomUUID();
   const runId =
     typeof body.runId === "string" && body.runId ? body.runId : randomUUID();
+  const parentRunId =
+    typeof body.parentRunId === "string" && body.parentRunId ? body.parentRunId : undefined;
   const prompt = latestUserText(body);
   const provider = process.env.PROSMET_DEFAULT_PROVIDER || "rules";
   const identity = resolveServerIdentity(request);
@@ -164,7 +208,7 @@ export async function POST(request: Request) {
       runId,
       threadId,
       provider,
-      model: provider === "rules" ? "prosmet-rules-v1" : undefined,
+      model: provider === "rules" ? "prosmet-chief-estimator-v2" : undefined,
       request: requestSummary(body, prompt)
     });
   } catch (error) {
@@ -180,7 +224,11 @@ export async function POST(request: Request) {
     );
   }
 
-  const result = runRulesAgent(prompt);
+  const result = runRulesAgent(prompt, {
+    state: body.state,
+    messages: body.messages
+  });
+  const snapshot = finalState(body, provider, result.state);
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -195,45 +243,39 @@ export async function POST(request: Request) {
         });
 
       try {
-        send({ type: "RUN_STARTED", threadId, runId });
         send({
-          type: "STATE_SNAPSHOT",
-          snapshot: {
-            project: {},
-            activeEstimate: null,
-            estimateRevision: 0,
-            documents: [],
-            priceContext: {},
-            workTrace: [],
-            sync: { status: "server-connected" },
-            provider: { id: provider, status: "available" },
-            validation: {}
-          }
+          type: "RUN_STARTED",
+          threadId,
+          runId,
+          ...(parentRunId ? { parentRunId } : {})
         });
-        sendActivity({
-          stage: "analysis",
-          title: "Анализ исходных данных",
-          status: "running"
-        });
+        send({ type: "STATE_SNAPSHOT", snapshot: initialState(body, provider) });
 
-        await sleep(80, request.signal);
+        for (const [index, stepName] of (result.steps ?? ["analysis"]).entries()) {
+          send({ type: "STEP_STARTED", stepName });
+          sendActivity({
+            stage: stepName,
+            title: stepTitle(stepName),
+            status: "running",
+            position: index + 1,
+            total: result.steps?.length ?? 1
+          });
+          await sleep(24, request.signal);
+          send({ type: "STEP_FINISHED", stepName });
+        }
+
         const messageId = randomUUID();
         send({ type: "TEXT_MESSAGE_START", messageId, role: "assistant" });
         for (const chunk of splitText(result.text)) {
           send({ type: "TEXT_MESSAGE_CONTENT", messageId, delta: chunk });
-          await sleep(28, request.signal);
+          await sleep(24, request.signal);
         }
         send({ type: "TEXT_MESSAGE_END", messageId });
 
         for (const [index, tool] of result.tools.entries()) {
           sendActivity({
             stage: tool.name,
-            title:
-              tool.name === "technology_card"
-                ? "Определение технологии"
-                : tool.name === "estimate_draft"
-                  ? "Формирование и проверка сметы"
-                  : "Подготовка документа",
+            title: toolTitle(tool.name),
             status: "running",
             position: index + 1,
             total: result.tools.length
@@ -247,14 +289,9 @@ export async function POST(request: Request) {
           });
           for (const delta of splitJson(tool.args)) {
             send({ type: "TOOL_CALL_ARGS", toolCallId, delta });
-            await sleep(12, request.signal);
+            await sleep(10, request.signal);
           }
           send({ type: "TOOL_CALL_END", toolCallId });
-
-          // These are server-produced display artifacts, not unresolved client
-          // actions. Completing the tool lifecycle makes the assistant message
-          // terminal, so assistant-ui persists the text and tool UI through its
-          // ThreadHistoryAdapter and can restore the estimate after reload.
           send({
             type: "TOOL_CALL_RESULT",
             messageId: randomUUID(),
@@ -268,10 +305,13 @@ export async function POST(request: Request) {
           });
         }
 
-        send({ type: "STATE_SNAPSHOT", snapshot: result.state });
+        if (result.stateDelta?.length) {
+          send({ type: "STATE_DELTA", delta: result.stateDelta });
+        }
+        send({ type: "STATE_SNAPSHOT", snapshot });
         sendActivity({
           stage: "complete",
-          title: "Результат готов",
+          title: "Результат готов в текущем чате",
           status: "completed"
         });
         send({ type: "RUN_FINISHED", threadId, runId });
@@ -282,7 +322,8 @@ export async function POST(request: Request) {
           result: {
             textLength: result.text.length,
             tools: result.tools.map((tool) => tool.name),
-            stateKeys: Object.keys(result.state)
+            steps: result.steps ?? [],
+            stateKeys: Object.keys(snapshot)
           }
         });
       } catch (error) {
@@ -327,4 +368,51 @@ export async function POST(request: Request) {
   if (identity.setCookie) headers.append("Set-Cookie", identity.setCookie);
 
   return new Response(stream, { headers });
+}
+
+function stepTitle(step: string) {
+  const titles: Record<string, string> = {
+    analysis: "Анализ исходных данных",
+    technology: "Определение технологии",
+    resources: "Формирование ресурсов",
+    prices: "Проверка цен",
+    estimate: "Формирование сметы",
+    review: "Независимая проверка",
+    "apply-change": "Применение изменения",
+    recalculate: "Пересчёт итогов",
+    "compare-variants": "Сравнение вариантов",
+    "independent-review": "Независимая проверка",
+    "calculate-execution": "Расчёт выполнения",
+    "prepare-document": "Подготовка документа",
+    "validate-required-fields": "Проверка обязательных полей",
+    "request-critical-input": "Определение критичных уточнений"
+  };
+  return titles[step] ?? step;
+}
+
+function toolTitle(tool: string) {
+  const titles: Record<string, string> = {
+    project_case: "Карточка объекта",
+    ask_user: "Критичные уточнения",
+    technology_card: "Технологическая карта",
+    resource_statement: "Ресурсная ведомость",
+    price_candidates: "Цены и источники",
+    estimate_draft: "Редактируемая смета",
+    estimate_review: "Независимая проверка",
+    estimate_comparison: "Сравнение вариантов",
+    execution_progress: "Исполнение сметы",
+    commercial_proposal: "Коммерческое предложение",
+    contract_draft: "Договор",
+    contract_appendix: "Приложение к договору",
+    act_draft: "Акт выполненных работ",
+    ks2_draft: "КС-2",
+    ks3_draft: "КС-3",
+    m29_draft: "М-29",
+    defect_statement: "Дефектная ведомость",
+    material_statement: "Ведомость материалов",
+    equipment_specification: "Спецификация оборудования",
+    work_schedule: "График работ",
+    invoice_draft: "Счёт"
+  };
+  return titles[tool] ?? "Подготовка результата";
 }
