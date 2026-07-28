@@ -1,5 +1,6 @@
 import Decimal from "decimal.js";
 import { z } from "zod";
+import { browserUuid } from "@/lib/platform/browser-crypto";
 
 export const ResourceTypeSchema = z.enum([
   "work",
@@ -70,14 +71,16 @@ export const EstimateDraftSchema = z.object({
   contractor: z.string().default(""),
   region: z.string().default(""),
   date: z.string().default(() => new Date().toISOString().slice(0, 10)),
-  method: z.enum([
-    "resource",
-    "base-index",
-    "resource-index",
-    "commercial",
-    "contractor-calculation",
-    "mixed"
-  ]).default("commercial"),
+  method: z
+    .enum([
+      "resource",
+      "base-index",
+      "resource-index",
+      "commercial",
+      "contractor-calculation",
+      "mixed"
+    ])
+    .default("commercial"),
   currency: z.string().default("RUB"),
   status: z.enum(["draft", "review", "approved", "sent"]).default("draft"),
   revision: z.number().int().positive().default(1),
@@ -181,7 +184,9 @@ export function validateForApproval(draft: EstimateDraft) {
       if (item.unitPrice > 0 && item.source.kind === "unknown") {
         blockers.push(`У позиции «${item.name}» отсутствует источник цены.`);
       }
-      if (item.source.confidence < 70) warnings.push(`Низкая уверенность в цене «${item.name}».`);
+      if (item.source.confidence < 70) {
+        warnings.push(`Низкая уверенность в цене «${item.name}».`);
+      }
       if (item.warning.trim()) warnings.push(item.warning.trim());
     }
   }
@@ -193,5 +198,5 @@ export function validateForApproval(draft: EstimateDraft) {
 }
 
 export function makeId(prefix: string) {
-  return `${prefix}_${crypto.randomUUID()}`;
+  return `${prefix}_${browserUuid()}`;
 }
