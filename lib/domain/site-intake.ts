@@ -11,6 +11,13 @@ function clean(value: string | undefined) {
     .slice(0, 180);
 }
 
+function displayName(value: string | undefined) {
+  const normalized = clean(value);
+  return normalized
+    ? `${normalized.charAt(0).toLocaleUpperCase("ru-RU")}${normalized.slice(1)}`
+    : undefined;
+}
+
 function lineValue(input: string, labels: string[]) {
   const escaped = labels.map((label) => label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
   const pattern = new RegExp(
@@ -26,8 +33,8 @@ export function extractSiteIntake(input: string): SiteIntake {
   const customer = lineValue(input, ["заказчик", "клиент"]);
 
   return {
-    objectName: objectName || address,
-    customer,
-    address
+    objectName: displayName(objectName || address),
+    customer: displayName(customer),
+    address: displayName(address)
   };
 }
