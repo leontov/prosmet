@@ -14,7 +14,7 @@ concurrency:
 jobs:
   verify:
     runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 70
+    timeout-minutes: 90
     env:
       CI: "1"
       NEXT_TELEMETRY_DISABLED: "1"
@@ -31,15 +31,6 @@ jobs:
         with:
           node-version: "22.16.0"
 
-      - name: Provision PostgreSQL
-        run: |
-          set -Eeuo pipefail
-          bash deployment/provision-postgres.sh
-          source "$HOME/.prosmet/database.env"
-          echo "::add-mask::$DATABASE_URL"
-          echo "PROSMET_DATABASE_DRIVER=postgres" >> "$GITHUB_ENV"
-          echo "DATABASE_URL=$DATABASE_URL" >> "$GITHUB_ENV"
-
       - name: Prepare evidence
         run: mkdir -p artifacts/logs artifacts/screenshots
 
@@ -49,7 +40,18 @@ jobs:
             npm install --package-lock-only --ignore-scripts --no-audit --no-fund
           fi
 
-      - run: npm ci --no-audit --no-fund
+      - name: Install application and PostgreSQL binaries
+        run: npm ci --no-audit --no-fund
+
+      - name: Provision persistent PostgreSQL without sudo
+        run: |
+          set -Eeuo pipefail
+          bash deployment/provision-postgres.sh
+          source "$HOME/.prosmet/database.env"
+          echo "::add-mask::$DATABASE_URL"
+          echo "PROSMET_DATABASE_DRIVER=postgres" >> "$GITHUB_ENV"
+          echo "DATABASE_URL=$DATABASE_URL" >> "$GITHUB_ENV"
+
       - run: npm run source:contract
       - run: npm run typecheck
       - run: npm run test
