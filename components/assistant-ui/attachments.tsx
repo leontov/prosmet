@@ -56,7 +56,9 @@ const AttachmentTile: FC = () => {
         )}
       </span>
       <div className="min-w-0 flex-1">
-        <AttachmentPrimitive.Name className="block truncate text-xs font-medium" />
+        <span className="block truncate text-xs font-medium">
+          <AttachmentPrimitive.Name />
+        </span>
         <span className="block truncate text-[10px] text-neutral-500">
           {uploading
             ? "Сохраняем локально…"
