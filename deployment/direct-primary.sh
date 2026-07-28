@@ -15,6 +15,9 @@ cp -a .next/standalone/. "${RELEASE}/"
 cp -a .next/static "${RELEASE}/.next/static"
 cp -a public "${RELEASE}/public"
 
+test -s "${RELEASE}/public/sql-wasm.wasm"
+test -s "${RELEASE}/public/sql-wasm-browser.wasm"
+
 if [[ -f "${PID_FILE}" ]]; then
   OLD_PID="$(cat "${PID_FILE}" || true)"
   if [[ "${OLD_PID}" =~ ^[0-9]+$ ]] && kill -0 "${OLD_PID}" 2>/dev/null; then
@@ -69,14 +72,46 @@ for attempt in $(seq 1 60); do
   sleep 2
 done
 
+curl -fsS "${BASE_URL}/sql-wasm.wasm" -o /dev/null
+curl -fsS "${BASE_URL}/sql-wasm-browser.wasm" -o /dev/null
+
 curl --fail --silent --show-error --no-buffer --max-time 60 \
   -H 'content-type: application/json' \
   -H 'accept: text/event-stream' \
   -d '{"threadId":"deployment-probe","runId":"deployment-probe","messages":[{"id":"probe-user","role":"user","content":[{"type":"text","text":"Проверка backend Просметчика"}]}],"tools":[],"context":{},"state":{}}' \
   "${BASE_URL}/api/agent" > "${ROOT}/primary-agent.sse"
 
-grep -q '"type":"RUN_STARTED"' "${ROOT}/primary-agent.sse"
-grep -q '"type":"TEXT_MESSAGE_CONTENT"' "${ROOT}/primary-agent.sse"
-grep -q '"type":"RUN_FINISHED"' "${ROOT}/primary-agent.sse"
+node --input-type=module - "${ROOT}/primary-agent.sse" <<'NODE'
+import { readFile } from "node:fs/promises";
+
+const file = process.argv[2];
+const raw = await readFile(file, "utf8");
+const events = raw
+  .split(/\r?\n/)
+  .filter((line) => line.startsWith("data: "))
+  .map((line) => JSON.parse(line.slice(6)));
+
+const types = new Set(events.map((item) => item.type));
+for (const required of ["RUN_STARTED", "TEXT_MESSAGE_CONTENT", "RUN_FINISHED"]) {
+  if (!types.has(required)) throw new Error(`Missing AG-UI event: ${required}`);
+}
+
+for (const item of events) {
+  if (
+    [
+      "TEXT_MESSAGE_START",
+      "TEXT_MESSAGE_CONTENT",
+      "TEXT_MESSAGE_END",
+      "ACTIVITY_SNAPSHOT",
+      "ACTIVITY_DELTA"
+    ].includes(item.type) &&
+    (typeof item.messageId !== "string" || !item.messageId)
+  ) {
+    throw new Error(`${item.type} is missing messageId`);
+  }
+}
+
+console.log(`Validated ${events.length} AG-UI events`);
+NODE
 
 echo "Prosmet is healthy at ${BASE_URL}"
