@@ -95,17 +95,21 @@ export const EstimateDraftTool: ToolCallMessagePartComponent<Args, Result> = ({
   useEffect(() => {
     if (!incoming) return;
     const parsed = estimateDraftSchema.parse(incoming);
-    setEstimate(parsed);
-    setDirty(false);
-    setSaveError(null);
-    setOpenSections(Object.fromEntries(parsed.sections.map((section) => [section.id, true])));
-    publishAgentState(parsed, "loaded");
-    void saveEstimateRevision(parsed)
-      .then(() => loadEstimateRevisions(parsed.id))
-      .then((values) => setHistoryCount(values.length))
-      .catch((error: unknown) => {
-        setSaveError(error instanceof Error ? error.message : "Не удалось сохранить исходную revision");
-      });
+    const timer = window.setTimeout(() => {
+      setEstimate(parsed);
+      setDirty(false);
+      setSaveError(null);
+      setOpenSections(Object.fromEntries(parsed.sections.map((section) => [section.id, true])));
+      publishAgentState(parsed, "loaded");
+      void saveEstimateRevision(parsed)
+        .then(() => loadEstimateRevisions(parsed.id))
+        .then((values) => setHistoryCount(values.length))
+        .catch((error: unknown) => {
+          setSaveError(error instanceof Error ? error.message : "Не удалось сохранить исходную revision");
+        });
+    }, 0);
+
+    return () => window.clearTimeout(timer);
     // The key prevents a fresh object identity from resetting unsaved form edits.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [incomingKey]);
