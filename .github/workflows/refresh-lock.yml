@@ -1,0 +1,44 @@
+name: Refresh Prosmet dependency lock
+
+on:
+  push:
+    branches: [rebuild/server-postgres-indexeddb]
+    paths:
+      - .github/workflows/refresh-lock.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: prosmet-refresh-lock
+  cancel-in-progress: true
+
+jobs:
+  refresh:
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 20
+    steps:
+      - name: Verify runner
+        run: test "${{ runner.name }}" = "prosmet-primary"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: rebuild/server-postgres-indexeddb
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.16.0"
+
+      - name: Refresh lockfile
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+
+      - name: Commit lockfile
+        run: |
+          set -Eeuo pipefail
+          rm -f .github/workflows/refresh-lock.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json .github/workflows/refresh-lock.yml
+          git commit -m "chore(deps): lock IndexedDB and PostgreSQL runtime"
+          git push origin HEAD:rebuild/server-postgres-indexeddb
