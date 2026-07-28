@@ -1,4 +1,4 @@
-name: Prosmet Primary Diagnostics (manual)
+name: Retired Prosmet Diagnostics
 
 on:
   workflow_dispatch:
@@ -6,75 +6,9 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: prosmet-primary-diagnostics
-  cancel-in-progress: true
-
 jobs:
-  diagnose:
-    runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 30
+  retired:
+    if: ${{ false }}
+    runs-on: ubuntu-latest
     steps:
-      - name: Verify runner
-        run: test "${{ runner.name }}" = "prosmet-primary"
-
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22.16.0"
-          cache: npm
-
-      - name: Capture Primary capabilities
-        shell: bash
-        run: |
-          set +e
-          mkdir -p artifacts/logs
-          {
-            date -u
-            hostname
-            id
-            uname -a
-            free -m 2>/dev/null
-            df -h / "$HOME" 2>/dev/null
-            command -v psql postgres pg_ctl initdb pg_isready docker podman 2>/dev/null || true
-            ss -ltnp 2>/dev/null | sed -n '1,200p' || true
-            ps -eo pid,ppid,user,stat,%cpu,%mem,etime,cmd --sort=-%cpu \
-              | grep -E 'prosmet|next-server|server\.js|postgres|mimo|node' \
-              | grep -v grep | sed -n '1,200p' || true
-            for url in \
-              http://127.0.0.1:3200/ \
-              http://127.0.0.1:3200/api/health \
-              http://127.0.0.1:3200/api/backend/status; do
-              echo "--- $url"
-              curl --max-time 5 -sS -D - "$url" -o /tmp/prosmet-diagnostic-body || true
-              head -c 3000 /tmp/prosmet-diagnostic-body 2>/dev/null || true
-              echo
-            done
-          } > artifacts/logs/primary-capabilities.log 2>&1
-
-      - name: Install exact dependencies
-        run: npm ci --no-audit --no-fund
-
-      - name: Capture source, type, unit and build gates
-        shell: bash
-        run: |
-          set +e
-          npm run source:contract >artifacts/logs/source-contract.log 2>&1; SOURCE=$?
-          npm run typecheck >artifacts/logs/typecheck.log 2>&1; TYPE=$?
-          npm run test >artifacts/logs/unit-tests.log 2>&1; UNIT=$?
-          npm run build >artifacts/logs/build.log 2>&1; BUILD=$?
-          printf '{"source":%s,"typecheck":%s,"unit":%s,"build":%s}\n' \
-            "$SOURCE" "$TYPE" "$UNIT" "$BUILD" | tee artifacts/logs/result.json
-          test "$SOURCE" -eq 0
-          test "$TYPE" -eq 0
-          test "$UNIT" -eq 0
-          test "$BUILD" -eq 0
-
-      - if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: prosmet-diagnostics-${{ github.run_id }}
-          path: artifacts/logs
-          if-no-files-found: error
-          retention-days: 14
+      - run: echo "Retired. Use Prosmet Main Production on main."
