@@ -39,7 +39,7 @@ export async function exportEstimatePdf(draft: EstimateDraft) {
   if (vfs) (pdfMake as unknown as { vfs: Record<string, string> }).vfs = vfs;
 
   const calculation = calculateEstimate(draft);
-  const body: Content[][] = [
+  const body: any[][] = [
     [
       { text: "№", bold: true },
       { text: "Код", bold: true },
@@ -64,11 +64,11 @@ export async function exportEstimatePdf(draft: EstimateDraft) {
     ]);
     for (const item of section.items) {
       body.push([
-        String(index++),
+        index++,
         item.code,
         item.name,
         item.unit,
-        String(item.quantity),
+        item.quantity,
         { text: item.unitPrice.toFixed(2), alignment: "right" },
         {
           text: (calculation.itemAmounts[item.id] ?? 0).toFixed(2),
