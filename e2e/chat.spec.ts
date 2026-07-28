@@ -31,7 +31,7 @@ test.beforeAll(async () => {
   await mkdir("artifacts/screenshots", { recursive: true });
 });
 
-test("plain HTTP boots without native crypto.randomUUID and serves local assets", async ({ page }) => {
+test("plain HTTP boots with native IndexedDB and no browser WASM", async ({ page }) => {
   const runtimeErrors = watchRuntimeErrors(page);
   await page.addInitScript(() => {
     try {
@@ -40,7 +40,7 @@ test("plain HTTP boots without native crypto.randomUUID and serves local assets"
         value: undefined
       });
     } catch {
-      // The page compatibility script must still leave the application usable.
+      // The compatibility helper must still leave the application usable.
     }
   });
 
@@ -49,15 +49,24 @@ test("plain HTTP boots without native crypto.randomUUID and serves local assets"
   await expect(page.getByTestId("chat-empty-state")).toBeVisible();
   await expect(composer(page)).toBeVisible();
 
-  for (const asset of ["/favicon.ico", "/sql-wasm.wasm", "/sql-wasm-browser.wasm"]) {
-    const assetResponse = await page.request.get(asset);
-    expect(assetResponse.ok(), `${asset} must be published`).toBeTruthy();
+  const favicon = await page.request.get("/favicon.ico");
+  expect(favicon.ok()).toBeTruthy();
+
+  const localDatabase = await page.evaluate(async () => {
+    const databases = await indexedDB.databases();
+    return databases.find((database) => database.name === "prosmet-cache-v3");
+  });
+  expect(localDatabase?.name).toBe("prosmet-cache-v3");
+
+  for (const obsolete of ["/sql-wasm.wasm", "/sql-wasm-browser.wasm"]) {
+    const asset = await page.request.get(obsolete);
+    expect(asset.status()).toBe(404);
   }
 
   expect(relevantRuntimeErrors(runtimeErrors)).toEqual([]);
 });
 
-test("Codex desktop shell hydrates without CSP errors and exposes both sidebars", async ({
+test("Codex desktop shell hydrates without eval and exposes both sidebars", async ({
   page
 }, testInfo) => {
   const runtimeErrors = watchRuntimeErrors(page);
@@ -69,8 +78,8 @@ test("Codex desktop shell hydrates without CSP errors and exposes both sidebars"
   const csp = response?.headers()["content-security-policy"] ?? "";
   expect(csp).toContain("script-src");
   expect(csp).toContain("'unsafe-inline'");
-  expect(csp).toContain("'unsafe-eval'");
-  expect(csp).toContain("'wasm-unsafe-eval'");
+  expect(csp).not.toContain("'unsafe-eval'");
+  expect(csp).not.toContain("'wasm-unsafe-eval'");
 
   if (testInfo.project.name === "desktop-chromium") {
     await expect(page.getByTestId("app-sidebar")).toBeVisible();
@@ -78,6 +87,7 @@ test("Codex desktop shell hydrates without CSP errors and exposes both sidebars"
     await expect(inspector).toBeVisible();
     await expect(inspector.getByText("Рабочий контекст", { exact: true })).toBeVisible();
     await expect(inspector.getByText("PostgreSQL", { exact: true })).toBeVisible();
+    await expect(inspector.getByText("IndexedDB", { exact: true })).toBeVisible();
     await expect(inspector.getByText(/Подключено/)).toBeVisible({ timeout: 30_000 });
   } else {
     await expect(page.getByRole("button", { name: "Открыть меню" })).toBeVisible();
@@ -88,12 +98,16 @@ test("Codex desktop shell hydrates without CSP errors and exposes both sidebars"
   expect(backend.ok()).toBeTruthy();
   const status = (await backend.json()) as {
     ok?: boolean;
-    database?: { connected?: boolean };
+    database?: { connected?: boolean; driver?: string };
     agent?: { streaming?: boolean };
+    localFirst?: { browserCache?: string; wasm?: boolean };
   };
   expect(status.ok).toBe(true);
   expect(status.database?.connected).toBe(true);
+  expect(status.database?.driver).toBe("postgres");
   expect(status.agent?.streaming).toBe(true);
+  expect(status.localFirst?.browserCache).toBe("IndexedDB");
+  expect(status.localFirst?.wasm).toBe(false);
   expect(relevantRuntimeErrors(runtimeErrors)).toEqual([]);
 
   await page.screenshot({
@@ -102,7 +116,7 @@ test("Codex desktop shell hydrates without CSP errors and exposes both sidebars"
   });
 });
 
-test("streaming chat emits schema-valid AG-UI activity and creates an editable estimate", async ({
+test("streaming chat creates a technology card and editable estimate", async ({
   page
 }, testInfo) => {
   const runtimeErrors = watchRuntimeErrors(page);
@@ -134,7 +148,7 @@ test("streaming chat emits schema-valid AG-UI activity and creates an editable e
 
   const dbExists = await page.evaluate(async () => {
     const databases = await indexedDB.databases();
-    return databases.some((database) => database.name === "prosmet-local-v2");
+    return databases.some((database) => database.name === "prosmet-cache-v3");
   });
   expect(dbExists).toBeTruthy();
   expect(relevantRuntimeErrors(runtimeErrors)).toEqual([]);
