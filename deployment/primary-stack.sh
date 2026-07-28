@@ -22,15 +22,15 @@ chmod 750 "$ROOT"
 
 if [[ ! -f "$ROOT/postgres.password" ]]; then
   umask 077
-  openssl rand -base64 36 | tr -d '\n' > "$ROOT/postgres.password"
+  openssl rand -hex 36 > "$ROOT/postgres.password"
 fi
-POSTGRES_PASSWORD="$(cat "$ROOT/postgres.password")"
+POSTGRES_PASSWORD="$(tr -d '\r\n' < "$ROOT/postgres.password")"
 
 if [[ ! -f "$ROOT/app.secret" ]]; then
   umask 077
   openssl rand -hex 48 > "$ROOT/app.secret"
 fi
-APP_SECRET="$(cat "$ROOT/app.secret")"
+APP_SECRET="$(tr -d '\r\n' < "$ROOT/app.secret")"
 
 if ! docker network inspect "$NETWORK" >/dev/null 2>&1; then
   docker network create "$NETWORK" >/dev/null
@@ -76,7 +76,18 @@ PROSMET_DEFAULT_PROVIDER=${PROSMET_DEFAULT_PROVIDER:-rules}
 PROSMET_SESSION_SECRET=${PROSMET_SESSION_SECRET:-$APP_SECRET}
 BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:-$APP_SECRET}
 DATABASE_URL=postgresql://prosmet:${POSTGRES_PASSWORD}@${POSTGRES_CONTAINER}:5432/prosmet
+PROSMET_AGENT_MAX_REQUEST_BYTES=${PROSMET_AGENT_MAX_REQUEST_BYTES:-16777216}
 ENV
+
+for optional_name in \
+  MIMO_API_KEY MIMO_BASE_URL MIMO_MODEL \
+  OPENAI_COMPATIBLE_API_KEY OPENAI_COMPATIBLE_BASE_URL OPENAI_COMPATIBLE_MODEL \
+  OLLAMA_BASE_URL OLLAMA_MODEL; do
+  optional_value="${!optional_name:-}"
+  if [[ -n "$optional_value" ]]; then
+    printf '%s=%s\n' "$optional_name" "$optional_value" >> "$ROOT/runtime.env"
+  fi
+done
 chmod 600 "$ROOT/runtime.env"
 
 docker rm -f "$APP_CONTAINER" >/dev/null 2>&1 || true
