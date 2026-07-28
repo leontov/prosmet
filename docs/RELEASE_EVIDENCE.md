@@ -21,7 +21,8 @@
 ## Active verification
 
 - Hosted quality diagnostics and the `prosmet-primary` quality gate are configured against the same feature branch.
-- Hosted run `30325071015` reached dependency resolution and failed before compilation; the next diagnostic run persists the complete npm resolver output as an artifact.
+- Dependency resolution and `npm ci` pass after pinning the published `@assistant-ui/react-ag-ui@0.0.45`.
+- Source contract passes; TypeScript is the active failing gate and its complete output is persisted in the next diagnostics artifact.
 - A feature-branch push never deploys: canary is gated to explicit workflow dispatch or a green `main` push.
 
 ## Not yet proven
