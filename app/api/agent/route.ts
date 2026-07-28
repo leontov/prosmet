@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { runServiceCommand } from "@/lib/server/service-command";
 import { runRulesAgent } from "@/lib/server/rules-agent";
 import { resolveServerIdentity } from "@/lib/server/identity";
 import { beginAgentRun, finishAgentRun } from "@/lib/server/postgres";
@@ -229,10 +230,12 @@ export async function POST(request: Request) {
     );
   }
 
-  const result = runRulesAgent(prompt, {
-    state: body.state,
-    messages: body.messages
-  });
+  const result =
+    runServiceCommand(prompt) ??
+    runRulesAgent(prompt, {
+      state: body.state,
+      messages: body.messages
+    });
   const snapshot = finalState(body, provider, result.state);
 
   const stream = new ReadableStream<Uint8Array>({
@@ -390,7 +393,10 @@ function stepTitle(step: string) {
     "calculate-execution": "Расчёт выполнения",
     "prepare-document": "Подготовка документа",
     "validate-required-fields": "Проверка обязательных полей",
-    "request-critical-input": "Определение критичных уточнений"
+    "request-critical-input": "Определение критичных уточнений",
+    "load-workspace-service": "Загрузка рабочего пространства",
+    "load-provider-service": "Загрузка AI-провайдеров",
+    "check-services": "Проверка подкапотных сервисов"
   };
   return titles[step] ?? step;
 }
@@ -417,7 +423,10 @@ function toolTitle(tool: string) {
     material_statement: "Ведомость материалов",
     equipment_specification: "Спецификация оборудования",
     work_schedule: "График работ",
-    invoice_draft: "Счёт"
+    invoice_draft: "Счёт",
+    workspace_settings: "Профиль и сметные настройки",
+    provider_settings: "AI-провайдеры",
+    service_status: "Состояние сервисов"
   };
   return titles[tool] ?? "Подготовка результата";
 }
