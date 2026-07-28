@@ -1,95 +1,14 @@
-name: Bootstrap assistant-ui skills
+name: Retired assistant-ui skills bootstrap
 
 on:
-  push:
-    paths:
-      - .github/workflows/bootstrap-assistant-ui-skills.yml
   workflow_dispatch:
 
 permissions:
-  contents: write
-
-concurrency:
-  group: prosmet-assistant-ui-skills
-  cancel-in-progress: false
+  contents: read
 
 jobs:
-  install:
-    name: Install assistant-ui skills on prosmet-primary
-    runs-on: [self-hosted, linux, x64]
-    timeout-minutes: 20
-    env:
-      CI: "1"
-      DO_NOT_TRACK: "1"
-      DISABLE_TELEMETRY: "1"
+  retired:
+    if: ${{ false }}
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout Prosmetchik
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Assert target runner
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          echo "runner.name=${RUNNER_NAME}"
-          echo "runner.os=${RUNNER_OS}"
-          echo "runner.arch=${RUNNER_ARCH}"
-          test "${RUNNER_NAME}" = "prosmet-primary"
-
-      - name: Set up Node.js 22
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22.16.0"
-          cache: npm
-          cache-dependency-path: package-lock.json
-
-      - name: Verify official assistant-ui documentation
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          curl -fsSL --retry 4 --retry-delay 2 \
-            https://www.assistant-ui.com/llms.txt \
-            -o /tmp/assistant-ui-llms.txt
-          grep -F "# assistant-ui" /tmp/assistant-ui-llms.txt
-          grep -F "Agent Skills" /tmp/assistant-ui-llms.txt
-
-      - name: Install all official assistant-ui skills for Codex
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          npx -y skills add assistant-ui/skills \
-            --skill '*' \
-            --agent codex \
-            --copy \
-            --yes
-
-      - name: Verify installed skills
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          npx -y skills list --agent codex
-          test -f .agents/skills/assistant-ui/SKILL.md
-          test -f .agents/skills/setup/SKILL.md
-          test -f .agents/skills/primitives/SKILL.md
-          test -f .agents/skills/runtime/SKILL.md
-          test -f .agents/skills/tools/SKILL.md
-          test -f .agents/skills/streaming/SKILL.md
-          test -f .agents/skills/cloud/SKILL.md
-          test -f .agents/skills/thread-list/SKILL.md
-          test -f .agents/skills/update/SKILL.md
-          find .agents/skills -maxdepth 2 -name SKILL.md -print | sort
-
-      - name: Commit project-local skills
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          git config user.name "prosmet-primary"
-          git config user.email "prosmet-primary@users.noreply.github.com"
-          git add .agents/skills
-          if git diff --cached --quiet; then
-            echo "assistant-ui skills are already current"
-            exit 0
-          fi
-          git commit -m "chore: install official assistant-ui skills"
-          git push origin HEAD:${GITHUB_REF_NAME}
+      - run: echo "Retired. assistant-ui skills are already committed."
