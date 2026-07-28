@@ -17,7 +17,7 @@ jobs:
   verify-and-deploy:
     name: Verify and deploy on prosmet-primary
     runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 90
+    timeout-minutes: 100
     env:
       CI: "1"
       NEXT_TELEMETRY_DISABLED: "1"
@@ -114,9 +114,59 @@ jobs:
           set -o pipefail
           npm run build 2>&1 | tee artifacts/logs/build.log
 
+      - name: Prepare Docker and verification PostgreSQL
+        id: verification_database
+        if: steps.build.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -o pipefail
+          (
+            set -Eeuo pipefail
+            if ! command -v docker >/dev/null 2>&1; then
+              sudo -n apt-get update
+              sudo -n DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io
+              sudo -n systemctl enable --now docker
+            fi
+            if docker info >/dev/null 2>&1; then
+              DOCKER=(docker)
+            elif sudo -n docker info >/dev/null 2>&1; then
+              DOCKER=(sudo -n docker)
+            else
+              echo "Runner cannot access Docker" >&2
+              exit 1
+            fi
+            "${DOCKER[@]}" rm -f prosmet-e2e-postgres >/dev/null 2>&1 || true
+            "${DOCKER[@]}" pull postgres:16-alpine
+            "${DOCKER[@]}" run -d \
+              --name prosmet-e2e-postgres \
+              -e POSTGRES_DB=prosmet \
+              -e POSTGRES_USER=prosmet \
+              -e POSTGRES_PASSWORD=prosmet-e2e \
+              -p 127.0.0.1::5432 \
+              --health-cmd='pg_isready -U prosmet -d prosmet' \
+              --health-interval=3s \
+              --health-timeout=3s \
+              --health-retries=20 \
+              postgres:16-alpine
+            PORT="$("${DOCKER[@]}" port prosmet-e2e-postgres 5432/tcp | awk -F: 'END {print $NF}')"
+            test -n "$PORT"
+            echo "DATABASE_URL=postgresql://prosmet:prosmet-e2e@127.0.0.1:${PORT}/prosmet" >> "$GITHUB_ENV"
+            for attempt in $(seq 1 40); do
+              STATUS="$("${DOCKER[@]}" inspect -f '{{.State.Health.Status}}' prosmet-e2e-postgres 2>/dev/null || true)"
+              if [ "$STATUS" = healthy ]; then
+                echo "Verification PostgreSQL healthy on port ${PORT}"
+                exit 0
+              fi
+              sleep 2
+            done
+            "${DOCKER[@]}" logs prosmet-e2e-postgres || true
+            exit 1
+          ) 2>&1 | tee artifacts/logs/verification-postgres.log
+
       - name: Install Playwright Chromium
         id: chromium
-        if: steps.install.outcome == 'success'
+        if: steps.verification_database.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
@@ -125,12 +175,22 @@ jobs:
 
       - name: Desktop and mobile Chromium E2E
         id: e2e
-        if: steps.build.outcome == 'success' && steps.chromium.outcome == 'success'
+        if: steps.build.outcome == 'success' && steps.verification_database.outcome == 'success' && steps.chromium.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
           set -o pipefail
           npm run e2e 2>&1 | tee artifacts/logs/e2e.log
+
+      - name: Stop verification PostgreSQL
+        if: always()
+        shell: bash
+        run: |
+          if docker info >/dev/null 2>&1; then
+            docker rm -f prosmet-e2e-postgres >/dev/null 2>&1 || true
+          elif sudo -n docker info >/dev/null 2>&1; then
+            sudo -n docker rm -f prosmet-e2e-postgres >/dev/null 2>&1 || true
+          fi
 
       - name: Build immutable production image
         id: image
@@ -139,11 +199,6 @@ jobs:
         shell: bash
         run: |
           set -Eeuo pipefail
-          if ! command -v docker >/dev/null 2>&1; then
-            sudo -n apt-get update
-            sudo -n DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io
-            sudo -n systemctl enable --now docker
-          fi
           if docker info >/dev/null 2>&1; then
             DOCKER=(docker)
           elif sudo -n docker info >/dev/null 2>&1; then
@@ -237,6 +292,7 @@ jobs:
           TYPE_GATE: ${{ steps.typecheck.outcome }}
           UNIT_GATE: ${{ steps.unit_tests.outcome }}
           BUILD_GATE: ${{ steps.build.outcome }}
+          POSTGRES_GATE: ${{ steps.verification_database.outcome }}
           CHROMIUM_GATE: ${{ steps.chromium.outcome }}
           E2E_GATE: ${{ steps.e2e.outcome }}
           IMAGE_GATE: ${{ steps.image.outcome }}
@@ -254,6 +310,7 @@ jobs:
               ["typecheck", process.env.TYPE_GATE],
               ["unit tests", process.env.UNIT_GATE],
               ["production build", process.env.BUILD_GATE],
+              ["verification PostgreSQL", process.env.POSTGRES_GATE],
               ["Chromium", process.env.CHROMIUM_GATE],
               ["desktop/mobile Chromium E2E", process.env.E2E_GATE],
               ["Docker image", process.env.IMAGE_GATE],
@@ -323,6 +380,7 @@ jobs:
           TYPE_GATE: ${{ steps.typecheck.outcome }}
           UNIT_GATE: ${{ steps.unit_tests.outcome }}
           BUILD_GATE: ${{ steps.build.outcome }}
+          POSTGRES_GATE: ${{ steps.verification_database.outcome }}
           CHROMIUM_GATE: ${{ steps.chromium.outcome }}
           E2E_GATE: ${{ steps.e2e.outcome }}
           IMAGE_GATE: ${{ steps.image.outcome }}
@@ -336,6 +394,7 @@ jobs:
           test "$TYPE_GATE" = success
           test "$UNIT_GATE" = success
           test "$BUILD_GATE" = success
+          test "$POSTGRES_GATE" = success
           test "$CHROMIUM_GATE" = success
           test "$E2E_GATE" = success
           test "$IMAGE_GATE" = success
