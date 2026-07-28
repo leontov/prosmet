@@ -7,7 +7,11 @@
     "node": ">=22.16.0 <23"
   },
   "scripts": {
+    "copy:wasm": "node scripts/copy-sql-wasm.mjs",
+    "postinstall": "npm run copy:wasm",
+    "predev": "npm run copy:wasm",
     "dev": "next dev",
+    "prebuild": "npm run copy:wasm",
     "build": "next build",
     "start": "next start -H 0.0.0.0 -p 3100",
     "typecheck": "tsc --noEmit",
