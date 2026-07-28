@@ -55,15 +55,19 @@ test("the application hydrates and remains interactive", async ({ page }, testIn
   await composer.press("Backspace");
   await expect(composer).toHaveValue("");
 
+  const visibleSidebar = page.locator('[data-testid="app-sidebar"]:visible');
+  const visibleInspector = page.locator('[data-testid="right-inspector"]:visible');
+
   if (testInfo.project.name === "desktop-chromium") {
-    await expect(page.getByTestId("app-sidebar")).toBeVisible();
-    await expect(page.getByTestId("right-inspector")).toBeVisible();
+    await expect(visibleSidebar).toHaveCount(1);
+    await expect(visibleInspector).toHaveCount(1);
   } else {
     await page.getByRole("button", { name: "Открыть меню" }).click();
-    await expect(page.getByTestId("app-sidebar")).toBeVisible();
+    await expect(visibleSidebar).toHaveCount(1);
     await page.getByRole("button", { name: "Закрыть меню" }).last().click();
+    await expect(visibleSidebar).toHaveCount(0);
     await page.getByRole("button", { name: "Рабочий контекст" }).click();
-    await expect(page.getByTestId("right-inspector")).toBeVisible();
+    await expect(visibleInspector).toHaveCount(1);
   }
 
   const backend = await page.request.get("/api/backend/status");
