@@ -39,7 +39,7 @@ export async function exportEstimatePdf(draft: EstimateDraft) {
   if (vfs) (pdfMake as unknown as { vfs: Record<string, string> }).vfs = vfs;
 
   const calculation = calculateEstimate(draft);
-  const body: unknown[][] = [
+  const body: any[][] = [
     [
       { text: "№", bold: true },
       { text: "Код", bold: true },
@@ -233,8 +233,9 @@ export async function exportEstimateXlsx(draft: EstimateDraft) {
   });
 
   const buffer = await workbook.xlsx.writeBuffer();
+  const bytes = new Uint8Array(buffer as ArrayBuffer);
   saveBlob(
-    new Blob([buffer], {
+    new Blob([bytes], {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     }),
     `${safeName(draft.title)}-v${draft.revision}.xlsx`
