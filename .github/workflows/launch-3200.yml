@@ -3,19 +3,6 @@ name: Prosmet Main Production
 on:
   push:
     branches: [main]
-    paths:
-      - .github/workflows/launch-3200.yml
-      - next.config.ts
-      - playwright.config.ts
-      - package.json
-      - package-lock.json
-      - app/**
-      - components/**
-      - lib/**
-      - public/**
-      - deployment/**
-      - scripts/**
-      - e2e/**
   workflow_dispatch:
 
 permissions:
@@ -74,6 +61,20 @@ jobs:
           echo "::add-mask::$DATABASE_URL"
           echo "PROSMET_DATABASE_DRIVER=postgres" >> "$GITHUB_ENV"
           echo "DATABASE_URL=$DATABASE_URL" >> "$GITHUB_ENV"
+
+      - name: Prepare server secret store
+        run: |
+          set -Eeuo pipefail
+          SECRET_FILE="$HOME/.prosmet/provider-master-key"
+          mkdir -p "$HOME/.prosmet"
+          if [ ! -s "$SECRET_FILE" ]; then
+            umask 077
+            openssl rand -base64 48 > "$SECRET_FILE"
+          fi
+          chmod 600 "$SECRET_FILE"
+          PROSMET_PROVIDER_MASTER_KEY="$(tr -d '\r\n' < "$SECRET_FILE")"
+          echo "::add-mask::$PROSMET_PROVIDER_MASTER_KEY"
+          echo "PROSMET_PROVIDER_MASTER_KEY=$PROSMET_PROVIDER_MASTER_KEY" >> "$GITHUB_ENV"
 
       - name: Verify DATABASE_URL
         run: |
@@ -167,11 +168,15 @@ jobs:
           BASE_URL=http://127.0.0.1:3200
           curl -fsS "$BASE_URL/api/health" | tee artifacts/release/health.json
           curl -fsS "$BASE_URL/api/backend/status" | tee artifacts/release/backend.json
+          curl -fsS "$BASE_URL/api/workspace" | tee artifacts/release/workspace.json
+          curl -fsS "$BASE_URL/api/providers" | tee artifacts/release/providers.json
           grep -q "\"releaseSha\":\"${GITHUB_SHA}\"" artifacts/release/health.json
           grep -q '"connected":true' artifacts/release/backend.json
           grep -q '"driver":"postgres"' artifacts/release/backend.json
           grep -q '"browserCache":"IndexedDB"' artifacts/release/backend.json
           grep -q '"wasm":false' artifacts/release/backend.json
+          grep -q '"storage":"postgres"' artifacts/release/workspace.json
+          grep -q '"storage":"postgres"' artifacts/release/providers.json
 
           curl -fsSI "$BASE_URL/" | tee artifacts/release/headers.txt
           grep -qi 'cache-control:.*no-store' artifacts/release/headers.txt
@@ -192,7 +197,7 @@ jobs:
           PROSMET_BASE_URL: http://127.0.0.1:3200
         run: |
           set -o pipefail
-          npx playwright test e2e/browser-smoke.spec.ts \
+          npx playwright test e2e/browser-smoke.spec.ts e2e/chat-services.spec.ts \
             --project=desktop-chromium \
             --project=mobile-chromium \
             2>&1 | tee artifacts/logs/e2e-live.log
@@ -213,6 +218,8 @@ jobs:
             "database": "PostgreSQL",
             "browserCache": "IndexedDB",
             "browserWasm": false,
+            "workspaceService": "PostgreSQL tenant scoped",
+            "providerService": "encrypted server side",
             "verifiedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           }
           JSON
@@ -245,7 +252,7 @@ jobs:
               body: [
                 `MAIN PRODUCTION ${success ? "PASS" : "FAILED"}`,
                 `Commit: \`${context.sha}\``,
-                `Runner: \`${{ runner.name }}\``,
+                `Runner: \`prosmet-primary\``,
                 `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
                 `Updated: ${new Date().toISOString()}`,
                 success ? "APP: http://78.17.4.108:3200/" : "Deployment was not accepted. Inspect the failed workflow step."
