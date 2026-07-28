@@ -1,17 +1,13 @@
 {
   "name": "prosmet",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "engines": {
     "node": ">=22.16.0 <23"
   },
   "scripts": {
-    "copy:wasm": "node scripts/copy-sql-wasm.mjs",
-    "postinstall": "npm run copy:wasm",
-    "predev": "npm run copy:wasm",
     "dev": "next dev",
-    "prebuild": "npm run copy:wasm",
     "build": "next build",
     "start": "next start -H 0.0.0.0 -p 3100",
     "typecheck": "tsc --noEmit",
@@ -27,7 +23,6 @@
     "@assistant-ui/react": "latest",
     "@assistant-ui/react-ag-ui": "latest",
     "@assistant-ui/react-markdown": "latest",
-    "@electric-sql/pglite": "latest",
     "better-auth": "latest",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -42,7 +37,6 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "remark-gfm": "^4.0.1",
-    "sql.js": "^1.13.0",
     "tailwind-merge": "^3.6.0",
     "zod": "latest"
   },
