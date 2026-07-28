@@ -131,17 +131,28 @@ for (const token of [
 
 const provision = await read("deployment/provision-postgres.sh");
 for (const token of [
-  "apt-get install",
-  "systemctl enable --now postgresql",
-  "sudo -n -u postgres",
+  "apt-get download",
+  "dpkg-deb -x",
+  "postgresql-16",
+  "postgresql-client-16",
+  "initdb",
+  "pg_ctl",
   "pg_isready",
+  "RUNNER_TRACKING_ID=",
   "postgres-password",
   "DATABASE_URL",
-  "Real PostgreSQL is ready"
+  "Real rootless PostgreSQL"
 ]) {
   need(provision, token, "postgres-provision");
 }
-for (const token of ["postgres-server.mjs", "embedded-postgres", "pglite"]) {
+for (const token of [
+  "postgres-server.mjs",
+  "embedded-postgres",
+  "pglite",
+  "sudo ",
+  "systemctl",
+  "docker"
+]) {
   forbid(provision, token, "postgres-provision");
 }
 
