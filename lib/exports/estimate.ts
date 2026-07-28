@@ -160,10 +160,34 @@ export async function createEstimatePdfBlob(draft: EstimateDraft) {
     content
   };
 
-  const document = pdfMake.createPdf(definition) as unknown as {
-    getBlob: () => Promise<Blob>;
+  // pdfmake 0.2.x exposes getBlob through a completion callback. Treating it
+  // as a promise leaves the export action pending forever and the browser never
+  // receives a download. Wrap the stable callback API and add a bounded timeout
+  // so a malformed document cannot freeze the workspace indefinitely.
+  const pdfDocument = pdfMake.createPdf(definition) as unknown as {
+    getBlob: (callback: (blob: Blob) => void) => void;
   };
-  return document.getBlob();
+  return await new Promise<Blob>((resolve, reject) => {
+    let settled = false;
+    const timer = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error("PDF не был сформирован за отведённое время"));
+    }, 30_000);
+
+    try {
+      pdfDocument.getBlob((blob) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        resolve(blob);
+      });
+    } catch (error) {
+      settled = true;
+      window.clearTimeout(timer);
+      reject(error);
+    }
+  });
 }
 
 export async function exportEstimatePdf(draft: EstimateDraft) {
