@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
-import { LocalWorkspaceProvider } from "@/lib/local/context";
 import { MyRuntimeProvider } from "@/app/MyRuntimeProvider";
+import { RuntimeStatusProvider } from "@/components/app/runtime-status";
+import { LocalWorkspaceProvider } from "@/lib/local/context";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -25,7 +26,9 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
     <html lang="ru" className="h-dvh">
       <body className="h-dvh overflow-hidden">
         <LocalWorkspaceProvider>
-          <MyRuntimeProvider>{children}</MyRuntimeProvider>
+          <RuntimeStatusProvider>
+            <MyRuntimeProvider>{children}</MyRuntimeProvider>
+          </RuntimeStatusProvider>
         </LocalWorkspaceProvider>
       </body>
     </html>
