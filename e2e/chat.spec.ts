@@ -16,12 +16,13 @@ function watchRuntimeErrors(page: import("@playwright/test").Page) {
     if (message.type() === "error") errors.push(message.text());
   });
   page.on("pageerror", (error) => errors.push(error.message));
+  page.on("crash", () => errors.push("Page crashed"));
   return errors;
 }
 
 function relevantRuntimeErrors(errors: string[]) {
   return errors.filter((message) =>
-    /Content Security Policy|Refused to execute inline script|Refused to evaluate|blocks the use of ['"]eval['"]|unsafe-eval|EvalError|hydration|Connection closed|randomUUID is not a function|sql-wasm|both async and sync fetching|wasm streaming compile failed|ZodError|messageId.*Required/i.test(
+    /Content Security Policy|Refused to execute inline script|Refused to evaluate|blocks the use of ['"]eval['"]|unsafe-eval|EvalError|hydration|Connection closed|randomUUID is not a function|sql-wasm|both async and sync fetching|wasm streaming compile failed|ZodError|messageId.*Required|Maximum update depth exceeded|Too many re-renders|Page crashed|out of memory/i.test(
       message
     )
   );
@@ -46,6 +47,7 @@ test("plain HTTP boots with native IndexedDB and no browser WASM", async ({ page
 
   const response = await page.goto("/");
   expect(response?.ok()).toBeTruthy();
+  expect(response?.headers()["cache-control"] ?? "").toContain("no-store");
   await expect(page.getByTestId("chat-empty-state")).toBeVisible();
   await expect(composer(page)).toBeVisible();
 
@@ -63,6 +65,44 @@ test("plain HTTP boots with native IndexedDB and no browser WASM", async ({ page
     expect(asset.status()).toBe(404);
   }
 
+  expect(relevantRuntimeErrors(runtimeErrors)).toEqual([]);
+});
+
+test("hydrated client remains responsive instead of entering a refresh loop", async ({
+  page
+}) => {
+  const runtimeErrors = watchRuntimeErrors(page);
+  await page.goto("/");
+  await expect(page.getByTestId("chat-empty-state")).toBeVisible();
+
+  const completedFrames = await page.evaluate(
+    () =>
+      new Promise<number>((resolve, reject) => {
+        let frames = 0;
+        const timeout = window.setTimeout(
+          () => reject(new Error(`Browser stopped responding after ${frames} animation frames`)),
+          3000
+        );
+        const next = () => {
+          frames += 1;
+          if (frames >= 12) {
+            window.clearTimeout(timeout);
+            resolve(frames);
+            return;
+          }
+          window.requestAnimationFrame(next);
+        };
+        window.requestAnimationFrame(next);
+      })
+  );
+  expect(completedFrames).toBe(12);
+
+  await composer(page).fill("Проверка отзывчивости интерфейса");
+  await expect(composer(page)).toHaveValue("Проверка отзывчивости интерфейса");
+  await composer(page).fill("");
+  await expect(composer(page)).toHaveValue("");
+
+  await page.waitForTimeout(1500);
   expect(relevantRuntimeErrors(runtimeErrors)).toEqual([]);
 });
 
