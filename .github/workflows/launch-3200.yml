@@ -44,10 +44,10 @@ jobs:
           test "${{ runner.name }}" = "prosmet-primary"
           test "${GITHUB_REF_NAME}" = "main"
 
-      - name: Checkout main
+      - name: Checkout exact main commit
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.sha }}
           fetch-depth: 1
           clean: true
 
