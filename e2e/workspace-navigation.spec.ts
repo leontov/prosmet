@@ -150,7 +150,7 @@ test("all workspace sections and thread history actions are functional", async (
   await settings.getByRole("button", { name: "Сохранить настройки" }).click();
   await expect(settings.getByRole("button", { name: "Сохранено" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Профиль" }).click();
+  await page.getByRole("button", { name: "Профиль", exact: true }).click();
   const profile = page.getByTestId("profile-view");
   await expect(profile).toBeVisible();
   await profile.getByLabel("Имя").fill("Владислав");
