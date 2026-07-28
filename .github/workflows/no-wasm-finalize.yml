@@ -30,30 +30,12 @@ jobs:
         with:
           node-version: "22.16.0"
 
-      - name: Finalize browser and UI migration
+      - name: Finalize remaining source updates
         shell: bash
         run: |
           set -Eeuo pipefail
           python3 - <<'PY'
           from pathlib import Path
-
-          def replace_required(path: str, old: str, new: str) -> None:
-              file = Path(path)
-              text = file.read_text()
-              if old not in text:
-                  raise SystemExit(f"Missing expected text in {path}: {old!r}")
-              file.write_text(text.replace(old, new))
-
-          replace_required(
-              "components/app/chat-workspace.tsx",
-              '? "SQLite WASM готова"\n              : workspace.error || "Открываем SQLite WASM…"',
-              '? "IndexedDB-кэш готов"\n              : workspace.error || "Открываем IndexedDB-кэш…"'
-          )
-          replace_required(
-              "components/app/chat-workspace.tsx",
-              "Локальная база не открылась:",
-              "Локальный кэш не открылся:"
-          )
 
           estimate = Path("components/tools/estimate-editor.tsx")
           text = estimate.read_text()
