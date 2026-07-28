@@ -28,7 +28,7 @@ concurrency:
 jobs:
   launch:
     runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       CI: "1"
       NEXT_TELEMETRY_DISABLED: "1"
@@ -56,7 +56,7 @@ jobs:
                 "",
                 "## Launching on port 3200",
                 "",
-                "Native IndexedDB cache, real PostgreSQL, frontend and AG-UI backend are starting on Primary."
+                "Native IndexedDB cache, persistent PostgreSQL, frontend and AG-UI backend are starting on Primary."
               ].join("\n")
             });
 
@@ -66,7 +66,15 @@ jobs:
         with:
           node-version: "22.16.0"
 
-      - name: Provision real PostgreSQL on Primary
+      - name: Install application and PostgreSQL binaries
+        run: |
+          set -Eeuo pipefail
+          if [ ! -f package-lock.json ]; then
+            npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+          fi
+          npm ci --no-audit --no-fund
+
+      - name: Provision persistent PostgreSQL without sudo
         run: |
           set -Eeuo pipefail
           bash deployment/provision-postgres.sh
@@ -74,14 +82,6 @@ jobs:
           echo "::add-mask::$DATABASE_URL"
           echo "PROSMET_DATABASE_DRIVER=postgres" >> "$GITHUB_ENV"
           echo "DATABASE_URL=$DATABASE_URL" >> "$GITHUB_ENV"
-
-      - name: Install
-        run: |
-          set -Eeuo pipefail
-          if [ ! -f package-lock.json ]; then
-            npm install --package-lock-only --ignore-scripts --no-audit --no-fund
-          fi
-          npm ci --no-audit --no-fund
 
       - name: Verify source, types and calculations
         run: |
@@ -106,6 +106,8 @@ jobs:
           curl -fsS "$BASE_URL/api/backend/status" | tee /tmp/prosmet-backend-status.json
           grep -q '"connected":true' /tmp/prosmet-backend-status.json
           grep -q '"driver":"postgres"' /tmp/prosmet-backend-status.json
+          grep -q '"browserCache":"IndexedDB"' /tmp/prosmet-backend-status.json
+          grep -q '"wasm":false' /tmp/prosmet-backend-status.json
 
           curl -fsSI "$BASE_URL/" | tee /tmp/prosmet-headers.txt
           grep -qi "content-security-policy:.*script-src.*'unsafe-inline'" /tmp/prosmet-headers.txt
@@ -133,6 +135,7 @@ jobs:
           grep -q '"messageId"' "$HOME/.prosmet/primary-agent.sse"
           grep -q '"type":"RUN_FINISHED"' "$HOME/.prosmet/primary-agent.sse"
           test -s "$HOME/.prosmet/primary-sync.json"
+          test -s "$HOME/.prosmet/postgres-status.json"
 
           echo "LIVE http://78.17.4.108:3200/"
 
@@ -159,7 +162,7 @@ jobs:
                 success ? "**APP:** http://78.17.4.108:3200/" : "Inspect the workflow log before retrying.",
                 success ? "**HEALTH:** http://78.17.4.108:3200/api/health" : "",
                 success ? "**BACKEND:** http://78.17.4.108:3200/api/backend/status" : "",
-                success ? "**SERVER DB:** PostgreSQL connected" : "",
+                success ? "**SERVER DB:** persistent PostgreSQL connected" : "",
                 success ? "**LOCAL CACHE:** native IndexedDB, no SQLite WASM" : "",
                 success ? "**AG-UI:** streaming schema verified" : "",
                 success ? "**CSP:** no production eval or WASM permissions" : ""
