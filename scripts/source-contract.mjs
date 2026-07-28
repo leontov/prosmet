@@ -30,6 +30,7 @@ const required = [
   "lib/server/postgres.ts",
   "lib/server/rules-agent.ts",
   "lib/exports/estimate.ts",
+  "deployment/direct-primary.sh",
   "deployment/primary-stack.sh",
   "public/sql-wasm.wasm"
 ];
@@ -74,6 +75,8 @@ for (const token of [
   "ACTIVITY_SNAPSHOT",
   "RUN_FINISHED",
   "RUN_ERROR",
+  "beginAgentRun",
+  "finishAgentRun",
   "text/event-stream"
 ]) requireToken(route, token, "ag-ui-route");
 
@@ -143,6 +146,11 @@ for (const token of [
 
 const postgres = await read("lib/server/postgres.ts");
 for (const token of [
+  "@electric-sql/pglite",
+  "PGlite.create",
+  "ServerSqlClient",
+  "PROSMET_DATABASE_DRIVER",
+  "PROSMET_PGLITE_DIR",
   "DATABASE_URL",
   "prosmet_sync_operations",
   "prosmet_threads",
@@ -151,11 +159,13 @@ for (const token of [
   "prosmet_documents",
   "prosmet_agent_runs",
   "withServerTransaction"
-]) requireToken(postgres, token, "postgres-backend");
+]) requireToken(postgres, token, "server-database");
 
 const syncRoute = await read("app/api/sync/route.ts");
 for (const token of [
   "resolveServerIdentity",
+  "getServerDatabase",
+  "ServerSqlClient",
   "prosmet_sync_operations",
   "materialize",
   "export async function POST",
@@ -171,14 +181,24 @@ for (const token of [
   "sync_state"
 ]) requireToken(localSync, token, "local-sync");
 
-const deployment = await read("deployment/primary-stack.sh");
+const directDeployment = await read("deployment/direct-primary.sh");
+for (const token of [
+  ".next/standalone",
+  "PROSMET_DATABASE_DRIVER=pglite",
+  "PROSMET_PGLITE_DIR",
+  "RUNNER_TRACKING_ID=",
+  "/api/backend/status",
+  "/api/agent"
+]) requireToken(directDeployment, token, "direct-primary");
+
+const networkDeployment = await read("deployment/primary-stack.sh");
 for (const token of [
   "postgres:16-alpine",
   "prosmet-postgres",
   "DATABASE_URL=postgresql://prosmet",
   "/api/backend/status",
   "/api/agent"
-]) requireToken(deployment, token, "primary-stack");
+]) requireToken(networkDeployment, token, "network-primary");
 
 const localFiles = [
   "app/MyRuntimeProvider.tsx",
@@ -206,6 +226,7 @@ for (const dependency of [
   "@assistant-ui/react-ag-ui",
   "@ag-ui/client",
   "@ag-ui/core",
+  "@electric-sql/pglite",
   "sql.js",
   "decimal.js",
   "exceljs",
