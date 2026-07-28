@@ -14,7 +14,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "playwright test",
-    "source:contract": "node scripts/source-contract.mjs",
+    "source:contract": "node scripts/source-contract-v2.mjs",
     "verify": "npm run source:contract && npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {
