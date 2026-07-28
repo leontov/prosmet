@@ -257,10 +257,7 @@ for (const token of ["SQLite WASM", "onClick={() => undefined}", "Сметная
 
 const library = await read("components/app/workspace-library.tsx");
 for (const token of [
-  "objects-view",
-  "estimates-view",
-  "documents-view",
-  "prices-view",
+  "data-testid={`${view}-view`}",
   "profile-view",
   "settings-view",
   "listEstimateEntries",
