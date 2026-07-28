@@ -1,17 +1,10 @@
 "use client";
 
 import { getDatabase } from "@/lib/local/database";
+import { browserUuid, sha256Hex } from "@/lib/platform/browser-crypto";
 
 function now() {
   return new Date().toISOString();
-}
-
-function hex(bytes: Uint8Array) {
-  return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
-}
-
-async function sha256(bytes: Uint8Array) {
-  return hex(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes.slice().buffer)));
 }
 
 export type StoredFile = {
@@ -26,9 +19,9 @@ export type StoredFile = {
   updatedAt: string;
 };
 
-export async function storeFile(file: File, threadId?: string, id = `file_${crypto.randomUUID()}`) {
+export async function storeFile(file: File, threadId?: string, id = `file_${browserUuid()}`) {
   const bytes = new Uint8Array(await file.arrayBuffer());
-  const checksum = await sha256(bytes);
+  const checksum = await sha256Hex(bytes);
   const timestamp = now();
   const database = await getDatabase();
   await database.write((sqlite) => {
@@ -61,7 +54,7 @@ export async function storeFile(file: File, threadId?: string, id = `file_${cryp
         (id, entity_type, entity_id, operation, payload_json, attempts, created_at)
        VALUES (?, 'file', ?, 'upsert', ?, 0, ?)`,
       [
-        crypto.randomUUID(),
+        browserUuid(),
         id,
         JSON.stringify({
           id,
@@ -75,7 +68,17 @@ export async function storeFile(file: File, threadId?: string, id = `file_${cryp
       ]
     );
   });
-  return { id, threadId, name: file.name, mimeType: file.type || "application/octet-stream", sizeBytes: bytes.byteLength, checksum, bytes, createdAt: timestamp, updatedAt: timestamp } satisfies StoredFile;
+  return {
+    id,
+    threadId,
+    name: file.name,
+    mimeType: file.type || "application/octet-stream",
+    sizeBytes: bytes.byteLength,
+    checksum,
+    bytes,
+    createdAt: timestamp,
+    updatedAt: timestamp
+  } satisfies StoredFile;
 }
 
 export async function loadFile(id: string) {
@@ -115,28 +118,34 @@ export async function deleteFile(id: string) {
       `INSERT INTO outbox
         (id, entity_type, entity_id, operation, payload_json, attempts, created_at)
        VALUES (?, 'file', ?, 'delete', 'null', 0, ?)`,
-      [crypto.randomUUID(), id, timestamp]
+      [browserUuid(), id, timestamp]
     );
   });
 }
 
 export async function listFiles() {
   const database = await getDatabase();
-  return database.read<{
-    id: string;
-    threadId: string | null;
-    name: string;
-    mimeType: string;
-    sizeBytes: number;
-    checksum: string;
-    createdAt: string;
-    updatedAt: string;
-  }>(
-    `SELECT id, thread_id AS threadId, name, mime_type AS mimeType,
-            size_bytes AS sizeBytes, sha256 AS checksum,
-            created_at AS createdAt, updated_at AS updatedAt
-     FROM files ORDER BY updated_at DESC`
-  ).map((row) => ({ ...row, threadId: row.threadId ?? undefined, sizeBytes: Number(row.sizeBytes) }));
+  return database
+    .read<{
+      id: string;
+      threadId: string | null;
+      name: string;
+      mimeType: string;
+      sizeBytes: number;
+      checksum: string;
+      createdAt: string;
+      updatedAt: string;
+    }>(
+      `SELECT id, thread_id AS threadId, name, mime_type AS mimeType,
+              size_bytes AS sizeBytes, sha256 AS checksum,
+              created_at AS createdAt, updated_at AS updatedAt
+       FROM files ORDER BY updated_at DESC`
+    )
+    .map((row) => ({
+      ...row,
+      threadId: row.threadId ?? undefined,
+      sizeBytes: Number(row.sizeBytes)
+    }));
 }
 
 export function toDataUrl(bytes: Uint8Array, mimeType: string) {
