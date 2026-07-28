@@ -19,7 +19,7 @@ describe("AG-UI chief estimator", () => {
     expect(events.at(-1)?.type).toBe(EventType.RUN_FINISHED);
     expect(events.some((event) => event.type === EventType.STATE_SNAPSHOT)).toBe(true);
     expect(events.some((event) => event.type === EventType.STATE_DELTA)).toBe(true);
-    expect(events.filter((event) => event.type === EventType.TOOL_CALL_START).map((event: any) => event.toolCallName)).toEqual(["technology_card", "estimate_draft", "estimate_review"]);
+    expect(events.flatMap((event) => event.type === EventType.TOOL_CALL_START ? [event.toolCallName] : [])).toEqual(["technology_card", "estimate_draft", "estimate_review"]);
   });
 
   it("does not create a fake plastering estimate for an unsupported domain", async () => {
