@@ -10,14 +10,40 @@ async function openMenuIfMobile(page: import("@playwright/test").Page) {
   if (await button.isVisible()) await button.click();
 }
 
+function watchRuntimeErrors(page: import("@playwright/test").Page) {
+  const errors: string[] = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") errors.push(message.text());
+  });
+  page.on("pageerror", (error) => errors.push(error.message));
+  return errors;
+}
+
+function relevantRuntimeErrors(errors: string[]) {
+  return errors.filter((message) =>
+    /Content Security Policy|Refused to execute inline script|hydration|Connection closed/i.test(
+      message
+    )
+  );
+}
+
 test.beforeAll(async () => {
   await mkdir("artifacts/screenshots", { recursive: true });
 });
 
-test("Codex desktop shell exposes both sidebars and the real backend", async ({ page }, testInfo) => {
-  await page.goto("/");
+test("Codex desktop shell hydrates without CSP errors and exposes both sidebars", async ({
+  page
+}, testInfo) => {
+  const runtimeErrors = watchRuntimeErrors(page);
+  const response = await page.goto("/");
+  expect(response?.ok()).toBeTruthy();
   await expect(page.getByTestId("chat-empty-state")).toBeVisible();
   await expect(composer(page)).toBeVisible();
+
+  const csp = response?.headers()["content-security-policy"] ?? "";
+  expect(csp).toContain("script-src");
+  expect(csp).toContain("'unsafe-inline'");
+  expect(csp).toContain("'wasm-unsafe-eval'");
 
   if (testInfo.project.name === "desktop-chromium") {
     await expect(page.getByTestId("app-sidebar")).toBeVisible();
@@ -41,6 +67,7 @@ test("Codex desktop shell exposes both sidebars and the real backend", async ({ 
   expect(status.ok).toBe(true);
   expect(status.database?.connected).toBe(true);
   expect(status.agent?.streaming).toBe(true);
+  expect(relevantRuntimeErrors(runtimeErrors)).toEqual([]);
 
   await page.screenshot({
     path: `artifacts/screenshots/chat-empty-${testInfo.project.name}.png`,
