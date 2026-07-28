@@ -1,7 +1,9 @@
 "use client";
 
 const DB_NAME = "prosmet-cache-v3";
-const DB_VERSION = 1;
+// Version 2 upgrades every incomplete version-1 database created by the old
+// runtime/test race and adds any missing stores or indexes without deleting data.
+const DB_VERSION = 2;
 const OPEN_TIMEOUT_MS = 8_000;
 
 export const LOCAL_STORES = {
@@ -20,6 +22,7 @@ export const LOCAL_STORES = {
 
 export type LocalStoreName = (typeof LOCAL_STORES)[keyof typeof LOCAL_STORES];
 
+const REQUIRED_STORES = Object.values(LOCAL_STORES);
 let databasePromise: Promise<IDBDatabase> | null = null;
 
 function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
@@ -41,66 +44,92 @@ function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
   });
 }
 
-function createSchema(database: IDBDatabase) {
-  if (!database.objectStoreNames.contains(LOCAL_STORES.meta)) {
-    database.createObjectStore(LOCAL_STORES.meta, { keyPath: "key" });
-  }
+function ensureIndex(
+  store: IDBObjectStore,
+  name: string,
+  keyPath: string | string[],
+  options: IDBIndexParameters = { unique: false }
+) {
+  if (!store.indexNames.contains(name)) store.createIndex(name, keyPath, options);
+}
 
-  if (!database.objectStoreNames.contains(LOCAL_STORES.threads)) {
-    const store = database.createObjectStore(LOCAL_STORES.threads, { keyPath: "id" });
-    store.createIndex("status", "status", { unique: false });
-    store.createIndex("updatedAt", "updatedAt", { unique: false });
-    store.createIndex("pinnedUpdatedAt", ["pinned", "updatedAt"], { unique: false });
-  }
+function ensureStore(
+  database: IDBDatabase,
+  transaction: IDBTransaction,
+  name: LocalStoreName,
+  options: IDBObjectStoreParameters
+) {
+  return database.objectStoreNames.contains(name)
+    ? transaction.objectStore(name)
+    : database.createObjectStore(name, options);
+}
 
-  if (!database.objectStoreNames.contains(LOCAL_STORES.messages)) {
-    const store = database.createObjectStore(LOCAL_STORES.messages, { keyPath: "key" });
-    store.createIndex("threadId", "threadId", { unique: false });
-    store.createIndex("threadOrdinal", ["threadId", "ordinal"], { unique: false });
-  }
+function createSchema(database: IDBDatabase, transaction: IDBTransaction) {
+  ensureStore(database, transaction, LOCAL_STORES.meta, { keyPath: "key" });
 
-  if (!database.objectStoreNames.contains(LOCAL_STORES.estimates)) {
-    const store = database.createObjectStore(LOCAL_STORES.estimates, { keyPath: "id" });
-    store.createIndex("threadId", "threadId", { unique: false });
-    store.createIndex("updatedAt", "updatedAt", { unique: false });
-  }
+  const threads = ensureStore(database, transaction, LOCAL_STORES.threads, {
+    keyPath: "id"
+  });
+  ensureIndex(threads, "status", "status");
+  ensureIndex(threads, "updatedAt", "updatedAt");
+  ensureIndex(threads, "pinnedUpdatedAt", ["pinned", "updatedAt"]);
 
-  if (!database.objectStoreNames.contains(LOCAL_STORES.estimateRevisions)) {
-    const store = database.createObjectStore(LOCAL_STORES.estimateRevisions, { keyPath: "key" });
-    store.createIndex("estimateId", "estimateId", { unique: false });
-  }
+  const messages = ensureStore(database, transaction, LOCAL_STORES.messages, {
+    keyPath: "key"
+  });
+  ensureIndex(messages, "threadId", "threadId");
+  ensureIndex(messages, "threadOrdinal", ["threadId", "ordinal"]);
 
-  if (!database.objectStoreNames.contains(LOCAL_STORES.documents)) {
-    const store = database.createObjectStore(LOCAL_STORES.documents, { keyPath: "id" });
-    store.createIndex("threadId", "threadId", { unique: false });
-    store.createIndex("updatedAt", "updatedAt", { unique: false });
-  }
+  const estimates = ensureStore(database, transaction, LOCAL_STORES.estimates, {
+    keyPath: "id"
+  });
+  ensureIndex(estimates, "threadId", "threadId");
+  ensureIndex(estimates, "updatedAt", "updatedAt");
 
-  if (!database.objectStoreNames.contains(LOCAL_STORES.documentRevisions)) {
-    const store = database.createObjectStore(LOCAL_STORES.documentRevisions, { keyPath: "key" });
-    store.createIndex("documentId", "documentId", { unique: false });
-  }
+  const estimateRevisions = ensureStore(
+    database,
+    transaction,
+    LOCAL_STORES.estimateRevisions,
+    { keyPath: "key" }
+  );
+  ensureIndex(estimateRevisions, "estimateId", "estimateId");
 
-  if (!database.objectStoreNames.contains(LOCAL_STORES.prices)) {
-    const store = database.createObjectStore(LOCAL_STORES.prices, { keyPath: "id" });
-    store.createIndex("lookup", ["normalizedName", "unit"], { unique: false });
-    store.createIndex("updatedAt", "updatedAt", { unique: false });
-  }
+  const documents = ensureStore(database, transaction, LOCAL_STORES.documents, {
+    keyPath: "id"
+  });
+  ensureIndex(documents, "threadId", "threadId");
+  ensureIndex(documents, "updatedAt", "updatedAt");
 
-  if (!database.objectStoreNames.contains(LOCAL_STORES.files)) {
-    const store = database.createObjectStore(LOCAL_STORES.files, { keyPath: "id" });
-    store.createIndex("threadId", "threadId", { unique: false });
-    store.createIndex("updatedAt", "updatedAt", { unique: false });
-  }
+  const documentRevisions = ensureStore(
+    database,
+    transaction,
+    LOCAL_STORES.documentRevisions,
+    { keyPath: "key" }
+  );
+  ensureIndex(documentRevisions, "documentId", "documentId");
 
-  if (!database.objectStoreNames.contains(LOCAL_STORES.outbox)) {
-    const store = database.createObjectStore(LOCAL_STORES.outbox, { keyPath: "id" });
-    store.createIndex("createdAt", "createdAt", { unique: false });
-  }
+  const prices = ensureStore(database, transaction, LOCAL_STORES.prices, {
+    keyPath: "id"
+  });
+  ensureIndex(prices, "lookup", ["normalizedName", "unit"]);
+  ensureIndex(prices, "updatedAt", "updatedAt");
 
-  if (!database.objectStoreNames.contains(LOCAL_STORES.syncState)) {
-    database.createObjectStore(LOCAL_STORES.syncState, { keyPath: "scope" });
-  }
+  const files = ensureStore(database, transaction, LOCAL_STORES.files, {
+    keyPath: "id"
+  });
+  ensureIndex(files, "threadId", "threadId");
+  ensureIndex(files, "updatedAt", "updatedAt");
+
+  const outbox = ensureStore(database, transaction, LOCAL_STORES.outbox, {
+    keyPath: "id"
+  });
+  ensureIndex(outbox, "createdAt", "createdAt");
+
+  ensureStore(database, transaction, LOCAL_STORES.syncState, { keyPath: "scope" });
+}
+
+function missingStores(database: IDBDatabase) {
+  return REQUIRED_STORES.filter((name) => !database.objectStoreNames.contains(name));
 }
 
 export function openLocalDatabase() {
@@ -109,9 +138,27 @@ export function openLocalDatabase() {
   databasePromise = withTimeout(
     new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open(DB_NAME, DB_VERSION);
-      request.onupgradeneeded = () => createSchema(request.result);
+      request.onupgradeneeded = () => {
+        const transaction = request.transaction;
+        if (!transaction) {
+          reject(new Error("Не удалось запустить миграцию локального IndexedDB-кэша"));
+          return;
+        }
+        createSchema(request.result, transaction);
+      };
       request.onsuccess = () => {
         const database = request.result;
+        const missing = missingStores(database);
+        if (missing.length > 0) {
+          database.close();
+          databasePromise = null;
+          reject(
+            new Error(
+              `Схема локального IndexedDB-кэша неполная: отсутствуют ${missing.join(", ")}`
+            )
+          );
+          return;
+        }
         database.onversionchange = () => {
           database.close();
           databasePromise = null;
@@ -126,7 +173,7 @@ export function openLocalDatabase() {
         databasePromise = null;
         reject(
           new Error(
-            "Локальный IndexedDB-кэш заблокирован другой вкладкой. Закройте старую вкладку и обновите страницу."
+            "Обновление IndexedDB-кэша заблокировано другой вкладкой. Закройте старую вкладку и обновите страницу."
           )
         );
       };
