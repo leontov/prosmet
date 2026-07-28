@@ -1,34 +1,53 @@
+import { checkServerDatabase } from "@/lib/server/postgres";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  const database = await checkServerDatabase();
+  const production = process.env.NODE_ENV === "production";
+  const ok = production ? database.connected : true;
+
   return Response.json(
     {
-      ok: true,
+      ok,
       service: "prosmet",
-      version: "1.0.0",
+      version: "2.0.0",
       time: new Date().toISOString(),
-      capabilities: {
+      frontend: {
+        framework: "Next.js",
         assistantUi: true,
+        codexDesktopShell: true,
+        leftSidebar: true,
+        rightInspector: true
+      },
+      backend: {
+        runtime: "Next.js Node server",
+        agentEndpoint: "/api/agent",
+        syncEndpoint: "/api/sync",
+        statusEndpoint: "/api/backend/status",
         agUiStreaming: true,
+        provider: process.env.PROSMET_DEFAULT_PROVIDER || "rules"
+      },
+      database,
+      localFirst: {
         sqliteWasm: true,
         indexedDbPersistence: true,
+        offlineOutbox: true,
+        bidirectionalSync: true
+      },
+      capabilities: {
         attachments: true,
         technologyCard: true,
         editableEstimate: true,
         editableDocuments: true,
         pdf: true,
         xlsx: true
-      },
-      provider: {
-        id: process.env.PROSMET_DEFAULT_PROVIDER || "prosmet-rules",
-        status: "available"
       }
     },
     {
-      headers: {
-        "Cache-Control": "no-store"
-      }
+      status: ok ? 200 : 503,
+      headers: { "Cache-Control": "no-store" }
     }
   );
 }
