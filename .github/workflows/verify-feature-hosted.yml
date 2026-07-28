@@ -6,7 +6,7 @@ on:
       - bootstrap-base/chat-first-estimating-office
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: verify-chat-first-hosted-${{ github.event.pull_request.head.sha }}
@@ -26,6 +26,7 @@ jobs:
         with:
           ref: feature/chat-first-estimating-office
           fetch-depth: 0
+          persist-credentials: true
 
       - name: Set up Node 22.16.0
         uses: actions/setup-node@v4
@@ -33,13 +34,28 @@ jobs:
           node-version: "22.16.0"
 
       - name: Generate deterministic lockfile
+        id: lockfile
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p artifacts/ci
           if [ ! -f package-lock.json ]; then
             npm install --package-lock-only --ignore-scripts --no-audit --no-fund 2>&1 | tee artifacts/ci/npm-lock.log
+            echo "generated=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "generated=false" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Publish generated lockfile
+        if: steps.lockfile.outputs.generated == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package-lock.json
+          git commit -m "chore: lock verified dependency graph"
+          git push origin "HEAD:feature/chat-first-estimating-office"
 
       - name: Install dependencies
         shell: bash
@@ -48,19 +64,38 @@ jobs:
           npm ci --no-audit --no-fund 2>&1 | tee artifacts/ci/npm-ci.log
 
       - name: Source contract
-        run: npm run source:contract
+        shell: bash
+        run: npm run source:contract 2>&1 | tee artifacts/ci/source-contract.log
       - name: TypeScript
-        run: npm run typecheck
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run typecheck 2>&1 | tee artifacts/ci/typecheck.log
       - name: ESLint
-        run: npm run lint
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run lint 2>&1 | tee artifacts/ci/lint.log
       - name: Unit and integration tests
-        run: npm run test
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run test 2>&1 | tee artifacts/ci/test.log
       - name: Production build
-        run: npm run build
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee artifacts/ci/build.log
       - name: Install Chromium
-        run: npm run test:e2e:install
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run test:e2e:install 2>&1 | tee artifacts/ci/playwright-install.log
       - name: Desktop and mobile E2E
-        run: npm run test:e2e
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run test:e2e 2>&1 | tee artifacts/ci/e2e.log
 
       - name: Upload hosted diagnostics
         if: always()
