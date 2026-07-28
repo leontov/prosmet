@@ -250,6 +250,22 @@ export async function POST(request: Request) {
             await sleep(12, request.signal);
           }
           send({ type: "TOOL_CALL_END", toolCallId });
+
+          // These are server-produced display artifacts, not unresolved client
+          // actions. Completing the tool lifecycle makes the assistant message
+          // terminal, so assistant-ui persists the text and tool UI through its
+          // ThreadHistoryAdapter and can restore the estimate after reload.
+          send({
+            type: "TOOL_CALL_RESULT",
+            messageId: randomUUID(),
+            toolCallId,
+            role: "tool",
+            content: JSON.stringify({
+              ok: true,
+              artifact: tool.name,
+              persistedBy: "assistant-history"
+            })
+          });
         }
 
         send({ type: "STATE_SNAPSHOT", snapshot: result.state });
