@@ -100,7 +100,11 @@ jobs:
           text = text.replace('prosmet-local-v2', 'prosmet-cache-v3')
           e2e.write_text(text)
 
-          for documentation in [Path("README.md"), *Path("docs").glob("*.md") if Path("docs").exists() else []]:
+          documentation_files = [Path("README.md")]
+          docs_dir = Path("docs")
+          if docs_dir.exists():
+              documentation_files.extend(docs_dir.glob("*.md"))
+          for documentation in documentation_files:
               if not documentation.exists():
                   continue
               text = documentation.read_text()
@@ -120,11 +124,20 @@ jobs:
       - name: Install and verify
         run: |
           set -Eeuo pipefail
-          npm ci --no-audit --no-fund
-          npm run source:contract
-          npm run typecheck
-          npm run test
-          npm run build
+          mkdir -p artifacts/logs
+          npm ci --no-audit --no-fund 2>&1 | tee artifacts/logs/npm-ci.log
+          npm run source:contract 2>&1 | tee artifacts/logs/source-contract.log
+          npm run typecheck 2>&1 | tee artifacts/logs/typecheck.log
+          npm run test 2>&1 | tee artifacts/logs/unit-tests.log
+          npm run build 2>&1 | tee artifacts/logs/build.log
+
+      - name: Upload verification logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prosmet-no-wasm-finalize-${{ github.run_id }}
+          path: artifacts/logs
+          if-no-files-found: ignore
 
       - name: Commit verified migration
         run: |
