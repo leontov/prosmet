@@ -4,19 +4,136 @@ import { defineToolkit } from "@assistant-ui/react";
 import { z } from "zod";
 import { ActivityIcon, CheckCircle2Icon, LoaderCircleIcon } from "lucide-react";
 import { DocumentEditor } from "@/components/tools/document-editor";
+import {
+  AskUserCard,
+  EstimateComparisonCard,
+  EstimateReviewCard,
+  ExecutionProgressCard,
+  PriceCandidatesCard,
+  ProjectCaseCard,
+  ResourceStatementCard
+} from "@/components/tools/domain-artifacts";
 import { EstimateExperience } from "@/components/tools/estimate-experience";
 import { TechnologyCard } from "@/components/tools/technology-card";
 import { EstimateDraftSchema, TechnologyStepSchema } from "@/lib/domain/estimate";
 
-const documentSchema = z.object({
-  id: z.string().optional(),
-  type: z.string().optional(),
-  title: z.string(),
-  content: z.string(),
-  missingFields: z.array(z.string()).optional(),
-  status: z.enum(["draft", "approved"]).optional(),
-  revision: z.number().optional()
-});
+const documentSchema = z
+  .object({
+    id: z.string().optional(),
+    type: z.string().optional(),
+    title: z.string().optional(),
+    content: z.string().optional(),
+    missingFields: z.array(z.string()).optional(),
+    status: z.enum(["draft", "approved"]).optional(),
+    revision: z.number().optional()
+  })
+  .passthrough();
+
+const projectCaseSchema = z
+  .object({
+    id: z.string().optional(),
+    objectName: z.string().optional(),
+    region: z.string().optional(),
+    stage: z.string().optional(),
+    summary: z.string().optional(),
+    workTypes: z.array(z.string()).optional(),
+    assumptions: z.array(z.string()).optional(),
+    missing: z.array(z.string()).optional()
+  })
+  .passthrough();
+
+const askUserSchema = z
+  .object({
+    title: z.string().optional(),
+    context: z.string().optional(),
+    questions: z.array(z.string()).optional(),
+    assumptions: z.array(z.string()).optional()
+  })
+  .passthrough();
+
+const reviewSchema = z
+  .object({
+    title: z.string().optional(),
+    score: z.number().optional(),
+    blockers: z.array(z.string()).optional(),
+    warnings: z.array(z.string()).optional(),
+    passedChecks: z.array(z.string()).optional()
+  })
+  .passthrough();
+
+const comparisonSchema = z
+  .object({
+    title: z.string().optional(),
+    currency: z.string().optional(),
+    recommendation: z.string().optional(),
+    options: z
+      .array(
+        z
+          .object({
+            id: z.string().optional(),
+            label: z.string().optional(),
+            total: z.number().optional(),
+            description: z.string().optional(),
+            changes: z.array(z.string()).optional(),
+            recommended: z.boolean().optional()
+          })
+          .passthrough()
+      )
+      .optional()
+  })
+  .passthrough();
+
+const executionSchema = z
+  .object({
+    title: z.string().optional(),
+    percent: z.number().optional(),
+    currency: z.string().optional(),
+    total: z.number().optional(),
+    completed: z.number().optional(),
+    remaining: z.number().optional(),
+    notes: z.array(z.string()).optional()
+  })
+  .passthrough();
+
+const resourceStatementSchema = z
+  .object({
+    title: z.string().optional(),
+    resources: z
+      .array(
+        z
+          .object({
+            id: z.string().optional(),
+            name: z.string().optional(),
+            unit: z.string().optional(),
+            quantity: z.number().optional(),
+            type: z.string().optional()
+          })
+          .passthrough()
+      )
+      .optional()
+  })
+  .passthrough();
+
+const priceCandidatesSchema = z
+  .object({
+    title: z.string().optional(),
+    currency: z.string().optional(),
+    candidates: z
+      .array(
+        z
+          .object({
+            id: z.string().optional(),
+            name: z.string().optional(),
+            price: z.number().optional(),
+            source: z.string().optional(),
+            date: z.string().optional(),
+            confidence: z.number().optional()
+          })
+          .passthrough()
+      )
+      .optional()
+  })
+  .passthrough();
 
 const statusSchema = z.object({
   stage: z.string(),
@@ -26,15 +143,45 @@ const statusSchema = z.object({
   status: z.enum(["started", "running", "completed", "failed"]).optional()
 });
 
+const documentTool = (description: string) => ({
+  description,
+  parameters: documentSchema,
+  render: ({ args, status }: { args: z.infer<typeof documentSchema>; status: { type: string } }) => (
+    <DocumentEditor args={args} status={status} />
+  )
+});
+
 export const prosmetToolkit = defineToolkit({
+  project_case: {
+    description:
+      "Show the project case inferred from the first message, including the object, region, work types, assumptions and missing facts.",
+    parameters: projectCaseSchema,
+    render: ({ args, status }) => <ProjectCaseCard args={args} status={status} />
+  },
+  ask_user: {
+    description:
+      "Ask only the critical questions that block a reliable estimate while preserving safe explicit assumptions.",
+    parameters: askUserSchema,
+    render: ({ args, status }) => <AskUserCard args={args} status={status} />
+  },
   technology_card: {
     description:
       "Show the complete construction technology sequence before calculating an estimate.",
     parameters: z.object({
       title: z.string().optional(),
-      steps: z.array(TechnologyStepSchema)
+      steps: z.array(TechnologyStepSchema).optional()
     }),
     render: ({ args, status }) => <TechnologyCard args={args} status={status} />
+  },
+  resource_statement: {
+    description: "Show the consolidated work, material, equipment, machine and logistics resources.",
+    parameters: resourceStatementSchema,
+    render: ({ args, status }) => <ResourceStatementCard args={args} status={status} />
+  },
+  price_candidates: {
+    description: "Show price candidates with source, date and confidence without inventing provenance.",
+    parameters: priceCandidatesSchema,
+    render: ({ args, status }) => <PriceCandidatesCard args={args} status={status} />
   },
   estimate_draft: {
     description:
@@ -48,36 +195,33 @@ export const prosmetToolkit = defineToolkit({
       />
     )
   },
-  commercial_proposal: {
-    description: "Show an editable print-ready commercial proposal.",
-    parameters: documentSchema,
-    render: ({ args, status }) => <DocumentEditor args={args} status={status} />
+  estimate_review: {
+    description: "Show an independent professional estimate review with blockers, warnings and passed checks.",
+    parameters: reviewSchema,
+    render: ({ args, status }) => <EstimateReviewCard args={args} status={status} />
   },
-  contract_draft: {
-    description: "Show an editable construction contract draft.",
-    parameters: documentSchema,
-    render: ({ args, status }) => <DocumentEditor args={args} status={status} />
+  estimate_comparison: {
+    description: "Compare alternative estimate variants and explain the recommended choice.",
+    parameters: comparisonSchema,
+    render: ({ args, status }) => <EstimateComparisonCard args={args} status={status} />
   },
-  act_draft: {
-    description: "Show an editable completion act.",
-    parameters: documentSchema,
-    render: ({ args, status }) => <DocumentEditor args={args} status={status} />
+  execution_progress: {
+    description: "Show partial completion, completed amount and remaining amount for the active estimate.",
+    parameters: executionSchema,
+    render: ({ args, status }) => <ExecutionProgressCard args={args} status={status} />
   },
-  ks2_draft: {
-    description: "Show an editable KS-2 draft.",
-    parameters: documentSchema,
-    render: ({ args, status }) => <DocumentEditor args={args} status={status} />
-  },
-  ks3_draft: {
-    description: "Show an editable KS-3 draft.",
-    parameters: documentSchema,
-    render: ({ args, status }) => <DocumentEditor args={args} status={status} />
-  },
-  m29_draft: {
-    description: "Show an editable M-29 material report.",
-    parameters: documentSchema,
-    render: ({ args, status }) => <DocumentEditor args={args} status={status} />
-  },
+  commercial_proposal: documentTool("Show an editable print-ready commercial proposal."),
+  contract_draft: documentTool("Show an editable construction contract draft."),
+  contract_appendix: documentTool("Show an editable contract appendix linked to the estimate."),
+  act_draft: documentTool("Show an editable completion act."),
+  ks2_draft: documentTool("Show an editable KS-2 draft."),
+  ks3_draft: documentTool("Show an editable KS-3 draft."),
+  m29_draft: documentTool("Show an editable M-29 material report."),
+  defect_statement: documentTool("Show an editable defect statement."),
+  material_statement: documentTool("Show an editable material statement."),
+  equipment_specification: documentTool("Show an editable equipment specification."),
+  work_schedule: documentTool("Show an editable work schedule."),
+  invoice_draft: documentTool("Show an editable invoice draft."),
   workspace_status: {
     description: "Show safe professional work progress without hidden reasoning.",
     parameters: statusSchema,
