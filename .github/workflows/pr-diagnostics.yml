@@ -1,24 +1,19 @@
-name: Prosmet PR Diagnostics
+name: Prosmet Primary Diagnostics (manual)
 
 on:
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: prosmet-pr-diagnostics-${{ github.event.pull_request.number }}
+  group: prosmet-primary-diagnostics
   cancel-in-progress: true
 
 jobs:
   diagnose:
     runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 45
-    env:
-      CI: "1"
-      NEXT_TELEMETRY_DISABLED: "1"
-      PROSMET_DEFAULT_PROVIDER: "rules"
+    timeout-minutes: 30
     steps:
       - name: Verify runner
         run: test "${{ runner.name }}" = "prosmet-primary"
@@ -28,6 +23,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22.16.0"
+          cache: npm
 
       - name: Capture Primary capabilities
         shell: bash
@@ -35,98 +31,47 @@ jobs:
           set +e
           mkdir -p artifacts/logs
           {
-            echo "# identity"
             date -u
             hostname
             id
             uname -a
-            cat /etc/os-release 2>/dev/null
-            echo
-
-            echo "# resources"
             free -m 2>/dev/null
             df -h / "$HOME" 2>/dev/null
-            ulimit -a
-            echo
-
-            echo "# privileges"
-            command -v sudo || true
-            sudo -n true >/dev/null 2>&1
-            echo "passwordless_sudo=$?"
-            echo
-
-            echo "# PostgreSQL binaries and services"
-            for binary in psql postgres pg_ctl initdb pg_isready pg_lsclusters; do
-              printf '%s=' "$binary"
-              command -v "$binary" || true
-            done
-            psql --version 2>/dev/null || true
-            postgres --version 2>/dev/null || true
-            pg_lsclusters 2>/dev/null || true
-            systemctl is-active postgresql 2>/dev/null || true
-            systemctl status postgresql --no-pager 2>/dev/null | sed -n '1,80p' || true
-            echo
-
-            echo "# container runtimes"
-            for binary in docker podman nerdctl; do
-              printf '%s=' "$binary"
-              command -v "$binary" || true
-              "$binary" --version 2>/dev/null || true
-            done
-            ls -l /var/run/docker.sock /run/podman/podman.sock 2>/dev/null || true
-            docker info 2>/dev/null | sed -n '1,80p' || true
-            podman info 2>/dev/null | sed -n '1,80p' || true
-            echo
-
-            echo "# Prosmet runtime directories"
-            ls -ld "$HOME" "$HOME/.prosmet" "$HOME/.prosmet/data" "$HOME/.prosmet/data/postgres" 2>/dev/null || true
-            find "$HOME/.prosmet" -maxdepth 2 -type f -printf '%M %u:%g %s %p\n' 2>/dev/null | sort | sed -n '1,160p' || true
-            echo
-
-            echo "# listeners and processes"
+            command -v psql postgres pg_ctl initdb pg_isready docker podman 2>/dev/null || true
             ss -ltnp 2>/dev/null | sed -n '1,200p' || true
-            ps -eo pid,ppid,user,stat,%cpu,%mem,etime,cmd --sort=-%cpu | grep -E 'prosmet|next-server|server\.js|postgres|node' | grep -v grep | sed -n '1,160p' || true
-            echo
-
-            echo "# current live endpoints"
+            ps -eo pid,ppid,user,stat,%cpu,%mem,etime,cmd --sort=-%cpu \
+              | grep -E 'prosmet|next-server|server\.js|postgres|mimo|node' \
+              | grep -v grep | sed -n '1,200p' || true
             for url in \
               http://127.0.0.1:3200/ \
               http://127.0.0.1:3200/api/health \
               http://127.0.0.1:3200/api/backend/status; do
               echo "--- $url"
               curl --max-time 5 -sS -D - "$url" -o /tmp/prosmet-diagnostic-body || true
-              head -c 2000 /tmp/prosmet-diagnostic-body 2>/dev/null || true
+              head -c 3000 /tmp/prosmet-diagnostic-body 2>/dev/null || true
               echo
             done
           } > artifacts/logs/primary-capabilities.log 2>&1
 
-      - name: Install
-        run: |
-          if [ ! -f package-lock.json ]; then npm install --package-lock-only --ignore-scripts --no-audit --no-fund; fi
-          npm ci --no-audit --no-fund
+      - name: Install exact dependencies
+        run: npm ci --no-audit --no-fund
 
-      - name: Capture all gates
-        id: gates
+      - name: Capture source, type, unit and build gates
         shell: bash
         run: |
           set +e
-          mkdir -p artifacts/logs
-          npm run source:contract >artifacts/logs/source-contract.log 2>&1
-          SOURCE=$?
-          npm run typecheck >artifacts/logs/typecheck.log 2>&1
-          TYPE=$?
-          npm run test >artifacts/logs/unit-tests.log 2>&1
-          UNIT=$?
-          npm run build >artifacts/logs/build.log 2>&1
-          BUILD=$?
-          printf '{"source":%s,"typecheck":%s,"unit":%s,"build":%s}\n' "$SOURCE" "$TYPE" "$UNIT" "$BUILD" | tee artifacts/logs/result.json
+          npm run source:contract >artifacts/logs/source-contract.log 2>&1; SOURCE=$?
+          npm run typecheck >artifacts/logs/typecheck.log 2>&1; TYPE=$?
+          npm run test >artifacts/logs/unit-tests.log 2>&1; UNIT=$?
+          npm run build >artifacts/logs/build.log 2>&1; BUILD=$?
+          printf '{"source":%s,"typecheck":%s,"unit":%s,"build":%s}\n' \
+            "$SOURCE" "$TYPE" "$UNIT" "$BUILD" | tee artifacts/logs/result.json
           test "$SOURCE" -eq 0
           test "$TYPE" -eq 0
           test "$UNIT" -eq 0
           test "$BUILD" -eq 0
 
-      - name: Upload diagnostic logs
-        if: always()
+      - if: always()
         uses: actions/upload-artifact@v4
         with:
           name: prosmet-diagnostics-${{ github.run_id }}
