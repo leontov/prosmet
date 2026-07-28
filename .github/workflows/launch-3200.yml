@@ -56,7 +56,7 @@ jobs:
                 "",
                 "## Launching on port 3200",
                 "",
-                "Build, frontend, AG-UI backend and embedded PostgreSQL are starting on Primary."
+                "Build, SQL.js WASM assets, AG-UI backend and embedded PostgreSQL are starting on Primary."
               ].join("\n")
             });
 
@@ -89,7 +89,7 @@ jobs:
           set -Eeuo pipefail
           bash deployment/direct-primary.sh "$GITHUB_SHA" 3200
 
-      - name: Verify live application, CSP and plain-HTTP compatibility
+      - name: Verify live application, SQL.js WASM and AG-UI schema
         run: |
           set -Eeuo pipefail
           BASE_URL=http://127.0.0.1:3200
@@ -107,6 +107,16 @@ jobs:
           curl -fsS -D /tmp/prosmet-favicon-headers.txt "$BASE_URL/favicon.ico" -o /tmp/prosmet-favicon
           grep -qi 'content-type: image/svg+xml' /tmp/prosmet-favicon-headers.txt
           test -s /tmp/prosmet-favicon
+
+          for asset in sql-wasm.wasm sql-wasm-browser.wasm; do
+            curl -fsS -D "/tmp/${asset}.headers" "$BASE_URL/$asset" -o "/tmp/$asset"
+            test -s "/tmp/$asset"
+          done
+
+          test -s "$HOME/.prosmet/primary-agent.sse"
+          grep -q '"type":"ACTIVITY_SNAPSHOT"' "$HOME/.prosmet/primary-agent.sse"
+          grep -q '"messageId"' "$HOME/.prosmet/primary-agent.sse"
+          grep -q '"type":"RUN_FINISHED"' "$HOME/.prosmet/primary-agent.sse"
 
           echo "LIVE http://78.17.4.108:3200/"
 
@@ -133,6 +143,8 @@ jobs:
                 success ? "**APP:** http://78.17.4.108:3200/" : "Inspect the workflow log before retrying.",
                 success ? "**HEALTH:** http://78.17.4.108:3200/api/health" : "",
                 success ? "**BACKEND:** http://78.17.4.108:3200/api/backend/status" : "",
+                success ? "**SQLITE WASM:** standard and browser binaries verified" : "",
+                success ? "**AG-UI:** activity messageId schema verified" : "",
                 success ? "**CSP:** Next.js hydration and SQLite WASM allowed" : "",
                 success ? "**HTTP COMPAT:** UUID fallback, file SHA-256 fallback and favicon verified" : ""
               ].filter(Boolean).join("\n")
