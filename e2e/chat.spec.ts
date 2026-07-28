@@ -14,6 +14,40 @@ test.beforeAll(async () => {
   await mkdir("artifacts/screenshots", { recursive: true });
 });
 
+test("Codex desktop shell exposes both sidebars and the real backend", async ({ page }, testInfo) => {
+  await page.goto("/");
+  await expect(page.getByTestId("chat-empty-state")).toBeVisible();
+  await expect(composer(page)).toBeVisible();
+
+  if (testInfo.project.name === "desktop-chromium") {
+    await expect(page.getByTestId("app-sidebar")).toBeVisible();
+    const inspector = page.getByTestId("right-inspector");
+    await expect(inspector).toBeVisible();
+    await expect(inspector.getByText("Рабочий контекст", { exact: true })).toBeVisible();
+    await expect(inspector.getByText("PostgreSQL", { exact: true })).toBeVisible();
+    await expect(inspector.getByText(/Подключено/)).toBeVisible({ timeout: 30_000 });
+  } else {
+    await expect(page.getByRole("button", { name: "Открыть меню" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Рабочий контекст" })).toBeVisible();
+  }
+
+  const backend = await page.request.get("/api/backend/status");
+  expect(backend.ok()).toBeTruthy();
+  const status = (await backend.json()) as {
+    ok?: boolean;
+    database?: { connected?: boolean };
+    agent?: { streaming?: boolean };
+  };
+  expect(status.ok).toBe(true);
+  expect(status.database?.connected).toBe(true);
+  expect(status.agent?.streaming).toBe(true);
+
+  await page.screenshot({
+    path: `artifacts/screenshots/chat-empty-${testInfo.project.name}.png`,
+    fullPage: true
+  });
+});
+
 test("streaming chat creates a technology card and editable estimate", async ({ page }, testInfo) => {
   await page.goto("/");
   await expect(page.getByTestId("chat-empty-state")).toBeVisible();
@@ -43,7 +77,7 @@ test("streaming chat creates a technology card and editable estimate", async ({ 
 
   const dbExists = await page.evaluate(async () => {
     const databases = await indexedDB.databases();
-    return databases.some((database) => database.name === "prosmet-local-v1");
+    return databases.some((database) => database.name === "prosmet-local-v2");
   });
   expect(dbExists).toBeTruthy();
 

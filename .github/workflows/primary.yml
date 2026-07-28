@@ -17,19 +17,27 @@ jobs:
   verify-and-deploy:
     name: Verify and deploy on prosmet-primary
     runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 60
+    timeout-minutes: 90
     env:
       CI: "1"
       NEXT_TELEMETRY_DISABLED: "1"
       PROSMET_DEFAULT_PROVIDER: "rules"
+      PROSMET_DATABASE_DRIVER: "pglite"
+      PROSMET_PGLITE_DIR: ${{ runner.temp }}/prosmet-e2e-${{ github.run_id }}-pg
       DEPLOY_PORT: "3200"
+      MIMO_API_KEY: ${{ secrets.MIMO_API_KEY }}
+      MIMO_BASE_URL: ${{ vars.MIMO_BASE_URL }}
+      MIMO_MODEL: ${{ vars.MIMO_MODEL }}
+      OPENAI_COMPATIBLE_API_KEY: ${{ secrets.OPENAI_COMPATIBLE_API_KEY }}
+      OPENAI_COMPATIBLE_BASE_URL: ${{ vars.OPENAI_COMPATIBLE_BASE_URL }}
+      OPENAI_COMPATIBLE_MODEL: ${{ vars.OPENAI_COMPATIBLE_MODEL }}
     steps:
       - name: Verify runner identity
         id: runner
         continue-on-error: true
         shell: bash
         run: |
-          set -euo pipefail
+          set -Eeuo pipefail
           echo "Runner: ${{ runner.name }}"
           echo "OS: ${{ runner.os }} / ${{ runner.arch }}"
           test "${{ runner.name }}" = "prosmet-primary"
@@ -48,13 +56,24 @@ jobs:
         with:
           node-version: "22.16.0"
 
-      - name: Create lockfile when repository is freshly initialized
-        id: lockfile
+      - name: Prepare evidence and embedded PostgreSQL
+        id: database
         if: steps.node.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
-          set -euo pipefail
+          set -Eeuo pipefail
+          rm -rf "$PROSMET_PGLITE_DIR"
+          mkdir -p artifacts/logs artifacts/screenshots "$PROSMET_PGLITE_DIR"
+          echo "PGlite data: $PROSMET_PGLITE_DIR"
+
+      - name: Create lockfile when repository is freshly initialized
+        id: lockfile
+        if: steps.database.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -Eeuo pipefail
           if [ ! -f package-lock.json ]; then
             npm install --package-lock-only --ignore-scripts --no-audit --no-fund
           fi
@@ -63,159 +82,105 @@ jobs:
         id: install
         if: steps.lockfile.outcome == 'success'
         continue-on-error: true
-        run: npm ci --no-audit --no-fund
+        shell: bash
+        run: |
+          set -o pipefail
+          npm ci --no-audit --no-fund 2>&1 | tee artifacts/logs/npm-ci.log
 
       - name: Source contract
         id: source_contract
         if: steps.install.outcome == 'success'
         continue-on-error: true
-        run: npm run source:contract
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run source:contract 2>&1 | tee artifacts/logs/source-contract.log
 
       - name: TypeScript
         id: typecheck
         if: steps.install.outcome == 'success'
         continue-on-error: true
-        run: npm run typecheck
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run typecheck 2>&1 | tee artifacts/logs/typecheck.log
 
       - name: Unit tests
         id: unit_tests
         if: steps.install.outcome == 'success'
         continue-on-error: true
-        run: npm run test
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run test 2>&1 | tee artifacts/logs/unit-tests.log
 
       - name: Production build
         id: build
         if: steps.install.outcome == 'success'
         continue-on-error: true
-        run: npm run build
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee artifacts/logs/build.log
 
-      - name: Install Chromium
+      - name: Install Playwright Chromium
         id: chromium
-        if: steps.install.outcome == 'success'
+        if: steps.build.outcome == 'success'
         continue-on-error: true
-        run: npx playwright install chromium
+        shell: bash
+        run: |
+          set -o pipefail
+          npx playwright install chromium 2>&1 | tee artifacts/logs/chromium.log
 
-      - name: Desktop and mobile E2E
+      - name: Desktop and mobile Chromium E2E
         id: e2e
-        if: steps.build.outcome == 'success' && steps.chromium.outcome == 'success'
+        if: steps.chromium.outcome == 'success'
         continue-on-error: true
-        run: npm run e2e
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run e2e 2>&1 | tee artifacts/logs/e2e.log
 
-      - name: Build immutable production image
-        id: image
+      - name: Verify standalone production bundle
+        id: bundle
         if: steps.source_contract.outcome == 'success' && steps.typecheck.outcome == 'success' && steps.unit_tests.outcome == 'success' && steps.build.outcome == 'success' && steps.e2e.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
-          set -euo pipefail
-          docker build --pull -t "prosmet:${GITHUB_SHA}" .
-          docker tag "prosmet:${GITHUB_SHA}" prosmet:latest
+          set -Eeuo pipefail
+          test -f .next/standalone/server.js
+          test -d .next/static
+          test -f public/sql-wasm.wasm
+          node -e 'const p=require("./.next/standalone/package.json"); console.log("standalone", p.name || "prosmet")'
 
-      - name: Deploy and probe canary frontend and backend
+      - name: Start and probe standalone canary
         id: canary
-        if: steps.image.outcome == 'success'
+        if: steps.bundle.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
-          set -euo pipefail
-          mkdir -p /opt/prosmet artifacts
-          if [ ! -f /opt/prosmet/.env ]; then
-            cat > /opt/prosmet/.env <<'ENV'
-          NODE_ENV=production
-          PROSMET_DEFAULT_PROVIDER=rules
-          NEXT_PUBLIC_AGUI_AGENT_URL=/api/agent
-          ENV
-            chmod 600 /opt/prosmet/.env
-          fi
+          set -Eeuo pipefail
+          CANARY_HOME="$RUNNER_TEMP/prosmet-canary-${GITHUB_RUN_ID}"
+          rm -rf "$CANARY_HOME"
+          mkdir -p "$CANARY_HOME"
+          HOME="$CANARY_HOME" bash deployment/direct-primary.sh "$GITHUB_SHA" 13100
+          cp "$CANARY_HOME/.prosmet/primary-health.json" artifacts/canary-health.json
+          cp "$CANARY_HOME/.prosmet/primary-backend.json" artifacts/canary-backend.json
+          cp "$CANARY_HOME/.prosmet/primary-agent.sse" artifacts/canary-agent.sse
+          CANARY_PID="$(cat "$CANARY_HOME/.prosmet/prosmet.pid")"
+          kill "$CANARY_PID" 2>/dev/null || true
 
-          probe_backend() {
-            local base_url="$1"
-            local output="$2"
-            curl --fail --silent --show-error --no-buffer --max-time 45 \
-              -H 'content-type: application/json' \
-              -H 'accept: text/event-stream' \
-              -d '{"threadId":"deployment-probe","runId":"deployment-probe","messages":[{"id":"probe-user","role":"user","content":[{"type":"text","text":"Проверка backend Просметчика"}]}],"tools":[],"context":{},"state":{}}' \
-              "${base_url}/api/agent" | tee "$output"
-            grep -q '"type":"RUN_STARTED"' "$output"
-            grep -q '"type":"TEXT_MESSAGE_CONTENT"' "$output"
-            grep -q '"type":"RUN_FINISHED"' "$output"
-          }
-
-          docker rm -f prosmet-canary >/dev/null 2>&1 || true
-          docker run -d \
-            --name prosmet-canary \
-            --restart unless-stopped \
-            --env-file /opt/prosmet/.env \
-            -p 127.0.0.1:13100:3100 \
-            --health-cmd='node -e "fetch(\"http://127.0.0.1:3100/api/health\").then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"' \
-            --health-interval=10s \
-            --health-timeout=5s \
-            --health-retries=12 \
-            "prosmet:${GITHUB_SHA}"
-
-          for attempt in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:13100/api/health >artifacts/canary-health.json; then
-              if probe_backend http://127.0.0.1:13100 artifacts/canary-agent.sse; then
-                cat artifacts/canary-health.json
-                exit 0
-              fi
-            fi
-            sleep 2
-          done
-          docker logs prosmet-canary
-          exit 1
-
-      - name: Promote canary and start Primary frontend and backend
+      - name: Promote app, AG-UI backend and embedded PostgreSQL to Primary
         id: deploy
         if: steps.canary.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
-          set -euo pipefail
-
-          probe_backend() {
-            local base_url="$1"
-            local output="$2"
-            curl --fail --silent --show-error --no-buffer --max-time 45 \
-              -H 'content-type: application/json' \
-              -H 'accept: text/event-stream' \
-              -d '{"threadId":"deployment-probe","runId":"deployment-probe","messages":[{"id":"probe-user","role":"user","content":[{"type":"text","text":"Проверка backend Просметчика"}]}],"tools":[],"context":{},"state":{}}' \
-              "${base_url}/api/agent" | tee "$output"
-            grep -q '"type":"RUN_STARTED"' "$output"
-            grep -q '"type":"TEXT_MESSAGE_CONTENT"' "$output"
-            grep -q '"type":"RUN_FINISHED"' "$output"
-          }
-
-          docker rm -f prosmet >/dev/null 2>&1 || true
-
-          if command -v ss >/dev/null 2>&1 && ss -H -ltn "sport = :${DEPLOY_PORT}" | grep -q .; then
-            echo "Port ${DEPLOY_PORT} is occupied by another service. Prosmet will not delete or replace it."
-            exit 1
-          fi
-
-          docker run -d \
-            --name prosmet \
-            --restart unless-stopped \
-            --env-file /opt/prosmet/.env \
-            -p "${DEPLOY_PORT}:3100" \
-            --health-cmd='node -e "fetch(\"http://127.0.0.1:3100/api/health\").then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"' \
-            --health-interval=10s \
-            --health-timeout=5s \
-            --health-retries=12 \
-            "prosmet:${GITHUB_SHA}"
-
-          for attempt in $(seq 1 30); do
-            if curl -fsS "http://127.0.0.1:${DEPLOY_PORT}/api/health" >artifacts/primary-health.json; then
-              if probe_backend "http://127.0.0.1:${DEPLOY_PORT}" artifacts/primary-agent.sse; then
-                cat artifacts/primary-health.json
-                docker rm -f prosmet-canary >/dev/null 2>&1 || true
-                exit 0
-              fi
-            fi
-            sleep 2
-          done
-          docker logs prosmet
-          exit 1
+          set -Eeuo pipefail
+          bash deployment/direct-primary.sh "$GITHUB_SHA" "$DEPLOY_PORT"
+          cp "$HOME/.prosmet/primary-health.json" artifacts/primary-health.json
+          cp "$HOME/.prosmet/primary-backend.json" artifacts/primary-backend.json
+          cp "$HOME/.prosmet/primary-agent.sse" artifacts/primary-agent.sse
 
       - name: Write release evidence
         if: always()
@@ -230,13 +195,19 @@ jobs:
             "deployedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
             "url": "http://78.17.4.108:${DEPLOY_PORT}/",
             "health": "http://78.17.4.108:${DEPLOY_PORT}/api/health",
-            "backend": "http://78.17.4.108:${DEPLOY_PORT}/api/agent",
-            "image": "prosmet:${GITHUB_SHA}",
+            "backendStatus": "http://78.17.4.108:${DEPLOY_PORT}/api/backend/status",
+            "agent": "http://78.17.4.108:${DEPLOY_PORT}/api/agent",
+            "sync": "http://78.17.4.108:${DEPLOY_PORT}/api/sync",
+            "databaseDriver": "pglite",
             "gate": "${{ steps.deploy.outcome }}"
           }
           JSON
 
-      - name: Upload browser and release evidence
+      - name: Clean verification database
+        if: always()
+        run: rm -rf "$PROSMET_PGLITE_DIR"
+
+      - name: Upload browser, logs and release evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -255,7 +226,7 @@ jobs:
           RUNNER_NAME: ${{ runner.name }}
           RUNNER_GATE: ${{ steps.runner.outcome }}
           CHECKOUT_GATE: ${{ steps.checkout.outcome }}
-          LOCKFILE_GATE: ${{ steps.lockfile.outcome }}
+          DATABASE_GATE: ${{ steps.database.outcome }}
           INSTALL_GATE: ${{ steps.install.outcome }}
           SOURCE_GATE: ${{ steps.source_contract.outcome }}
           TYPE_GATE: ${{ steps.typecheck.outcome }}
@@ -263,7 +234,7 @@ jobs:
           BUILD_GATE: ${{ steps.build.outcome }}
           CHROMIUM_GATE: ${{ steps.chromium.outcome }}
           E2E_GATE: ${{ steps.e2e.outcome }}
-          IMAGE_GATE: ${{ steps.image.outcome }}
+          BUNDLE_GATE: ${{ steps.bundle.outcome }}
           CANARY_GATE: ${{ steps.canary.outcome }}
           DEPLOY_GATE: ${{ steps.deploy.outcome }}
         with:
@@ -272,17 +243,17 @@ jobs:
             const checks = [
               ["runner prosmet-primary", process.env.RUNNER_GATE],
               ["checkout", process.env.CHECKOUT_GATE],
-              ["lockfile", process.env.LOCKFILE_GATE],
+              ["embedded PostgreSQL", process.env.DATABASE_GATE],
               ["npm ci", process.env.INSTALL_GATE],
               ["source contract", process.env.SOURCE_GATE],
               ["typecheck", process.env.TYPE_GATE],
               ["unit tests", process.env.UNIT_GATE],
               ["production build", process.env.BUILD_GATE],
               ["Chromium", process.env.CHROMIUM_GATE],
-              ["desktop/mobile E2E", process.env.E2E_GATE],
-              ["Docker image", process.env.IMAGE_GATE],
-              ["canary frontend/backend", process.env.CANARY_GATE],
-              ["Primary frontend/backend", process.env.DEPLOY_GATE]
+              ["desktop/mobile Chromium E2E", process.env.E2E_GATE],
+              ["standalone bundle", process.env.BUNDLE_GATE],
+              ["canary app/backend/database", process.env.CANARY_GATE],
+              ["Primary app/backend/database", process.env.DEPLOY_GATE]
             ];
             const icon = (value) => value === "success" ? "✅" : value === "skipped" ? "⏭️" : "❌";
             const body = [
@@ -296,7 +267,7 @@ jobs:
               ...checks.map(([name, value]) => `| ${name} | ${icon(value)} ${value || "not-run"} |`),
               "",
               process.env.DEPLOY_GATE === "success"
-                ? "**LIVE:** http://78.17.4.108:3200/\n\n**BACKEND:** http://78.17.4.108:3200/api/agent"
+                ? "**LIVE:** http://78.17.4.108:3200/\n\n**BACKEND:** http://78.17.4.108:3200/api/backend/status"
                 : "Deployment is blocked until every required gate passes."
             ].join("\n");
             const issues = await github.paginate(github.rest.issues.listForRepo, {
@@ -322,18 +293,16 @@ jobs:
               });
             }
 
-      - name: Show logs on failure
+      - name: Show direct deployment log on failure
         if: always() && steps.deploy.outcome != 'success'
-        shell: bash
-        run: |
-          docker logs prosmet-canary 2>/dev/null || true
-          docker logs prosmet 2>/dev/null || true
+        run: tail -n 250 "$HOME/.prosmet/prosmet.log" 2>/dev/null || true
 
       - name: Enforce green release gate
         if: always()
         shell: bash
         env:
           RUNNER_GATE: ${{ steps.runner.outcome }}
+          DATABASE_GATE: ${{ steps.database.outcome }}
           INSTALL_GATE: ${{ steps.install.outcome }}
           SOURCE_GATE: ${{ steps.source_contract.outcome }}
           TYPE_GATE: ${{ steps.typecheck.outcome }}
@@ -341,12 +310,13 @@ jobs:
           BUILD_GATE: ${{ steps.build.outcome }}
           CHROMIUM_GATE: ${{ steps.chromium.outcome }}
           E2E_GATE: ${{ steps.e2e.outcome }}
-          IMAGE_GATE: ${{ steps.image.outcome }}
+          BUNDLE_GATE: ${{ steps.bundle.outcome }}
           CANARY_GATE: ${{ steps.canary.outcome }}
           DEPLOY_GATE: ${{ steps.deploy.outcome }}
         run: |
-          set -euo pipefail
+          set -Eeuo pipefail
           test "$RUNNER_GATE" = success
+          test "$DATABASE_GATE" = success
           test "$INSTALL_GATE" = success
           test "$SOURCE_GATE" = success
           test "$TYPE_GATE" = success
@@ -354,6 +324,6 @@ jobs:
           test "$BUILD_GATE" = success
           test "$CHROMIUM_GATE" = success
           test "$E2E_GATE" = success
-          test "$IMAGE_GATE" = success
+          test "$BUNDLE_GATE" = success
           test "$CANARY_GATE" = success
           test "$DEPLOY_GATE" = success
