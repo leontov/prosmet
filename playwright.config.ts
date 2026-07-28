@@ -1,5 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
+const e2ePort = Number(process.env.PROSMET_E2E_PORT || 13110);
+const baseURL = `http://127.0.0.1:${e2ePort}`;
+
 export default defineConfig({
   testDir: "./e2e",
   timeout: 60_000,
@@ -8,14 +11,14 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: [["list"], ["html", { open: "never" }]],
   use: {
-    baseURL: "http://127.0.0.1:3100",
+    baseURL,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     video: "retain-on-failure"
   },
   webServer: {
-    command: "npm run start",
-    url: "http://127.0.0.1:3100/api/health",
+    command: `npx next start -H 127.0.0.1 -p ${e2ePort}`,
+    url: `${baseURL}/api/health`,
     timeout: 120_000,
     reuseExistingServer: !process.env.CI
   },
