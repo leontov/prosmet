@@ -20,6 +20,8 @@ const databaseName = process.env.PROSMET_POSTGRES_DATABASE || "prosmet";
 const readyFile = resolve(
   process.env.PROSMET_POSTGRES_READY_FILE || `${process.env.HOME}/.prosmet/postgres-ready.json`
 );
+const runningAsRoot =
+  typeof process.getuid === "function" && process.getuid() === 0;
 
 if (!Number.isInteger(port) || port < 1024 || port > 65535) {
   throw new Error(`Invalid PostgreSQL port: ${port}`);
@@ -65,6 +67,12 @@ async function prepareDataDirectory() {
 const alreadyInitialised = await prepareDataDirectory();
 await mkdir(dirname(readyFile), { recursive: true });
 
+console.log(
+  `[prosmet/postgres] launcher uid=${
+    typeof process.getuid === "function" ? process.getuid() : "unknown"
+  } root=${runningAsRoot}`
+);
+
 const postgres = new EmbeddedPostgres({
   databaseDir,
   port,
@@ -72,6 +80,7 @@ const postgres = new EmbeddedPostgres({
   password,
   authMethod: "scram-sha-256",
   persistent: true,
+  createPostgresUser: runningAsRoot,
   postgresFlags: ["-h", "127.0.0.1"],
   onLog: (message) => console.log(`[prosmet/postgres] ${String(message)}`),
   onError: (message) => console.error(`[prosmet/postgres] ${String(message)}`)
