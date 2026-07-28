@@ -53,6 +53,21 @@ button:disabled {
   background: rgba(76, 94, 190, 0.18);
 }
 
+.prosmet-nav-row {
+  display: flex;
+  height: 36px;
+  align-items: center;
+  gap: 10px;
+  border-radius: 8px;
+  padding: 0 8px;
+  text-align: left;
+  transition: background-color 120ms ease;
+}
+
+.prosmet-nav-row:hover {
+  background: rgba(15, 23, 42, 0.045);
+}
+
 .prosmet-scrollbar {
   scrollbar-width: thin;
   scrollbar-color: rgba(32, 33, 35, 0.18) transparent;
