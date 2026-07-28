@@ -14,6 +14,11 @@ import {
   ResourceStatementCard
 } from "@/components/tools/domain-artifacts";
 import { EstimateExperience } from "@/components/tools/estimate-experience";
+import {
+  ProviderSettingsTool,
+  ServiceStatusTool,
+  WorkspaceSettingsTool
+} from "@/components/tools/service-settings";
 import { TechnologyCard } from "@/components/tools/technology-card";
 import { EstimateDraftSchema, TechnologyStepSchema } from "@/lib/domain/estimate";
 
@@ -143,6 +148,24 @@ const statusSchema = z.object({
   status: z.enum(["started", "running", "completed", "failed"]).optional()
 });
 
+const workspaceSettingsSchema = z
+  .object({
+    section: z.enum(["profile", "estimating"]).optional()
+  })
+  .passthrough();
+
+const providerSettingsSchema = z
+  .object({
+    providerHint: z.enum(["mimo", "openai-compatible", "ollama", "rules"]).optional()
+  })
+  .passthrough();
+
+const serviceStatusSchema = z
+  .object({
+    scope: z.string().optional()
+  })
+  .passthrough();
+
 const documentTool = (description: string) => ({
   description,
   parameters: documentSchema,
@@ -209,6 +232,24 @@ export const prosmetToolkit = defineToolkit({
     description: "Show partial completion, completed amount and remaining amount for the active estimate.",
     parameters: executionSchema,
     render: ({ args, status }) => <ExecutionProgressCard args={args} status={status} />
+  },
+  workspace_settings: {
+    description:
+      "Edit the tenant workspace profile, organization identity and default estimating settings without leaving the current chat.",
+    parameters: workspaceSettingsSchema,
+    render: ({ args, status }) => <WorkspaceSettingsTool args={args} status={status} />
+  },
+  provider_settings: {
+    description:
+      "Connect, test, select and disconnect server-side AI providers while keeping secrets outside the browser.",
+    parameters: providerSettingsSchema,
+    render: ({ args, status }) => <ProviderSettingsTool args={args} status={status} />
+  },
+  service_status: {
+    description:
+      "Show the live state of PostgreSQL, workspace storage, local-first sync and the selected AI provider.",
+    parameters: serviceStatusSchema,
+    render: ({ args, status }) => <ServiceStatusTool args={args} status={status} />
   },
   commercial_proposal: documentTool("Show an editable print-ready commercial proposal."),
   contract_draft: documentTool("Show an editable construction contract draft."),
