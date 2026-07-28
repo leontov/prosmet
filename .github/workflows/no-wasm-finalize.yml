@@ -1,0 +1,136 @@
+name: Finalize no-WASM migration
+
+on:
+  push:
+    branches: [rebuild/server-postgres-indexeddb]
+    paths:
+      - .github/workflows/no-wasm-finalize.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: prosmet-no-wasm-finalize
+  cancel-in-progress: true
+
+jobs:
+  finalize:
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 45
+    steps:
+      - name: Verify runner
+        run: test "${{ runner.name }}" = "prosmet-primary"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: rebuild/server-postgres-indexeddb
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.16.0"
+
+      - name: Finalize browser and UI migration
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_required(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text()
+              if old not in text:
+                  raise SystemExit(f"Missing expected text in {path}: {old!r}")
+              file.write_text(text.replace(old, new))
+
+          replace_required(
+              "components/app/chat-workspace.tsx",
+              '? "SQLite WASM готова"\n              : workspace.error || "Открываем SQLite WASM…"',
+              '? "IndexedDB-кэш готов"\n              : workspace.error || "Открываем IndexedDB-кэш…"'
+          )
+          replace_required(
+              "components/app/chat-workspace.tsx",
+              "Локальная база не открылась:",
+              "Локальный кэш не открылся:"
+          )
+
+          estimate = Path("components/tools/estimate-editor.tsx")
+          text = estimate.read_text()
+          if 'import { browserUuid } from "@/lib/platform/browser-crypto";' not in text:
+              marker = 'import { exportEstimatePdf, exportEstimateXlsx } from "@/lib/exports/estimate";'
+              if marker not in text:
+                  raise SystemExit("Estimate editor import marker missing")
+              text = text.replace(marker, f'import {{ browserUuid }} from "@/lib/platform/browser-crypto";\n{marker}')
+          text = text.replace('useRef(`estimate_${crypto.randomUUID()}`)', 'useRef(`estimate_${browserUuid()}`)')
+          text = text.replace("SQLite", "IndexedDB")
+          estimate.write_text(text)
+
+          document = Path("components/tools/document-editor.tsx")
+          text = document.read_text()
+          if 'import { browserUuid } from "@/lib/platform/browser-crypto";' not in text:
+              marker = 'import { useLocalWorkspace } from "@/lib/local/context";'
+              if marker not in text:
+                  raise SystemExit("Document editor import marker missing")
+              text = text.replace(marker, f'import {{ browserUuid }} from "@/lib/platform/browser-crypto";\n{marker}')
+          text = text.replace('useRef(`document_${crypto.randomUUID()}`)', 'useRef(`document_${browserUuid()}`)')
+          text = text.replace("SQLite", "IndexedDB")
+          document.write_text(text)
+
+          domain = Path("lib/domain/estimate.ts")
+          text = domain.read_text()
+          if 'import { browserUuid } from "@/lib/platform/browser-crypto";' not in text:
+              marker = 'import { z } from "zod";'
+              if marker not in text:
+                  raise SystemExit("Estimate domain import marker missing")
+              text = text.replace(marker, f'{marker}\nimport {{ browserUuid }} from "@/lib/platform/browser-crypto";')
+          text = text.replace('`${prefix}_${crypto.randomUUID()}`', '`${prefix}_${browserUuid()}`')
+          domain.write_text(text)
+
+          e2e = Path("e2e/chat.spec.ts")
+          text = e2e.read_text()
+          text = text.replace(
+              'for (const asset of ["/favicon.ico", "/sql-wasm.wasm", "/sql-wasm-browser.wasm"]) {',
+              'for (const asset of ["/favicon.ico"]) {'
+          )
+          text = text.replace(
+              'expect(csp).toContain("\'unsafe-eval\'");\n  expect(csp).toContain("\'wasm-unsafe-eval\'");',
+              'expect(csp).not.toContain("\'unsafe-eval\'");\n  expect(csp).not.toContain("\'wasm-unsafe-eval\'");'
+          )
+          text = text.replace('prosmet-local-v2', 'prosmet-cache-v3')
+          e2e.write_text(text)
+
+          for documentation in [Path("README.md"), *Path("docs").glob("*.md") if Path("docs").exists() else []]:
+              if not documentation.exists():
+                  continue
+              text = documentation.read_text()
+              text = text.replace("SQLite WASM", "IndexedDB-кэш")
+              text = text.replace("SQLite-WASM", "IndexedDB-кэш")
+              text = text.replace("PGlite", "PostgreSQL")
+              documentation.write_text(text)
+          PY
+
+          rm -f .github/workflows/primary.yml
+          rm -f public/sql-wasm.wasm public/sql-wasm-browser.wasm
+          rm -f .github/workflows/no-wasm-finalize.yml
+
+      - name: Refresh lockfile
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+
+      - name: Install and verify
+        run: |
+          set -Eeuo pipefail
+          npm ci --no-audit --no-fund
+          npm run source:contract
+          npm run typecheck
+          npm run test
+          npm run build
+
+      - name: Commit verified migration
+        run: |
+          set -Eeuo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "refactor(storage): replace browser WASM with IndexedDB and PostgreSQL"
+          git push origin HEAD:rebuild/server-postgres-indexeddb
