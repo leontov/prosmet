@@ -1,0 +1,57 @@
+name: Prosmet Rebuild Verify
+
+on:
+  push:
+    branches: [rebuild/codex-desktop-backend]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prosmet-rebuild-verify
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 70
+    env:
+      CI: "1"
+      NEXT_TELEMETRY_DISABLED: "1"
+      PROSMET_DEFAULT_PROVIDER: "rules"
+      PROSMET_DATABASE_DRIVER: "pglite"
+      PROSMET_PGLITE_DIR: ${{ runner.temp }}/prosmet-rebuild-${{ github.run_id }}-pg
+    steps:
+      - name: Verify runner
+        run: |
+          echo "Runner: ${{ runner.name }}"
+          test "${{ runner.name }}" = "prosmet-primary"
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.16.0"
+      - name: Prepare
+        run: |
+          rm -rf "$PROSMET_PGLITE_DIR"
+          mkdir -p "$PROSMET_PGLITE_DIR" artifacts/logs artifacts/screenshots
+      - name: Generate lockfile
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
+      - run: npm run source:contract
+      - run: npm run typecheck
+      - run: npm run test
+      - run: npm run build
+      - run: npx playwright install chromium
+      - run: npm run e2e
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prosmet-rebuild-${{ github.run_id }}
+          path: |
+            artifacts
+            playwright-report
+            test-results
+          if-no-files-found: ignore
+          retention-days: 30
+      - if: always()
+        run: rm -rf "$PROSMET_PGLITE_DIR"
