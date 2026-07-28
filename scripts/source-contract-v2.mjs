@@ -12,6 +12,7 @@ const forbid = (source, token, scope) => {
 };
 
 const required = [
+  "app/page.tsx",
   "app/MyRuntimeProvider.tsx",
   "app/api/agent/route.ts",
   "app/api/sync/route.ts",
@@ -25,7 +26,6 @@ const required = [
   "lib/local/files.ts",
   "lib/local/sync.ts",
   "lib/server/postgres.ts",
-  "deployment/postgres-server.mjs",
   "deployment/provision-postgres.sh",
   "deployment/direct-primary.sh"
 ];
@@ -37,61 +37,137 @@ for (const path of required) {
   }
 }
 
+const page = await read("app/page.tsx");
+need(page, 'export const dynamic = "force-dynamic"', "page");
+need(page, "export const revalidate = 0", "page");
+
 const runtime = await read("app/MyRuntimeProvider.tsx");
-for (const token of ["HttpAgent", "useAgUiRuntime", "AssistantRuntimeProvider", "ProsmetAttachmentAdapter", "ThreadHistoryAdapter"]) {
+for (const token of [
+  "HttpAgent",
+  "useAgUiRuntime",
+  "AssistantRuntimeProvider",
+  "ProsmetAttachmentAdapter",
+  "ThreadHistoryAdapter"
+]) {
   need(runtime, token, "assistant-ui-runtime");
 }
-for (const token of ["useLocalRuntime", "localStorage"]) forbid(runtime, token, "assistant-ui-runtime");
+for (const token of [
+  "useLocalRuntime",
+  "localStorage",
+  "runtime.thread.subscribe",
+  "[workspace]"
+]) {
+  forbid(runtime, token, "assistant-ui-runtime");
+}
 
 const agent = await read("app/api/agent/route.ts");
-for (const token of ["RUN_STARTED", "TEXT_MESSAGE_CONTENT", "TOOL_CALL_ARGS", "ACTIVITY_SNAPSHOT", "messageId: activityMessageId", "RUN_FINISHED", "text/event-stream"]) {
+for (const token of [
+  "RUN_STARTED",
+  "TEXT_MESSAGE_CONTENT",
+  "TOOL_CALL_ARGS",
+  "ACTIVITY_SNAPSHOT",
+  "messageId: activityMessageId",
+  "RUN_FINISHED",
+  "text/event-stream"
+]) {
   need(agent, token, "ag-ui");
 }
 
 const idb = await read("lib/local/idb.ts");
-for (const token of ["prosmet-cache-v3", "indexedDB.open", "threads", "messages", "estimates", "estimateRevisions", "documents", "documentRevisions", "prices", "files", "outbox", "syncState", "withLocalTransaction"]) {
+for (const token of [
+  "prosmet-cache-v3",
+  "indexedDB.open",
+  "threads",
+  "messages",
+  "estimates",
+  "estimateRevisions",
+  "documents",
+  "documentRevisions",
+  "prices",
+  "files",
+  "outbox",
+  "syncState",
+  "withLocalTransaction"
+]) {
   need(idb, token, "indexeddb");
 }
-for (const token of ["sql.js", "WebAssembly", "wasm"]) forbid(idb, token, "indexeddb");
+for (const token of ["sql.js", "WebAssembly", "wasm"]) {
+  forbid(idb, token, "indexeddb");
+}
 
 for (const path of ["lib/local/repository.ts", "lib/local/files.ts", "lib/local/sync.ts"]) {
   const source = await read(path);
   need(source, "LOCAL_STORES", path);
-  forbid(source, "getDatabase", path);
-  forbid(source, "sql.js", path);
-  forbid(source, "sqlite.run", path);
-  forbid(source, "localStorage", path);
+  for (const token of ["getDatabase", "sql.js", "sqlite.run", "localStorage"]) {
+    forbid(source, token, path);
+  }
 }
 
 const postgres = await read("lib/server/postgres.ts");
-for (const token of ["Pool", "DATABASE_URL", "prosmet_threads", "prosmet_messages", "prosmet_estimates", "prosmet_estimate_revisions", "prosmet_documents", "prosmet_document_revisions", "prosmet_prices", "prosmet_files", "prosmet_agent_runs", "withServerTransaction"]) {
+for (const token of [
+  "Pool",
+  "DATABASE_URL",
+  "prosmet_threads",
+  "prosmet_messages",
+  "prosmet_estimates",
+  "prosmet_estimate_revisions",
+  "prosmet_documents",
+  "prosmet_document_revisions",
+  "prosmet_prices",
+  "prosmet_files",
+  "prosmet_agent_runs",
+  "withServerTransaction"
+]) {
   need(postgres, token, "postgres");
 }
-for (const token of ["PGlite", "@electric-sql/pglite", "PROSMET_PGLITE_DIR"]) forbid(postgres, token, "postgres");
-
-const postgresServer = await read("deployment/postgres-server.mjs");
-for (const token of ["embedded-postgres", "persistent: true", "PG_VERSION", "postgres.initialise", "postgres.start", "CREATE DATABASE", "127.0.0.1"]) {
-  need(postgresServer, token, "postgres-server");
+for (const token of [
+  "PGlite",
+  "@electric-sql/pglite",
+  "PROSMET_PGLITE_DIR",
+  "embedded-postgres"
+]) {
+  forbid(postgres, token, "postgres");
 }
-for (const token of ["WebAssembly", "PGlite", "sudo", "docker"]) forbid(postgresServer, token, "postgres-server");
 
 const provision = await read("deployment/provision-postgres.sh");
-for (const token of ["postgres-server.mjs", "RUNNER_TRACKING_ID=", "postgres-password", "55432", "DATABASE_URL", "probe_database", "without sudo"]) {
+for (const token of [
+  "apt-get install",
+  "systemctl enable --now postgresql",
+  "sudo -n -u postgres",
+  "pg_isready",
+  "postgres-password",
+  "DATABASE_URL",
+  "Real PostgreSQL is ready"
+]) {
   need(provision, token, "postgres-provision");
 }
-for (const token of ["sudo", "apt-get", "systemctl", "docker", "pglite"]) forbid(provision, token, "postgres-provision");
+for (const token of ["postgres-server.mjs", "embedded-postgres", "pglite"]) {
+  forbid(provision, token, "postgres-provision");
+}
 
 const sync = await read("app/api/sync/route.ts");
-for (const token of ["prosmet_sync_operations", "prosmet_prices", "prosmet_files", "preserveEstimateRevision", "preserveDocumentRevision", "export async function POST", "export async function GET"]) {
+for (const token of [
+  "prosmet_sync_operations",
+  "prosmet_prices",
+  "prosmet_files",
+  "preserveEstimateRevision",
+  "preserveDocumentRevision",
+  "export async function POST",
+  "export async function GET"
+]) {
   need(sync, token, "sync");
 }
 
 const shell = await read("components/app/chat-workspace.tsx");
-for (const token of ["RightInspector", "app-sidebar", "IndexedDB-кэш готов"]) need(shell, token, "shell");
+for (const token of ["RightInspector", "app-sidebar", "IndexedDB-кэш готов"]) {
+  need(shell, token, "shell");
+}
 forbid(shell, "SQLite WASM", "shell");
 
 const inspector = await read("components/app/right-inspector.tsx");
-for (const token of ["right-inspector", "PostgreSQL", "IndexedDB", "Синхронизация"]) need(inspector, token, "inspector");
+for (const token of ["right-inspector", "PostgreSQL", "IndexedDB", "Синхронизация"]) {
+  need(inspector, token, "inspector");
+}
 forbid(inspector, "SQLite WASM", "inspector");
 
 const nextConfig = await read("next.config.ts");
@@ -99,16 +175,30 @@ forbid(nextConfig, "'wasm-unsafe-eval'", "csp");
 if (!nextConfig.includes("...(isDevelopment ? [\"'unsafe-eval'\"] : [])")) {
   failures.push("csp:production-unsafe-eval-not-disabled");
 }
+need(nextConfig, "no-store, no-cache, must-revalidate", "cache-control");
 
 const pkg = JSON.parse(await read("package.json"));
-for (const dependency of ["@assistant-ui/react", "@assistant-ui/react-ag-ui", "@ag-ui/client", "@ag-ui/core", "embedded-postgres", "pg"]) {
+for (const dependency of [
+  "@assistant-ui/react",
+  "@assistant-ui/react-ag-ui",
+  "@ag-ui/client",
+  "@ag-ui/core",
+  "better-auth",
+  "pg"
+]) {
   if (!pkg.dependencies?.[dependency]) failures.push(`dependency:${dependency}`);
 }
-for (const dependency of ["sql.js", "@electric-sql/pglite"]) {
+for (const dependency of ["sql.js", "@electric-sql/pglite", "embedded-postgres"]) {
   if (pkg.dependencies?.[dependency]) failures.push(`forbidden-dependency:${dependency}`);
 }
 
-for (const obsolete of ["lib/local/database.ts", "scripts/copy-sql-wasm.mjs", "public/sql-wasm.wasm", "public/sql-wasm-browser.wasm"]) {
+for (const obsolete of [
+  "lib/local/database.ts",
+  "scripts/copy-sql-wasm.mjs",
+  "public/sql-wasm.wasm",
+  "public/sql-wasm-browser.wasm",
+  "deployment/postgres-server.mjs"
+]) {
   try {
     await access(resolve(root, obsolete));
     failures.push(`obsolete:${obsolete}`);
