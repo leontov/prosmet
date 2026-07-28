@@ -5,6 +5,15 @@ on:
     branches: [main]
     paths:
       - .github/workflows/launch-3200.yml
+      - next.config.ts
+      - package.json
+      - package-lock.json
+      - app/**
+      - components/**
+      - lib/**
+      - public/**
+      - deployment/**
+      - scripts/**
   workflow_dispatch:
 
 permissions:
@@ -79,12 +88,15 @@ jobs:
           set -Eeuo pipefail
           bash deployment/direct-primary.sh "$GITHUB_SHA" 3200
 
-      - name: Verify live application
+      - name: Verify live application and CSP hydration policy
         run: |
           set -Eeuo pipefail
           curl -fsS http://127.0.0.1:3200/api/health
           curl -fsS http://127.0.0.1:3200/api/backend/status | tee /tmp/prosmet-backend-status.json
           grep -q '"connected":true' /tmp/prosmet-backend-status.json
+          curl -fsSI http://127.0.0.1:3200/ | tee /tmp/prosmet-headers.txt
+          grep -qi "content-security-policy:.*script-src.*'unsafe-inline'" /tmp/prosmet-headers.txt
+          grep -qi "content-security-policy:.*'wasm-unsafe-eval'" /tmp/prosmet-headers.txt
           curl -fsS http://127.0.0.1:3200/ >/dev/null
           echo "LIVE http://78.17.4.108:3200/"
 
@@ -110,6 +122,7 @@ jobs:
                 "",
                 success ? "**APP:** http://78.17.4.108:3200/" : "Inspect the workflow log before retrying.",
                 success ? "**HEALTH:** http://78.17.4.108:3200/api/health" : "",
-                success ? "**BACKEND:** http://78.17.4.108:3200/api/backend/status" : ""
+                success ? "**BACKEND:** http://78.17.4.108:3200/api/backend/status" : "",
+                success ? "**CSP:** Next.js hydration and SQLite WASM allowed" : ""
               ].filter(Boolean).join("\n")
             });
