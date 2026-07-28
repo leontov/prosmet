@@ -14,12 +14,11 @@ concurrency:
 jobs:
   verify:
     runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 55
+    timeout-minutes: 60
     env:
       CI: "1"
       NEXT_TELEMETRY_DISABLED: "1"
       PROSMET_DEFAULT_PROVIDER: "rules"
-      DATABASE_URL: postgresql://prosmet:prosmet-ci@127.0.0.1:55432/prosmet
     steps:
       - name: Verify runner
         run: |
@@ -38,29 +37,57 @@ jobs:
       - run: npm run test
       - run: npm run build
       - name: Start isolated PostgreSQL
+        shell: bash
         run: |
-          docker rm -f prosmet-ci-postgres >/dev/null 2>&1 || true
-          docker run -d \
+          set -Eeuo pipefail
+          if docker info >/dev/null 2>&1; then
+            DOCKER=(docker)
+          elif sudo -n docker info >/dev/null 2>&1; then
+            DOCKER=(sudo -n docker)
+          else
+            echo "Runner cannot access Docker" >&2
+            exit 1
+          fi
+
+          "${DOCKER[@]}" rm -f prosmet-ci-postgres >/dev/null 2>&1 || true
+          "${DOCKER[@]}" pull postgres:16-alpine
+          "${DOCKER[@]}" run -d \
             --name prosmet-ci-postgres \
             -e POSTGRES_DB=prosmet \
             -e POSTGRES_USER=prosmet \
             -e POSTGRES_PASSWORD=prosmet-ci \
-            -p 127.0.0.1:55432:5432 \
+            -p 127.0.0.1::5432 \
             --health-cmd='pg_isready -U prosmet -d prosmet' \
             --health-interval=3s \
             --health-timeout=3s \
             --health-retries=20 \
             postgres:16-alpine
-          for attempt in $(seq 1 30); do
-            test "$(docker inspect -f '{{.State.Health.Status}}' prosmet-ci-postgres)" = healthy && exit 0
+
+          PORT="$("${DOCKER[@]}" port prosmet-ci-postgres 5432/tcp | awk -F: 'END {print $NF}')"
+          test -n "$PORT"
+          echo "DATABASE_URL=postgresql://prosmet:prosmet-ci@127.0.0.1:${PORT}/prosmet" >> "$GITHUB_ENV"
+          echo "PROSMET_CI_DOCKER=${DOCKER[*]}" >> "$GITHUB_ENV"
+
+          for attempt in $(seq 1 40); do
+            STATUS="$("${DOCKER[@]}" inspect -f '{{.State.Health.Status}}' prosmet-ci-postgres 2>/dev/null || true)"
+            if [ "$STATUS" = healthy ]; then
+              echo "PostgreSQL healthy on 127.0.0.1:${PORT}"
+              exit 0
+            fi
             sleep 2
           done
-          docker logs prosmet-ci-postgres
+          "${DOCKER[@]}" logs prosmet-ci-postgres || true
           exit 1
       - run: npx playwright install chromium
       - run: npm run e2e
       - if: always()
-        run: docker rm -f prosmet-ci-postgres >/dev/null 2>&1 || true
+        shell: bash
+        run: |
+          if docker info >/dev/null 2>&1; then
+            docker rm -f prosmet-ci-postgres >/dev/null 2>&1 || true
+          elif sudo -n docker info >/dev/null 2>&1; then
+            sudo -n docker rm -f prosmet-ci-postgres >/dev/null 2>&1 || true
+          fi
       - if: always()
         uses: actions/upload-artifact@v4
         with:
