@@ -14,11 +14,12 @@ concurrency:
 jobs:
   verify:
     runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 45
+    timeout-minutes: 55
     env:
       CI: "1"
       NEXT_TELEMETRY_DISABLED: "1"
       PROSMET_DEFAULT_PROVIDER: "rules"
+      DATABASE_URL: postgresql://prosmet:prosmet-ci@127.0.0.1:55432/prosmet
     steps:
       - name: Verify runner
         run: |
@@ -36,8 +37,30 @@ jobs:
       - run: npm run typecheck
       - run: npm run test
       - run: npm run build
-      - run: npx playwright install --with-deps chromium
+      - name: Start isolated PostgreSQL
+        run: |
+          docker rm -f prosmet-ci-postgres >/dev/null 2>&1 || true
+          docker run -d \
+            --name prosmet-ci-postgres \
+            -e POSTGRES_DB=prosmet \
+            -e POSTGRES_USER=prosmet \
+            -e POSTGRES_PASSWORD=prosmet-ci \
+            -p 127.0.0.1:55432:5432 \
+            --health-cmd='pg_isready -U prosmet -d prosmet' \
+            --health-interval=3s \
+            --health-timeout=3s \
+            --health-retries=20 \
+            postgres:16-alpine
+          for attempt in $(seq 1 30); do
+            test "$(docker inspect -f '{{.State.Health.Status}}' prosmet-ci-postgres)" = healthy && exit 0
+            sleep 2
+          done
+          docker logs prosmet-ci-postgres
+          exit 1
+      - run: npx playwright install chromium
       - run: npm run e2e
+      - if: always()
+        run: docker rm -f prosmet-ci-postgres >/dev/null 2>&1 || true
       - if: always()
         uses: actions/upload-artifact@v4
         with:
