@@ -9,6 +9,7 @@ import {
   useState,
   type ReactNode
 } from "react";
+import { browserUuid } from "@/lib/platform/browser-crypto";
 import { getRepository, type LocalThread } from "@/lib/local/repository";
 
 export type LocalWorkspace = {
@@ -30,7 +31,7 @@ const WorkspaceContext = createContext<LocalWorkspace | null>(null);
 const ACTIVE_THREAD_KEY = "workspace.active-thread";
 
 function newThreadId() {
-  return crypto.randomUUID();
+  return browserUuid();
 }
 
 export function LocalWorkspaceProvider({ children }: { children: ReactNode }) {
@@ -55,9 +56,13 @@ export function LocalWorkspaceProvider({ children }: { children: ReactNode }) {
         ]);
         if (cancelled) return;
         const next =
-          (remembered && storedThreads.some((thread) => thread.id === remembered && thread.status === "active")
+          (remembered &&
+          storedThreads.some(
+            (thread) => thread.id === remembered && thread.status === "active"
+          )
             ? remembered
-            : storedThreads.find((thread) => thread.status === "active")?.id) ?? newThreadId();
+            : storedThreads.find((thread) => thread.status === "active")?.id) ??
+          newThreadId();
         setThreads(storedThreads);
         setCurrentThreadId(next);
         await repository.setMeta(ACTIVE_THREAD_KEY, next);
@@ -65,7 +70,11 @@ export function LocalWorkspaceProvider({ children }: { children: ReactNode }) {
         setReady(true);
       } catch (reason) {
         if (!cancelled) {
-          setError(reason instanceof Error ? reason.message : "Не удалось открыть локальную базу");
+          setError(
+            reason instanceof Error
+              ? reason.message
+              : "Не удалось открыть локальный IndexedDB-кэш"
+          );
           setReady(false);
         }
       }
@@ -116,7 +125,9 @@ export function LocalWorkspaceProvider({ children }: { children: ReactNode }) {
           if (id === currentThreadId) await createThread();
         }),
       restoreThread: (id) =>
-        mutate(async () => (await getRepository()).updateThread(id, { status: "active" })),
+        mutate(async () =>
+          (await getRepository()).updateThread(id, { status: "active" })
+        ),
       deleteThread: (id) =>
         mutate(async () => {
           await (await getRepository()).deleteThread(id);
