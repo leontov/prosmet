@@ -185,6 +185,15 @@ export async function POST(request: Request) {
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const send = (payload: unknown) => controller.enqueue(event(payload));
+      const activityMessageId = randomUUID();
+      const sendActivity = (content: Record<string, unknown>) =>
+        send({
+          type: "ACTIVITY_SNAPSHOT",
+          messageId: activityMessageId,
+          activityType: "work_trace",
+          content
+        });
+
       try {
         send({ type: "RUN_STARTED", threadId, runId });
         send({
@@ -201,14 +210,10 @@ export async function POST(request: Request) {
             validation: {}
           }
         });
-        send({
-          type: "ACTIVITY_SNAPSHOT",
-          activityType: "work_trace",
-          content: {
-            stage: "analysis",
-            title: "Анализ исходных данных",
-            status: "running"
-          }
+        sendActivity({
+          stage: "analysis",
+          title: "Анализ исходных данных",
+          status: "running"
         });
 
         await sleep(80, request.signal);
@@ -221,21 +226,17 @@ export async function POST(request: Request) {
         send({ type: "TEXT_MESSAGE_END", messageId });
 
         for (const [index, tool] of result.tools.entries()) {
-          send({
-            type: "ACTIVITY_SNAPSHOT",
-            activityType: "work_trace",
-            content: {
-              stage: tool.name,
-              title:
-                tool.name === "technology_card"
-                  ? "Определение технологии"
-                  : tool.name === "estimate_draft"
-                    ? "Формирование и проверка сметы"
-                    : "Подготовка документа",
-              status: "running",
-              position: index + 1,
-              total: result.tools.length
-            }
+          sendActivity({
+            stage: tool.name,
+            title:
+              tool.name === "technology_card"
+                ? "Определение технологии"
+                : tool.name === "estimate_draft"
+                  ? "Формирование и проверка сметы"
+                  : "Подготовка документа",
+            status: "running",
+            position: index + 1,
+            total: result.tools.length
           });
           const toolCallId = randomUUID();
           send({
@@ -252,14 +253,10 @@ export async function POST(request: Request) {
         }
 
         send({ type: "STATE_SNAPSHOT", snapshot: result.state });
-        send({
-          type: "ACTIVITY_SNAPSHOT",
-          activityType: "work_trace",
-          content: {
-            stage: "complete",
-            title: "Результат готов",
-            status: "completed"
-          }
+        sendActivity({
+          stage: "complete",
+          title: "Результат готов",
+          status: "completed"
         });
         send({ type: "RUN_FINISHED", threadId, runId });
         await finishAgentRun({
@@ -274,7 +271,6 @@ export async function POST(request: Request) {
         });
       } catch (error) {
         if (request.signal.aborted) {
-          send({ type: "RUN_CANCELLED", threadId, runId });
           await finishAgentRun({
             tenantId: identity.ownerId,
             runId,
