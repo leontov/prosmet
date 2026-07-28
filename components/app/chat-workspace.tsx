@@ -1,11 +1,6 @@
 "use client";
 
-import {
-  AuiProvider,
-  Suggestions,
-  Tools,
-  useAui
-} from "@assistant-ui/react";
+import { AuiProvider, Suggestions, Tools, useAui } from "@assistant-ui/react";
 import {
   ArchiveIcon,
   ArchiveRestoreIcon,
@@ -112,10 +107,13 @@ export function ChatWorkspace() {
       data-testid="app-sidebar"
     >
       <div className="flex h-12 shrink-0 items-center gap-1 px-3 pt-1">
-        <HeaderIcon label="Скрыть боковую панель" onClick={() => {
-          setLeftOpen(false);
-          setLeftMobileOpen(false);
-        }}>
+        <HeaderIcon
+          label="Скрыть боковую панель"
+          onClick={() => {
+            setLeftOpen(false);
+            setLeftMobileOpen(false);
+          }}
+        >
           <PanelLeftCloseIcon />
         </HeaderIcon>
         <HeaderIcon label="Назад" onClick={() => window.history.back()}>
@@ -146,11 +144,7 @@ export function ChatWorkspace() {
       </div>
 
       <nav className="grid shrink-0 gap-0.5 px-2 text-[14px]">
-        <button
-          type="button"
-          onClick={() => void startNew()}
-          className="prosmet-nav-row"
-        >
+        <button type="button" onClick={() => void startNew()} className="prosmet-nav-row">
           <SquarePenIcon className="size-[18px]" /> Новая задача
         </button>
         <NavItem icon={<CalculatorIcon />} label="Сметы и чаты" active />
@@ -160,17 +154,13 @@ export function ChatWorkspace() {
         <NavItem icon={<TagIcon />} label="Каталог цен" />
       </nav>
 
-      <div className="mt-5 px-4 text-[12px] font-medium text-[#858a99]">
-        Закреплённые
-      </div>
+      <div className="mt-5 px-4 text-[12px] font-medium text-[#858a99]">Закреплённые</div>
       <div className="mx-2 mt-2 rounded-xl bg-[#dfe4f6] px-3 py-2.5">
         <div className="flex items-center gap-2 text-sm font-medium">
           <FolderOpenIcon className="size-4" />
           Сметная контора
         </div>
-        <div className="mt-1 pl-6 text-[11px] text-[#747a8a]">
-          Чаты, сметы и документы
-        </div>
+        <div className="mt-1 pl-6 text-[11px] text-[#747a8a]">Чаты, сметы и документы</div>
       </div>
 
       <div className="mt-4 flex items-center justify-between px-4 text-[12px] font-medium text-[#858a99]">
@@ -233,21 +223,40 @@ export function ChatWorkspace() {
                   {menuId === thread.id && (
                     <div className="absolute right-0 top-9 z-50 min-w-44 rounded-xl border border-neutral-200 bg-white p-1.5 text-sm shadow-xl">
                       {thread.status === "active" && (
-                        <MenuAction onClick={() => void workspace.togglePin(thread.id, !thread.pinned).then(() => setMenuId(null))}>
+                        <MenuAction
+                          onClick={() =>
+                            void workspace
+                              .togglePin(thread.id, !thread.pinned)
+                              .then(() => setMenuId(null))
+                          }
+                        >
                           <PinIcon className="size-3.5" />
                           {thread.pinned ? "Открепить" : "Закрепить"}
                         </MenuAction>
                       )}
                       {thread.status === "active" ? (
-                        <MenuAction onClick={() => void workspace.archiveThread(thread.id).then(() => setMenuId(null))}>
+                        <MenuAction
+                          onClick={() =>
+                            void workspace.archiveThread(thread.id).then(() => setMenuId(null))
+                          }
+                        >
                           <ArchiveIcon className="size-3.5" /> В архив
                         </MenuAction>
                       ) : (
-                        <MenuAction onClick={() => void workspace.restoreThread(thread.id).then(() => setMenuId(null))}>
+                        <MenuAction
+                          onClick={() =>
+                            void workspace.restoreThread(thread.id).then(() => setMenuId(null))
+                          }
+                        >
                           <ArchiveRestoreIcon className="size-3.5" /> Восстановить
                         </MenuAction>
                       )}
-                      <MenuAction danger onClick={() => void workspace.deleteThread(thread.id).then(() => setMenuId(null))}>
+                      <MenuAction
+                        danger
+                        onClick={() =>
+                          void workspace.deleteThread(thread.id).then(() => setMenuId(null))
+                        }
+                      >
                         <Trash2Icon className="size-3.5" /> Удалить
                       </MenuAction>
                     </div>
@@ -285,8 +294,8 @@ export function ChatWorkspace() {
           <DatabaseIcon className="size-3.5" />
           <span className="min-w-0 flex-1 truncate">
             {workspace.ready
-              ? "SQLite WASM готова"
-              : workspace.error || "Открываем SQLite WASM…"}
+              ? "IndexedDB-кэш готов"
+              : workspace.error || "Открываем IndexedDB-кэш…"}
           </span>
           <StatusDot ok={workspace.ready} loading={!workspace.ready && !workspace.error} />
         </div>
@@ -310,7 +319,9 @@ export function ChatWorkspace() {
           </span>
           <span className="min-w-0 flex-1">
             <span className="block truncate text-[13px] font-medium">Просметчик</span>
-            <span className="block truncate text-[10px] text-neutral-500">Владелец организации</span>
+            <span className="block truncate text-[10px] text-neutral-500">
+              Владелец организации
+            </span>
           </span>
           <Settings2Icon className="size-4 text-neutral-500" />
         </button>
@@ -352,11 +363,19 @@ export function ChatWorkspace() {
             <header className="flex h-12 shrink-0 items-center justify-between border-b border-neutral-200 bg-white px-2.5 sm:px-3">
               <div className="flex min-w-0 items-center gap-1">
                 {!leftOpen && (
-                  <HeaderIcon label="Показать боковую панель" onClick={() => setLeftOpen(true)} className="hidden md:flex">
+                  <HeaderIcon
+                    label="Показать боковую панель"
+                    onClick={() => setLeftOpen(true)}
+                    className="hidden md:flex"
+                  >
                     <MenuIcon />
                   </HeaderIcon>
                 )}
-                <HeaderIcon label="Открыть меню" onClick={() => setLeftMobileOpen(true)} className="md:hidden">
+                <HeaderIcon
+                  label="Открыть меню"
+                  onClick={() => setLeftMobileOpen(true)}
+                  className="md:hidden"
+                >
                   <MenuIcon />
                 </HeaderIcon>
                 <span className="mx-1 h-5 w-px bg-neutral-200" />
@@ -392,7 +411,7 @@ export function ChatWorkspace() {
 
             {workspace.error && (
               <div className="border-b border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700">
-                Локальная база не открылась: {workspace.error}
+                Локальный кэш не открылся: {workspace.error}
               </div>
             )}
 
@@ -501,7 +520,7 @@ function StatusDot({ ok, loading }: { ok: boolean; loading: boolean }) {
     <span
       className={cn(
         "size-2 rounded-full",
-        loading ? "animate-pulse bg-blue-500" : ok ? "bg-emerald-500" : "bg-red-500"
+        loading ? "animate-pulse bg-blue-500" : ok ? "bg-emerald-500" : "bg-amber-500"
       )}
     />
   );
