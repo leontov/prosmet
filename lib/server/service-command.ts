@@ -35,8 +35,20 @@ function workspaceTool(section: "profile" | "estimating"): RulesRun {
 function providerHint(value: string) {
   if (/ollama|локальн.*модел/.test(value)) return "ollama";
   if (/mimo|ми ?мо/.test(value)) return "mimo";
+  // OpenAI API remains an OpenAI-compatible HTTP provider even when the user
+  // mentions Codex as the intended model or workflow. Codex CLI is selected
+  // only when the local CLI / ChatGPT-authenticated runtime is requested.
+  if (/openai|api.*codex|codex.*api|кодекс.*api|api.*кодекс/.test(value)) {
+    return "openai-compatible";
+  }
+  if (
+    /codex\s*cli|кодекс\s*cli|codex.*(?:chatgpt|чатгпт|primary|терминал|локальн)|(?:chatgpt|чатгпт|primary|терминал|локальн).*codex/.test(
+      value
+    )
+  ) {
+    return "codex-cli";
+  }
   if (/codex|кодекс/.test(value)) return "codex-cli";
-  if (/openai/.test(value)) return "openai-compatible";
   return "mimo";
 }
 
