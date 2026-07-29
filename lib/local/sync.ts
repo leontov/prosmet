@@ -8,7 +8,8 @@ import {
   getRecord,
   putRecord,
   requestResult,
-  withLocalTransaction
+  withLocalTransaction,
+  type LocalStoreName
 } from "@/lib/local/idb";
 import type {
   LocalDocument,
@@ -75,6 +76,15 @@ type DocumentRecord = {
   updatedAt: string;
 };
 
+const PRICE_STORES = [
+  LOCAL_STORES.prices,
+  LOCAL_STORES.canonicalWorks,
+  LOCAL_STORES.priceObservations,
+  LOCAL_STORES.priceHistory,
+  LOCAL_STORES.marketPriceBuckets,
+  LOCAL_STORES.priceResearchEvidence
+] as const satisfies readonly LocalStoreName[];
+
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -83,6 +93,27 @@ function record(value: unknown): Record<string, unknown> {
 
 function now() {
   return new Date().toISOString();
+}
+
+function priceStore(payload: Record<string, unknown>): LocalStoreName | null {
+  switch (payload.entityKind) {
+    case "canonical_work":
+      return LOCAL_STORES.canonicalWorks;
+    case "price_observation":
+      return LOCAL_STORES.priceObservations;
+    case "price_history":
+      return LOCAL_STORES.priceHistory;
+    case "market_price_bucket":
+      return LOCAL_STORES.marketPriceBuckets;
+    case "price_research_evidence":
+      return LOCAL_STORES.priceResearchEvidence;
+    default:
+      return typeof payload.name === "string" &&
+        typeof payload.unit === "string" &&
+        typeof payload.price === "number"
+        ? LOCAL_STORES.prices
+        : null;
+  }
 }
 
 async function syncIdentity() {
@@ -127,6 +158,30 @@ function localThread(entityId: string, payload: Record<string, unknown>): LocalT
   };
 }
 
+async function deleteRemotePrice(transaction: IDBTransaction, entityId: string) {
+  // A delete operation can arrive without its original payload. Removing the
+  // same immutable ID from every price store is deterministic and idempotent,
+  // and prevents a deleted observation from surviving on another device.
+  for (const store of PRICE_STORES) {
+    await requestResult(transaction.objectStore(store).delete(entityId));
+  }
+}
+
+async function putRemotePrice(
+  transaction: IDBTransaction,
+  entityId: string,
+  payload: Record<string, unknown>
+) {
+  const store = priceStore(payload);
+  if (!store) return;
+  await requestResult(
+    transaction.objectStore(store).put({
+      ...payload,
+      id: typeof payload.id === "string" && payload.id ? payload.id : entityId
+    })
+  );
+}
+
 async function applyRemoteOperations(
   operations: readonly RemoteOperation[],
   ownDeviceId: string,
@@ -142,7 +197,7 @@ async function applyRemoteOperations(
       LOCAL_STORES.messages,
       LOCAL_STORES.estimates,
       LOCAL_STORES.documents,
-      LOCAL_STORES.prices,
+      ...PRICE_STORES,
       LOCAL_STORES.files,
       LOCAL_STORES.syncState
     ],
@@ -187,9 +242,7 @@ async function applyRemoteOperations(
               transaction.objectStore(LOCAL_STORES.documents).delete(operation.entityId)
             );
           } else if (operation.entityType === "price") {
-            await requestResult(
-              transaction.objectStore(LOCAL_STORES.prices).delete(operation.entityId)
-            );
+            await deleteRemotePrice(transaction, operation.entityId);
           } else if (operation.entityType === "file") {
             await requestResult(
               transaction.objectStore(LOCAL_STORES.files).delete(operation.entityId)
@@ -289,16 +342,7 @@ async function applyRemoteOperations(
             } satisfies DocumentRecord)
           );
         } else if (operation.entityType === "price") {
-          if (
-            typeof payload.id === "string" &&
-            typeof payload.name === "string" &&
-            typeof payload.unit === "string" &&
-            typeof payload.price === "number"
-          ) {
-            await requestResult(
-              transaction.objectStore(LOCAL_STORES.prices).put(payload as unknown as LocalPrice)
-            );
-          }
+          await putRemotePrice(transaction, operation.entityId, payload);
         }
       }
 
