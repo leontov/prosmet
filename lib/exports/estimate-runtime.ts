@@ -1,13 +1,21 @@
 "use client";
 
-import type { EstimateDraft } from "@/lib/domain/estimate";
+import { cloneEstimate, type EstimateDraft } from "@/lib/domain/estimate";
 import {
-  createEstimatePdfBlob,
+  createEstimatePdfBlob as createEstimatePdfBlobCore,
   estimatePdfFilename,
   exportEstimateXlsx
 } from "./estimate";
 
-export { createEstimatePdfBlob, estimatePdfFilename, exportEstimateXlsx };
+export { estimatePdfFilename, exportEstimateXlsx };
+
+export async function createEstimatePdfBlob(draft: EstimateDraft) {
+  // pdfmake decorates and normalises the document definition in place. The
+  // definition contains arrays derived from the estimate, so always pass a
+  // detached copy; otherwise a completed PDF download can mutate the live
+  // React state and make the preview render pdfmake's internal layout objects.
+  return createEstimatePdfBlobCore(cloneEstimate(draft));
+}
 
 function downloadBlobWithoutNavigating(blob: Blob, filename: string) {
   const objectUrl = URL.createObjectURL(blob);
