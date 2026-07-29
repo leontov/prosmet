@@ -1,6 +1,10 @@
 import Decimal from "decimal.js";
 import { z } from "zod";
-import { makeId, PriceObservationStatusSchema, type EstimateItem } from "@/lib/domain/estimate";
+import {
+  makeId,
+  PriceObservationStatusSchema,
+  type EstimateItem
+} from "@/lib/domain/estimate";
 
 export const PriceSourceTypeSchema = z.enum([
   "personal",
@@ -12,6 +16,17 @@ export const PriceSourceTypeSchema = z.enum([
   "external_research",
   "ai_indicative"
 ]);
+
+export const DEFAULT_PRICE_CONTEXT = {
+  materialsIncluded: false,
+  deliveryIncluded: false,
+  equipmentIncluded: false,
+  vatIncluded: false,
+  constrainedConditions: false,
+  qualityLevel: "standard",
+  urgency: "normal",
+  season: ""
+} as const;
 
 export const PriceContextSchema = z.object({
   materialsIncluded: z.boolean().default(false),
@@ -49,7 +64,7 @@ export const PriceObservationSchema = z.object({
   observedAt: z.string().datetime(),
   validFrom: z.string().datetime().optional(),
   validTo: z.string().datetime().optional(),
-  context: PriceContextSchema.default({}),
+  context: PriceContextSchema.default(DEFAULT_PRICE_CONTEXT),
   contextHash: z.string().min(1),
   confidence: z.number().min(0).max(100).default(0),
   status: PriceObservationStatusSchema,
@@ -154,12 +169,11 @@ function stableToken(value: string) {
 }
 
 export function canonicalWorkId(name: string, unit: string, code = "") {
-  const normalized = normalizePriceText(`${code} ${name} ${unit}`);
-  return `work_${stableToken(normalized)}`;
+  return `work_${stableToken(normalizePriceText(`${code} ${name} ${unit}`))}`;
 }
 
 export function normalizePriceContext(context?: Partial<PriceContext>): PriceContext {
-  return PriceContextSchema.parse(context ?? {});
+  return PriceContextSchema.parse({ ...DEFAULT_PRICE_CONTEXT, ...(context ?? {}) });
 }
 
 export function priceContextHash(context?: Partial<PriceContext>) {
@@ -180,6 +194,27 @@ export function priceContextHash(context?: Partial<PriceContext>) {
   )}`;
 }
 
+function sourceTypeFromItem(item: EstimateItem): PriceSourceType {
+  switch (item.source.kind) {
+    case "personal":
+      return "personal";
+    case "organization":
+      return "organization";
+    case "previous-estimate":
+      return "previous_estimate";
+    case "supplier":
+      return "supplier";
+    case "regional":
+      return "regional_market";
+    case "official":
+      return "official";
+    case "external":
+      return "external_research";
+    default:
+      return "ai_indicative";
+  }
+}
+
 export function observationFromEstimateItem(input: {
   item: EstimateItem;
   estimateId: string;
@@ -197,7 +232,8 @@ export function observationFromEstimateItem(input: {
   const observedAt = input.observedAt ?? new Date().toISOString();
   const context = normalizePriceContext(input.item.priceContext);
   const canonicalId =
-    input.item.canonicalWorkId ?? canonicalWorkId(input.item.name, input.item.unit, input.item.code);
+    input.item.canonicalWorkId ??
+    canonicalWorkId(input.item.name, input.item.unit, input.item.code);
   return PriceObservationSchema.parse({
     id: makeId("price_observation"),
     canonicalWorkId: canonicalId,
@@ -242,7 +278,8 @@ export function priceHistoryEvent(input: {
     estimateRevision: input.estimateRevision,
     estimateItemId: input.item.id,
     canonicalWorkId:
-      input.item.canonicalWorkId ?? canonicalWorkId(input.item.name, input.item.unit, input.item.code),
+      input.item.canonicalWorkId ??
+      canonicalWorkId(input.item.name, input.item.unit, input.item.code),
     previousPrice: input.previousPrice,
     acceptedPrice: input.acceptedPrice,
     suggestedObservationId: input.item.source.observationId,
@@ -253,30 +290,8 @@ export function priceHistoryEvent(input: {
   });
 }
 
-function sourceTypeFromItem(item: EstimateItem): PriceSourceType {
-  switch (item.source.kind) {
-    case "personal":
-      return "personal";
-    case "organization":
-      return "organization";
-    case "previous-estimate":
-      return "previous_estimate";
-    case "supplier":
-      return "supplier";
-    case "regional":
-      return "regional_market";
-    case "official":
-      return "official";
-    case "external":
-      return "external_research";
-    default:
-      return "ai_indicative";
-  }
-}
-
 function daysBetween(left: string, right = new Date().toISOString()) {
-  const delta = Math.max(0, new Date(right).getTime() - new Date(left).getTime());
-  return delta / 86_400_000;
+  return Math.max(0, new Date(right).getTime() - new Date(left).getTime()) / 86_400_000;
 }
 
 function recencyWeight(observedAt: string) {
@@ -294,22 +309,16 @@ function regionWeight(candidate: string, requested: string) {
 }
 
 function contextSimilarity(left: PriceContext, right: PriceContext) {
-  const booleanKeys: (keyof Pick<
-    PriceContext,
-    | "materialsIncluded"
-    | "deliveryIncluded"
-    | "equipmentIncluded"
-    | "vatIncluded"
-    | "constrainedConditions"
-  >)[] = [
+  let score = 1;
+  for (const key of [
     "materialsIncluded",
     "deliveryIncluded",
     "equipmentIncluded",
     "vatIncluded",
     "constrainedConditions"
-  ];
-  let score = 1;
-  for (const key of booleanKeys) if (left[key] !== right[key]) score *= 0.78;
+  ] as const) {
+    if (left[key] !== right[key]) score *= 0.78;
+  }
   if (
     left.layerThicknessMm !== undefined &&
     right.layerThicknessMm !== undefined &&
@@ -317,12 +326,20 @@ function contextSimilarity(left: PriceContext, right: PriceContext) {
   ) {
     score *= 0.72;
   }
-  if (left.floor !== undefined && right.floor !== undefined && Math.abs(left.floor - right.floor) > 3) {
+  if (
+    left.floor !== undefined &&
+    right.floor !== undefined &&
+    Math.abs(left.floor - right.floor) > 3
+  ) {
     score *= 0.82;
   }
   if (normalizePriceText(left.qualityLevel) !== normalizePriceText(right.qualityLevel)) score *= 0.86;
   if (normalizePriceText(left.urgency) !== normalizePriceText(right.urgency)) score *= 0.88;
-  if (left.season && right.season && normalizePriceText(left.season) !== normalizePriceText(right.season)) {
+  if (
+    left.season &&
+    right.season &&
+    normalizePriceText(left.season) !== normalizePriceText(right.season)
+  ) {
     score *= 0.88;
   }
   return Math.max(0.2, score);
@@ -360,10 +377,20 @@ export function rankPriceCandidates(input: {
         regionWeight: regional,
         contextWeight,
         statusWeight,
-        score: sourceWeight * recency * regional * contextWeight * statusWeight * confidenceWeight
+        score:
+          sourceWeight *
+          recency *
+          regional *
+          contextWeight *
+          statusWeight *
+          confidenceWeight
       };
     })
-    .sort((left, right) => right.score - left.score || right.observation.observedAt.localeCompare(left.observation.observedAt));
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        right.observation.observedAt.localeCompare(left.observation.observedAt)
+    );
 }
 
 function percentile(values: readonly number[], ratio: number) {
@@ -373,7 +400,9 @@ function percentile(values: readonly number[], ratio: number) {
   const base = Math.floor(position);
   const fraction = position - base;
   const next = sorted[base + 1];
-  return next === undefined ? sorted[base] : sorted[base] + fraction * (next - sorted[base]);
+  return next === undefined
+    ? sorted[base]
+    : sorted[base] + fraction * (next - sorted[base]);
 }
 
 function roundMoney(value: number) {
@@ -388,15 +417,18 @@ export function aggregateMarketPrices(input: {
   context?: Partial<PriceContext>;
   timeBucket?: string;
 }) {
-  const ranked = rankPriceCandidates({
-    ...input,
-    currency: undefined
-  }).filter((candidate) =>
-    ["regional_market", "external_research", "supplier", "personal", "organization"].includes(
-      candidate.observation.sourceType
-    )
+  const ranked = rankPriceCandidates(input).filter((candidate) =>
+    [
+      "regional_market",
+      "external_research",
+      "supplier",
+      "personal",
+      "organization"
+    ].includes(candidate.observation.sourceType)
   );
-  const raw = ranked.map((candidate) => candidate.observation.price).filter((price) => price > 0);
+  const raw = ranked
+    .map((candidate) => candidate.observation.price)
+    .filter((price) => price > 0);
   if (!raw.length) return null;
 
   const q1 = percentile(raw, 0.25);
@@ -417,7 +449,11 @@ export function aggregateMarketPrices(input: {
   ).size;
   const confidence = Math.min(
     96,
-    Math.round(28 + Math.min(filtered.length, 40) * 1.2 + Math.min(uniqueOrganizations, 20) * 1.1)
+    Math.round(
+      28 +
+        Math.min(filtered.length, 40) * 1.2 +
+        Math.min(uniqueOrganizations, 20) * 1.1
+    )
   );
   const contextHash = priceContextHash(input.context);
   const timeBucket = input.timeBucket ?? new Date().toISOString().slice(0, 7);
