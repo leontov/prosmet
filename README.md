@@ -57,6 +57,7 @@ researched → suggested → edited → approved → sent_to_client → contract
 npm ci
 → persistent PostgreSQL
 → DATABASE_URL probe
+→ idempotent PostgreSQL migration
 → source contracts
 → TypeScript strict
 → unit tests
@@ -72,4 +73,4 @@ npm ci
 → live desktop/mobile smoke
 ```
 
-Красный gate не публикуется на `3200`.
+Красный gate не публикуется на `3200`. Проход считается завершённым только после `MAIN PRODUCTION PASS` для точного SHA из `main`.
