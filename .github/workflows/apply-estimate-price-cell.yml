@@ -1,0 +1,53 @@
+name: Apply accessible estimate price cell
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/patch-estimate-price-cell.mjs
+      - .github/workflows/apply-estimate-price-cell.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: prosmet-estimate-price-cell-patch
+  cancel-in-progress: true
+
+jobs:
+  apply:
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 15
+    steps:
+      - name: Verify Primary runner
+        run: test "${{ runner.name }}" = "prosmet-primary"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          clean: true
+          persist-credentials: true
+
+      - name: Rebase patch onto latest main
+        run: |
+          set -Eeuo pipefail
+          git fetch origin main
+          git checkout -B estimate-price-cell-patch origin/main
+
+      - name: Apply focused source patch
+        run: node scripts/patch-estimate-price-cell.mjs
+
+      - name: Commit visible source and remove one-shot patch files
+        run: |
+          set -Eeuo pipefail
+          rm -f scripts/patch-estimate-price-cell.mjs
+          rm -f .github/workflows/apply-estimate-price-cell.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "fix(editor): keep the price input outside interactive buttons [skip ci]"
+          git fetch origin main
+          git rebase origin/main
+          git push origin HEAD:main
