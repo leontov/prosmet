@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { resolveServerIdentity } from "@/lib/server/identity";
 import {
+  deletePriceIntelligence,
+  ensurePriceIntelligenceSchema,
+  materializePriceIntelligence
+} from "@/lib/server/price-intelligence";
+import {
   ensureServerSchema,
   getServerDatabase,
   postgresConfigured,
@@ -63,6 +68,10 @@ async function deleteMaterialized(
       [tenantId, input.entityId]
     );
     return;
+  }
+
+  if (input.entityType === "price") {
+    await deletePriceIntelligence(client, tenantId, input.entityId);
   }
 
   const table =
@@ -251,6 +260,7 @@ async function materialize(
          updated_at = NOW()`,
       [tenantId, input.entityId, JSON.stringify(input.payload ?? {})]
     );
+    await materializePriceIntelligence(client, tenantId, input.entityId, input.payload);
     return;
   }
 
@@ -299,6 +309,7 @@ export async function POST(request: Request) {
          ON CONFLICT (id) DO UPDATE SET updated_at = NOW()`,
         [identity.ownerId]
       );
+      await ensurePriceIntelligenceSchema(client);
 
       let accepted = 0;
       let lastCursor = 0;
