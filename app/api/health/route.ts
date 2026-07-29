@@ -12,8 +12,8 @@ export async function GET() {
     {
       ok,
       service: "prosmet",
-      version: "2.3.1",
-      releaseCandidate: "editor-v2-price-intelligence",
+      version: "2.3.2",
+      releaseCandidate: "editor-v2-price-intelligence-relay",
       releaseSha: process.env.PROSMET_RELEASE_SHA || "development",
       time: new Date().toISOString(),
       frontend: {
@@ -49,6 +49,7 @@ export async function GET() {
         priceIntelligence: true,
         immutablePriceHistory: true,
         regionalMarketBuckets: true,
+        crossDevicePriceIntelligence: true,
         editableDocuments: true,
         pdf: true,
         xlsx: true
