@@ -93,9 +93,14 @@ test("a measurer edits the printable estimate and hands it to a client", async (
   const preview = page.getByTestId("estimate-revision-preview");
   await expect(preview).toBeVisible({ timeout: 30_000 });
 
-  const pdfDownload = page.waitForEvent("download");
-  await preview.getByRole("button", { name: /Скачать PDF/ }).click();
-  expect((await pdfDownload).suggestedFilename()).toMatch(/\.pdf$/i);
+  const applicationUrl = page.url();
+  const [pdf] = await Promise.all([
+    page.waitForEvent("download"),
+    preview.getByRole("button", { name: /Скачать PDF/ }).click()
+  ]);
+  expect(pdf.suggestedFilename()).toMatch(/\.pdf$/i);
+  expect(page.url()).toBe(applicationUrl);
+  await expect(preview).toBeVisible();
 
   await preview.getByRole("button", { name: /Поделиться/ }).click();
   const share = page.getByRole("dialog", { name: "Передача сметы клиенту" });
