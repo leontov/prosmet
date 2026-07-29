@@ -21,13 +21,15 @@ export default defineConfig({
   webServer: externalBaseURL
     ? undefined
     : {
-        command: `npx next start -H 127.0.0.1 -p ${e2ePort}`,
+        command: "node scripts/start-e2e-standalone.mjs",
         url: `${baseURL}/api/health`,
         timeout: 120_000,
         reuseExistingServer: !process.env.CI,
         env: {
           ...process.env,
-          PORT: String(e2ePort)
+          HOSTNAME: "127.0.0.1",
+          PORT: String(e2ePort),
+          PROSMET_E2E_PORT: String(e2ePort)
         }
       },
   projects: [
