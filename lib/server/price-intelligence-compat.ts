@@ -1,6 +1,6 @@
 import "server-only";
 
-import type { ServerSqlClient } from "./postgres";
+import { ensureServerSchema, type ServerSqlClient } from "./postgres";
 import {
   deletePriceIntelligence as deletePriceIntelligenceCore,
   ensurePriceIntelligenceSchema as ensurePriceIntelligenceSchemaCore,
@@ -117,8 +117,9 @@ const PRICE_INTELLIGENCE_COMPAT_SQL = `
 export { priceIntelligenceEntityKind };
 
 export async function ensurePriceIntelligenceSchema(client: ServerSqlClient) {
-  await ensurePriceIntelligenceSchemaCore(client);
+  await ensureServerSchema();
   await client.query(PRICE_INTELLIGENCE_COMPAT_SQL);
+  await ensurePriceIntelligenceSchemaCore(client);
 }
 
 export async function materializePriceIntelligence(
