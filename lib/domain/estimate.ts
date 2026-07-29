@@ -47,7 +47,7 @@ export const PriceSourceSchema = z.object({
   confirmed: z.boolean().default(false),
   observationId: z.string().optional(),
   canonicalWorkId: z.string().optional(),
-  status: PriceObservationStatusSchema.default("suggested"),
+  status: PriceObservationStatusSchema.optional(),
   contextHash: z.string().optional(),
   sampleCount: z.number().int().nonnegative().optional(),
   uniqueOrganizations: z.number().int().nonnegative().optional(),
