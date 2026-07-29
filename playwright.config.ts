@@ -22,8 +22,11 @@ export default defineConfig({
     ? undefined
     : {
         command: "node scripts/start-e2e-standalone.mjs",
-        url: `${baseURL}/api/health`,
-        timeout: 120_000,
+        // Startup is process-level. Database readiness is asserted by the
+        // browser/backend tests and the production deployment gate, so a
+        // detailed 503 response can no longer be hidden behind a 120s timeout.
+        url: `${baseURL}/`,
+        timeout: 60_000,
         reuseExistingServer: !process.env.CI,
         env: {
           ...process.env,
