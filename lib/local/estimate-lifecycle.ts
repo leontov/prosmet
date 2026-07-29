@@ -7,7 +7,14 @@ import {
   requestResult,
   withLocalTransaction
 } from "@/lib/local/idb";
-import { getRepository } from "@/lib/local/repository";
+import { ProsmetRepository } from "@/lib/local/repository";
+
+declare module "@/lib/local/repository" {
+  interface ProsmetRepository {
+    deleteEstimate(id: string): Promise<void>;
+    restoreEstimate(draft: EstimateDraft, threadId?: string): Promise<EstimateDraft>;
+  }
+}
 
 export async function deleteEstimateRecord(id: string) {
   await withLocalTransaction(
@@ -40,7 +47,30 @@ export async function restoreEstimateRecord(
     deletedAt: null,
     updatedAt: new Date().toISOString()
   };
-  await (await getRepository()).saveEstimate(threadId, restored, true);
+  await ProsmetRepository.prototype.saveEstimate.call(
+    await Promise.resolve(new ProsmetRepository()),
+    threadId,
+    restored,
+    true
+  );
   window.dispatchEvent(new Event("prosmet:local-data-changed"));
   return restored;
 }
+
+ProsmetRepository.prototype.deleteEstimate = async function deleteEstimate(id: string) {
+  await deleteEstimateRecord(id);
+};
+
+ProsmetRepository.prototype.restoreEstimate = async function restoreEstimate(
+  draft: EstimateDraft,
+  threadId?: string
+) {
+  const restored: EstimateDraft = {
+    ...draft,
+    deletedAt: null,
+    updatedAt: new Date().toISOString()
+  };
+  await this.saveEstimate(threadId, restored, true);
+  window.dispatchEvent(new Event("prosmet:local-data-changed"));
+  return restored;
+};
