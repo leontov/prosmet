@@ -299,43 +299,55 @@ function scenarioDefinitions(): Record<ScenarioKind, Scenario> {
       kind: "roof",
       title: "Замена кровельного покрытия",
       objectName: "Кровля здания",
-      workTypes: ["кровельные работы", "демонтаж", "ремонт основания"],
-      defaultArea: 120,
+      workTypes: ["кровельные работы", "демонтаж", "ремонт"],
+      defaultArea: 180,
       technology: [
-        { title: "Обследование кровли и организация безопасного доступа" },
-        { title: "Защита территории и устройство временных ограждений" },
-        { title: "Демонтаж старого покрытия и сортировка отходов" },
-        { title: "Дефектовка стропил, обрешётки и основания" },
-        { title: "Локальный ремонт основания" },
-        { title: "Монтаж гидроизоляции, контробрешётки и обрешётки" },
-        { title: "Монтаж кровельного покрытия и крепежа" },
-        { title: "Монтаж конька, карнизов, примыканий и водоотвода" },
-        { title: "Контроль герметичности, уборка и вывоз отходов" }
+        { title: "Обследование кровли и схемы стропильной системы" },
+        { title: "Ограждение зоны и организация безопасного подъёма" },
+        { title: "Демонтаж существующего покрытия и сортировка отходов" },
+        { title: "Проверка и локальный ремонт основания" },
+        { title: "Монтаж гидроизоляции, обрешётки и контробрешётки" },
+        { title: "Монтаж нового покрытия и доборных элементов" },
+        { title: "Устройство примыканий, конька, карнизов и водоотвода" },
+        { title: "Контроль крепежа, герметичности и уборка" }
       ],
-      assumptions: ["Локальный ремонт основания предварительно принят 15% площади."],
-      missing: ["уклон кровли", "высота здания", "марка и толщина покрытия", "состояние стропильной системы"],
+      assumptions: ["Уклон кровли принят от 20° до 35°.", "Несущая способность стропил не требует полной замены."],
+      missing: ["геометрия скатов", "высота здания", "состав существующего пирога"],
       sections: (area, region) => [
         {
           id: "roof-demolition",
-          title: "Демонтаж и подготовка",
+          title: "Демонтаж",
           items: [
-            item("roof-old-cover", "Демонтаж существующего кровельного покрытия", "м²", area, "work", region),
-            item("roof-base-repair", "Локальный ремонт основания кровли", "м²", Math.round(area * 0.15 * 100) / 100, "work", region, {
-              comment: "Предварительно 15% площади; уточняется после вскрытия."
+            item("roof-remove", "Демонтаж старого кровельного покрытия", "м²", area, "work", region, {
+              unitPrice: 220,
+              confidence: 55
             }),
-            item("roof-waste", "Погрузка и вывоз демонтированных материалов", "т", Math.max(1, Math.round(area * 0.018 * 100) / 100), "logistics", region)
+            item("roof-waste", "Спуск, погрузка и вывоз строительных отходов", "т", Math.max(1, Math.round(area * 0.018 * 10) / 10), "logistics", region, {
+              unitPrice: 4800,
+              confidence: 45
+            })
           ]
         },
         {
-          id: "roof-covering",
+          id: "roof-installation",
           title: "Новая кровля",
           items: [
-            item("roof-membrane", "Гидроизоляционная мембрана с нахлёстом", "м²", Math.ceil(area * 1.12), "material", region),
-            item("roof-batten", "Контробрешётка и обрешётка", "м²", area, "material", region),
-            item("roof-sheet", "Кровельное покрытие с запасом 10%", "м²", Math.ceil(area * 1.1), "material", region),
-            item("roof-fasteners", "Кровельный крепёж и уплотнители", "компл.", 1, "material", region),
-            item("roof-install", "Монтаж кровельного покрытия", "м²", area, "work", region),
-            item("roof-trims", "Конёк, карнизные планки, примыкания и доборные элементы", "пог. м", Math.ceil(Math.sqrt(area) * 6), "material", region)
+            item("roof-membrane", "Гидроветрозащитная мембрана", "м²", Math.ceil(area * 1.1), "material", region, {
+              unitPrice: 85,
+              confidence: 45
+            }),
+            item("roof-batten", "Обрешётка и контробрешётка", "м²", area, "work", region, {
+              unitPrice: 420,
+              confidence: 45
+            }),
+            item("roof-cover", "Металлочерепица 0,5 мм с доборными элементами", "м²", Math.ceil(area * 1.1), "material", region, {
+              unitPrice: 780,
+              confidence: 45
+            }),
+            item("roof-install", "Монтаж кровельного покрытия", "м²", area, "work", region, {
+              unitPrice: 650,
+              confidence: 45
+            })
           ]
         }
       ]
@@ -343,51 +355,40 @@ function scenarioDefinitions(): Record<ScenarioKind, Scenario> {
     heating: {
       kind: "heating",
       title: "Монтаж системы отопления",
-      objectName: "Система отопления здания",
-      workTypes: ["ОВиК", "отопление", "пусконаладка"],
-      defaultArea: 140,
+      objectName: "Жилой дом",
+      workTypes: ["отопление", "ОВиК", "сантехнические работы"],
+      defaultArea: 150,
       technology: [
-        { title: "Сбор исходных данных и расчёт тепловой нагрузки" },
-        { title: "Выбор схемы, оборудования и трасс" },
-        { title: "Разметка и подготовка проходок" },
+        { title: "Сбор исходных данных и теплотехнических параметров" },
+        { title: "Определение схемы отопления и трасс" },
+        { title: "Разметка, проходки и подготовка креплений" },
         { title: "Монтаж котельного оборудования и группы безопасности" },
-        { title: "Монтаж магистралей, стояков и подводок" },
-        { title: "Монтаж отопительных приборов и арматуры" },
-        { title: "Промывка, опрессовка и устранение утечек" },
-        { title: "Заполнение, балансировка и пусконаладка" }
+        { title: "Монтаж трубопроводов, коллекторов и арматуры" },
+        { title: "Монтаж радиаторов и узлов подключения" },
+        { title: "Опрессовка, промывка и заполнение" },
+        { title: "Пусконаладка и балансировка" }
       ],
-      assumptions: ["Тепловая нагрузка предварительно определяется по площади и требует инженерного расчёта."],
-      missing: ["теплопотери", "источник тепла", "этажность", "схема разводки", "тип отопительных приборов"],
+      assumptions: ["Принята двухтрубная система.", "Источник энергии и мощность котла требуют подтверждения."],
+      missing: ["теплопотери", "число помещений", "тип топлива", "точная длина трасс"],
       sections: (area, region) => {
-        const radiators = Math.max(4, Math.ceil(area / 18));
+        const radiators = Math.max(6, Math.ceil(area / 15));
         return [
           {
             id: "heating-equipment",
-            title: "Оборудование",
+            title: "Оборудование и материалы",
             items: [
-              item("heating-boiler", "Котёл или теплогенератор", "шт", 1, "equipment", region),
-              item("heating-pump", "Циркуляционный насос", "шт", 1, "equipment", region),
-              item("heating-expansion", "Расширительный бак", "шт", 1, "equipment", region),
-              item("heating-radiators", "Отопительные приборы", "шт", radiators, "equipment", region)
+              item("heating-boiler", "Котёл отопительный", "шт", 1, "equipment", region, { unitPrice: 72000, confidence: 35 }),
+              item("heating-radiator", "Радиатор с комплектом подключения", "шт", radiators, "equipment", region, { unitPrice: 9500, confidence: 40 }),
+              item("heating-pipe", "Трубопровод с крепежом и изоляцией", "м", Math.ceil(area * 1.8), "material", region, { unitPrice: 420, confidence: 35 }),
+              item("heating-valves", "Арматура, коллекторы и фитинги", "компл.", 1, "material", region, { unitPrice: Math.round(area * 450), confidence: 30 })
             ]
           },
           {
-            id: "heating-materials",
-            title: "Трубопроводы и материалы",
-            items: [
-              item("heating-pipe", "Трубопроводы системы отопления", "пог. м", Math.ceil(area * 1.25), "material", region),
-              item("heating-fittings", "Фитинги, арматура и крепёж", "компл.", 1, "material", region),
-              item("heating-insulation", "Теплоизоляция трубопроводов", "пог. м", Math.ceil(area * 0.45), "material", region)
-            ]
-          },
-          {
-            id: "heating-works",
+            id: "heating-work",
             title: "Монтаж и пусконаладка",
             items: [
-              item("heating-install-equipment", "Монтаж котельного оборудования", "компл.", 1, "work", region),
-              item("heating-install-pipe", "Монтаж трубопроводов", "пог. м", Math.ceil(area * 1.25), "work", region),
-              item("heating-install-radiators", "Монтаж отопительных приборов", "шт", radiators, "work", region),
-              item("heating-commissioning", "Опрессовка, балансировка и пусконаладка", "система", 1, "service", region)
+              item("heating-install", "Монтаж системы отопления", "м²", area, "work", region, { unitPrice: 1250, confidence: 40 }),
+              item("heating-test", "Опрессовка и пусконаладка", "компл.", 1, "service", region, { unitPrice: 18000, confidence: 40 })
             ]
           }
         ];
@@ -395,45 +396,42 @@ function scenarioDefinitions(): Record<ScenarioKind, Scenario> {
     },
     electrical: {
       kind: "electrical",
-      title: "Электромонтажные работы",
-      objectName: "Электроснабжение объекта",
-      workTypes: ["электромонтаж", "слаботочные системы", "пусконаладка"],
-      defaultArea: 70,
+      title: "Электромонтаж квартиры",
+      objectName: "Квартира",
+      workTypes: ["электромонтаж", "электрика"],
+      defaultArea: 80,
       technology: [
-        { title: "Обследование и формирование однолинейной схемы" },
-        { title: "Расчёт нагрузок и подбор защитной аппаратуры" },
-        { title: "Разметка трасс, точек и щитового оборудования" },
-        { title: "Штробление, сверление и подготовка проходок" },
-        { title: "Прокладка кабелей, труб и лотков" },
-        { title: "Сборка и монтаж электрощита" },
-        { title: "Монтаж розеток, выключателей и светильников" },
-        { title: "Измерения, маркировка и пусконаладка" }
+        { title: "Сбор нагрузок и зонирование помещений" },
+        { title: "Разработка однолинейной схемы и групп" },
+        { title: "Разметка трасс, точек и оборудования" },
+        { title: "Штробление и подготовка подрозетников" },
+        { title: "Прокладка кабеля и слаботочных линий" },
+        { title: "Сборка и монтаж щита" },
+        { title: "Установка механизмов и светильников" },
+        { title: "Измерения, маркировка и проверка" }
       ],
-      assumptions: ["Количество точек предварительно рассчитано по площади."],
-      missing: ["выделенная мощность", "план розеток и освещения", "тип прокладки", "состав слаботочных систем"],
+      assumptions: ["Принята скрытая проводка в негорючем кабеле.", "Количество точек оценено по площади."],
+      missing: ["план мебели", "состав щита", "число силовых групп"],
       sections: (area, region) => {
-        const points = Math.max(20, Math.ceil(area * 1.1));
-        const cable = Math.ceil(area * 7.5);
+        const points = Math.ceil(area * 0.9);
+        const cable = Math.ceil(area * 7);
         return [
           {
             id: "electrical-materials",
-            title: "Материалы и оборудование",
+            title: "Материалы",
             items: [
-              item("electrical-cable", "Кабельно-проводниковая продукция", "пог. м", cable, "material", region),
-              item("electrical-boxes", "Подрозетники и распаечные коробки", "шт", points, "material", region),
-              item("electrical-devices", "Розетки, выключатели и механизмы", "шт", points, "equipment", region),
-              item("electrical-panel", "Электрощит с защитной аппаратурой", "компл.", 1, "equipment", region)
+              item("electrical-cable", "Кабель силовой и осветительный", "м", cable, "material", region, { unitPrice: 115, confidence: 40 }),
+              item("electrical-point", "Подрозетник, механизм и рамка", "точка", points, "material", region, { unitPrice: 680, confidence: 35 }),
+              item("electrical-panel", "Щит, автоматы, УЗО и комплектующие", "компл.", 1, "equipment", region, { unitPrice: Math.round(area * 850), confidence: 30 })
             ]
           },
           {
-            id: "electrical-works",
-            title: "Электромонтаж и испытания",
+            id: "electrical-work",
+            title: "Электромонтажные работы",
             items: [
-              item("electrical-route", "Подготовка трасс и отверстий", "пог. м", Math.ceil(cable * 0.65), "work", region),
-              item("electrical-lay", "Прокладка кабеля", "пог. м", cable, "work", region),
-              item("electrical-points", "Монтаж установочных точек", "шт", points, "work", region),
-              item("electrical-panel-work", "Сборка и подключение электрощита", "компл.", 1, "work", region),
-              item("electrical-test", "Электроизмерения и протоколирование", "компл.", 1, "service", region)
+              item("electrical-groove", "Штробление и подготовка посадочных мест", "точка", points, "work", region, { unitPrice: 420, confidence: 40 }),
+              item("electrical-install", "Монтаж кабеля, механизмов и щита", "точка", points, "work", region, { unitPrice: 900, confidence: 40 }),
+              item("electrical-test", "Измерения и проверка электроустановки", "компл.", 1, "service", region, { unitPrice: 12000, confidence: 35 })
             ]
           }
         ];
@@ -441,43 +439,39 @@ function scenarioDefinitions(): Record<ScenarioKind, Scenario> {
     },
     facade: {
       kind: "facade",
-      title: "Фасадные работы",
+      title: "Устройство фасада",
       objectName: "Фасад здания",
-      workTypes: ["фасад", "теплоизоляция", "отделка"],
+      workTypes: ["фасад", "утепление"],
       defaultArea: 240,
       technology: [
-        { title: "Обследование фасада и организация доступа" },
-        { title: "Устройство лесов и защитной сетки" },
-        { title: "Очистка, ремонт и грунтование основания" },
-        { title: "Монтаж теплоизоляции и дюбелирование" },
-        { title: "Армирующий слой с сеткой и угловыми профилями" },
-        { title: "Грунтование под финишное покрытие" },
-        { title: "Нанесение декоративного покрытия или окраска" },
-        { title: "Устройство примыканий, отливов и герметизация" },
-        { title: "Контроль, демонтаж лесов и уборка" }
+        { title: "Обследование фасада и подготовка основания" },
+        { title: "Монтаж лесов и защитной сетки" },
+        { title: "Грунтование и установка стартового профиля" },
+        { title: "Монтаж теплоизоляции и тарельчатых дюбелей" },
+        { title: "Армирующий слой с сеткой" },
+        { title: "Грунтование под декоративный слой" },
+        { title: "Нанесение декоративной штукатурки" },
+        { title: "Окраска, демонтаж лесов и уборка" }
       ],
-      assumptions: ["Фасадная система предварительно рассматривается как комплектная."],
-      missing: ["высота здания", "тип основания", "толщина утеплителя", "финишное покрытие", "площадь проёмов"],
+      assumptions: ["Толщина утеплителя принята 100 мм.", "Основание не требует капитального ремонта."],
+      missing: ["высота здания", "тип основания", "схема примыканий"],
       sections: (area, region) => [
         {
-          id: "facade-access",
-          title: "Доступ и подготовка",
+          id: "facade-materials",
+          title: "Материалы",
           items: [
-            item("facade-scaffold", "Монтаж, аренда и демонтаж фасадных лесов", "м²", area, "service", region),
-            item("facade-clean", "Очистка и локальный ремонт основания", "м²", area, "work", region),
-            item("facade-primer", "Грунтование основания", "м²", area, "work", region)
+            item("facade-insulation", "Теплоизоляция 100 мм", "м²", Math.ceil(area * 1.05), "material", region, { unitPrice: 1150, confidence: 35 }),
+            item("facade-mesh", "Клей, сетка и крепёж", "м²", area, "material", region, { unitPrice: 480, confidence: 35 }),
+            item("facade-finish", "Декоративная штукатурка и фасадная краска", "м²", area, "material", region, { unitPrice: 720, confidence: 30 })
           ]
         },
         {
-          id: "facade-system",
-          title: "Фасадная система",
+          id: "facade-work",
+          title: "Фасадные работы",
           items: [
-            item("facade-insulation", "Теплоизоляционные плиты", "м²", Math.ceil(area * 1.05), "material", region),
-            item("facade-dowels", "Фасадные дюбели", "шт", Math.ceil(area * 6), "material", region),
-            item("facade-mesh", "Армирующая сетка", "м²", Math.ceil(area * 1.1), "material", region),
-            item("facade-basecoat", "Клеевой и армирующий состав", "кг", Math.ceil(area * 10), "material", region),
-            item("facade-finish", "Финишное декоративное покрытие", "м²", area, "material", region),
-            item("facade-install", "Монтаж фасадной системы", "м²", area, "work", region)
+            item("facade-scaffold", "Монтаж, аренда и демонтаж лесов", "м²", area, "service", region, { unitPrice: 280, confidence: 30 }),
+            item("facade-install", "Утепление и устройство армирующего слоя", "м²", area, "work", region, { unitPrice: 1300, confidence: 35 }),
+            item("facade-finish-work", "Декоративная отделка и окраска", "м²", area, "work", region, { unitPrice: 900, confidence: 35 })
           ]
         }
       ]
@@ -486,40 +480,37 @@ function scenarioDefinitions(): Record<ScenarioKind, Scenario> {
       kind: "landscaping",
       title: "Благоустройство территории",
       objectName: "Территория объекта",
-      workTypes: ["благоустройство", "земляные работы", "дорожные покрытия"],
-      defaultArea: 300,
+      workTypes: ["благоустройство", "дорожные работы"],
+      defaultArea: 500,
       technology: [
-        { title: "Геодезическая разбивка и организация территории" },
+        { title: "Геодезическая разбивка и организация площадки" },
         { title: "Снятие растительного слоя и планировка" },
-        { title: "Разработка корыта и вывоз грунта" },
-        { title: "Устройство геотекстиля и песчаного основания" },
-        { title: "Устройство щебёночного основания и уплотнение" },
-        { title: "Монтаж бортовых камней и водоотвода" },
-        { title: "Устройство финишного покрытия" },
-        { title: "Озеленение, уборка и сдача" }
+        { title: "Устройство разделительного геотекстиля" },
+        { title: "Устройство песчаного основания" },
+        { title: "Устройство щебёночного основания" },
+        { title: "Установка бортового камня" },
+        { title: "Устройство покрытия" },
+        { title: "Восстановление газона и уборка" }
       ],
-      assumptions: ["Толщина слоёв основания предварительная и уточняется проектом."],
-      missing: ["геология", "отметки", "тип покрытия", "нагрузка на покрытие", "схема водоотвода"],
+      assumptions: ["Толщина песчаного и щебёночного основания принята по 100 мм."],
+      missing: ["вертикальная планировка", "категория нагрузки", "протяжённость бортов"],
       sections: (area, region) => [
         {
           id: "land-earth",
           title: "Земляные работы и основание",
           items: [
-            item("land-excavation", "Разработка корыта", "м³", Math.ceil(area * 0.25), "work", region),
-            item("land-disposal", "Погрузка и вывоз грунта", "м³", Math.ceil(area * 0.25), "logistics", region),
-            item("land-geotextile", "Геотекстиль", "м²", Math.ceil(area * 1.1), "material", region),
-            item("land-sand", "Песчаное основание", "м³", Math.ceil(area * 0.1), "material", region),
-            item("land-crushed", "Щебёночное основание", "м³", Math.ceil(area * 0.15), "material", region),
-            item("land-compaction", "Послойное уплотнение", "м²", area, "machine", region)
+            item("land-excavation", "Снятие растительного слоя и планировка", "м²", area, "work", region, { unitPrice: 160, confidence: 35 }),
+            item("land-geotextile", "Геотекстиль", "м²", Math.ceil(area * 1.1), "material", region, { unitPrice: 75, confidence: 35 }),
+            item("land-sand", "Песчаное основание 100 мм", "м³", Math.ceil(area * 0.1 * 1.1), "material", region, { unitPrice: 1800, confidence: 30 }),
+            item("land-gravel", "Щебёночное основание 100 мм", "м³", Math.ceil(area * 0.1 * 1.1), "material", region, { unitPrice: 2600, confidence: 30 })
           ]
         },
         {
-          id: "land-finish",
-          title: "Финишное покрытие и элементы",
+          id: "land-cover",
+          title: "Покрытие",
           items: [
-            item("land-curb", "Бортовой камень", "пог. м", Math.ceil(Math.sqrt(area) * 5), "material", region),
-            item("land-cover", "Финишное покрытие", "м²", Math.ceil(area * 1.05), "material", region),
-            item("land-install", "Устройство финишного покрытия", "м²", area, "work", region)
+            item("land-paving", "Устройство покрытия из тротуарной плитки", "м²", area, "work", region, { unitPrice: 1250, confidence: 35 }),
+            item("land-paving-material", "Тротуарная плитка и сухая смесь", "м²", Math.ceil(area * 1.05), "material", region, { unitPrice: 1450, confidence: 30 })
           ]
         }
       ]
@@ -527,165 +518,139 @@ function scenarioDefinitions(): Record<ScenarioKind, Scenario> {
     demolition: {
       kind: "demolition",
       title: "Демонтажные работы",
-      objectName: "Зона демонтажа",
-      workTypes: ["демонтаж", "утилизация", "временные работы"],
+      objectName: "Объект демонтажа",
+      workTypes: ["демонтаж"],
       defaultArea: 100,
       technology: [
-        { title: "Обследование, фотофиксация и границы демонтажа" },
-        { title: "Отключение инженерных коммуникаций" },
-        { title: "Ограждение и защита сохраняемых конструкций" },
-        { title: "Поэлементный демонтаж сверху вниз" },
-        { title: "Сортировка материалов и отходов" },
-        { title: "Погрузка, спуск и вывоз" },
-        { title: "Зачистка основания и передача фронта работ" }
+        { title: "Обследование конструкций и отключение инженерных сетей" },
+        { title: "Ограждение зоны и пылезащита" },
+        { title: "Разборка отделки и инженерных элементов" },
+        { title: "Последовательный демонтаж конструкций" },
+        { title: "Сортировка и временное складирование" },
+        { title: "Погрузка и вывоз отходов" },
+        { title: "Контроль сохранности смежных конструкций" },
+        { title: "Финальная уборка" }
       ],
-      assumptions: ["Категория отходов и расстояние до полигона не определены."],
-      missing: ["состав конструкций", "толщина", "этаж", "наличие лифта", "класс отходов", "расстояние вывоза"],
+      assumptions: ["Опасные отходы и асбест не выявлены."],
+      missing: ["материал конструкций", "толщина", "доступ техники"],
       sections: (area, region) => [
         {
-          id: "demo-main",
-          title: "Демонтаж",
+          id: "demo-work",
+          title: "Демонтаж и обращение с отходами",
           items: [
-            item("demo-protection", "Защита сохраняемых поверхностей", "м²", area, "material", region),
-            item("demo-work", "Демонтаж конструкций и покрытий", "м²", area, "work", region),
-            item("demo-sort", "Сортировка и пакетирование отходов", "т", Math.max(1, Math.ceil(area * 0.05)), "work", region),
-            item("demo-lower", "Спуск и погрузка отходов", "т", Math.max(1, Math.ceil(area * 0.05)), "logistics", region),
-            item("demo-disposal", "Транспортирование и утилизация", "т", Math.max(1, Math.ceil(area * 0.05)), "logistics", region)
+            item("demo-protection", "Пылезащита и ограждение рабочей зоны", "компл.", 1, "service", region, { unitPrice: 12000, confidence: 35 }),
+            item("demo-main", "Демонтаж конструкций и отделки", "м²", area, "work", region, { unitPrice: 850, confidence: 35 }),
+            item("demo-load", "Погрузка и вывоз отходов", "т", Math.max(1, Math.round(area * 0.08 * 10) / 10), "logistics", region, { unitPrice: 5200, confidence: 35 })
           ]
         }
       ]
     },
     renovation: {
       kind: "renovation",
-      title: "Комплексный ремонт помещения",
+      title: "Капитальный ремонт помещения",
       objectName: "Ремонтируемое помещение",
-      workTypes: ["ремонт", "отделка", "инженерные работы"],
-      defaultArea: 80,
+      workTypes: ["капитальный ремонт", "ремонт", "отделка"],
+      defaultArea: 100,
       technology: [
-        { title: "Обследование, обмеры и дефектная ведомость" },
+        { title: "Обследование и дефектная ведомость" },
         { title: "Организация площадки и защита сохраняемых элементов" },
-        { title: "Демонтаж существующей отделки и оборудования" },
-        { title: "Черновые инженерные работы" },
-        { title: "Подготовка стен, потолков и полов" },
-        { title: "Чистовая отделка" },
-        { title: "Монтаж оборудования, электрики и сантехники" },
-        { title: "Пусконаладка, уборка и сдача" }
+        { title: "Демонтаж отделки и инженерных элементов" },
+        { title: "Ремонт оснований и скрытых конструкций" },
+        { title: "Монтаж инженерных систем" },
+        { title: "Черновая отделка" },
+        { title: "Чистовая отделка и монтаж оборудования" },
+        { title: "Испытания, уборка и сдача" }
       ],
-      assumptions: ["Состав помещений и класс отделки приняты предварительно."],
-      missing: ["планы и экспликация", "состав демонтажа", "класс материалов", "инженерные решения"],
+      assumptions: ["Состав ремонта принят комплексным по площади."],
+      missing: ["ведомость помещений", "состав инженерных систем", "класс отделки"],
       sections: (area, region) => [
         {
-          id: "renovation-prep",
-          title: "Подготовка и демонтаж",
+          id: "renovation-main",
+          title: "Комплекс работ",
           items: [
-            item("renovation-protection", "Защита и временные мероприятия", "м²", area, "material", region),
-            item("renovation-demolition", "Демонтаж существующей отделки", "м²", area * 3, "work", region),
-            item("renovation-waste", "Погрузка и вывоз отходов", "компл.", 1, "logistics", region)
-          ]
-        },
-        {
-          id: "renovation-finishing",
-          title: "Отделочные работы",
-          items: [
-            item("renovation-walls", "Подготовка и отделка стен", "м²", area * 2.6, "work", region),
-            item("renovation-ceiling", "Подготовка и отделка потолка", "м²", area, "work", region),
-            item("renovation-floor", "Устройство напольного покрытия", "м²", area, "work", region),
-            item("renovation-materials", "Комплект отделочных материалов", "компл.", 1, "material", region)
-          ]
-        },
-        {
-          id: "renovation-engineering",
-          title: "Инженерные работы",
-          items: [
-            item("renovation-electrical", "Электромонтажные работы", "компл.", 1, "work", region),
-            item("renovation-plumbing", "Сантехнические работы", "компл.", 1, "work", region)
+            item("renovation-demo", "Демонтаж и вывоз отходов", "м²", area, "work", region, { unitPrice: 750, confidence: 30 }),
+            item("renovation-rough", "Черновые ремонтно-отделочные работы", "м²", area, "work", region, { unitPrice: 4500, confidence: 30 }),
+            item("renovation-finish", "Чистовые отделочные работы", "м²", area, "work", region, { unitPrice: 6500, confidence: 30 }),
+            item("renovation-materials", "Комплект материалов", "м²", area, "material", region, { unitPrice: 7500, confidence: 25 })
           ]
         }
       ]
     },
     plumbing: {
       kind: "plumbing",
-      title: "Водоснабжение и канализация",
-      objectName: "Система ВК объекта",
-      workTypes: ["водоснабжение", "канализация", "сантехника"],
+      title: "Монтаж водоснабжения и канализации",
+      objectName: "Система водоснабжения",
+      workTypes: ["водоснабжение", "канализация", "сантехнические работы"],
       defaultArea: 100,
       technology: [
-        { title: "Обследование вводов, выпусков и точек подключения" },
-        { title: "Разработка схемы и подбор диаметров" },
-        { title: "Разметка трасс и подготовка проходок" },
-        { title: "Монтаж водопроводных труб и арматуры" },
-        { title: "Монтаж канализационных труб с уклонами" },
-        { title: "Монтаж коллекторов, фильтров и приборов" },
-        { title: "Гидравлические испытания и промывка" },
-        { title: "Проверка сливов, герметичности и сдача" }
+        { title: "Сбор исходных данных и определение точек подключения" },
+        { title: "Разработка схемы трасс и узлов" },
+        { title: "Разметка и устройство проходок" },
+        { title: "Монтаж трубопроводов водоснабжения" },
+        { title: "Монтаж канализационных трубопроводов" },
+        { title: "Монтаж арматуры, коллекторов и оборудования" },
+        { title: "Испытание герметичности и промывка" },
+        { title: "Подключение приборов и сдача" }
       ],
-      assumptions: ["Количество сантехнических точек предварительно рассчитано по площади."],
-      missing: ["число санузлов", "точки подключения", "материал труб", "необходимость скрытого монтажа"],
-      sections: (area, region) => {
-        const points = Math.max(6, Math.ceil(area / 12));
-        return [
-          {
-            id: "plumbing-materials",
-            title: "Материалы и оборудование",
-            items: [
-              item("plumbing-water-pipe", "Трубы водоснабжения", "пог. м", Math.ceil(area * 0.8), "material", region),
-              item("plumbing-sewer-pipe", "Трубы канализации", "пог. м", Math.ceil(area * 0.45), "material", region),
-              item("plumbing-fittings", "Фитинги, арматура и крепёж", "компл.", 1, "material", region),
-              item("plumbing-points", "Сантехнические приборы и точки", "шт", points, "equipment", region)
-            ]
-          },
-          {
-            id: "plumbing-works",
-            title: "Монтаж и испытания",
-            items: [
-              item("plumbing-install-water", "Монтаж водоснабжения", "пог. м", Math.ceil(area * 0.8), "work", region),
-              item("plumbing-install-sewer", "Монтаж канализации", "пог. м", Math.ceil(area * 0.45), "work", region),
-              item("plumbing-install-points", "Монтаж сантехнических точек", "шт", points, "work", region),
-              item("plumbing-test", "Испытания, промывка и проверка сливов", "система", 1, "service", region)
-            ]
-          }
-        ];
-      }
+      assumptions: ["Принята коллекторная схема водоснабжения."],
+      missing: ["число санитарных приборов", "точки стояков", "длины трасс"],
+      sections: (area, region) => [
+        {
+          id: "plumbing-materials",
+          title: "Материалы и оборудование",
+          items: [
+            item("plumbing-water", "Трубы и фитинги водоснабжения", "м", Math.ceil(area * 1.4), "material", region, { unitPrice: 360, confidence: 35 }),
+            item("plumbing-sewer", "Трубы и фитинги канализации", "м", Math.ceil(area * 0.7), "material", region, { unitPrice: 520, confidence: 35 }),
+            item("plumbing-collector", "Коллекторы, арматура и фильтрация", "компл.", 1, "equipment", region, { unitPrice: Math.round(area * 450), confidence: 30 })
+          ]
+        },
+        {
+          id: "plumbing-work",
+          title: "Монтаж и испытания",
+          items: [
+            item("plumbing-install", "Монтаж водоснабжения и канализации", "м²", area, "work", region, { unitPrice: 1200, confidence: 35 }),
+            item("plumbing-test", "Испытания и промывка", "компл.", 1, "service", region, { unitPrice: 9000, confidence: 35 })
+          ]
+        }
+      ]
     },
     foundation: {
       kind: "foundation",
-      title: "Устройство фундамента",
+      title: "Устройство монолитного фундамента",
       objectName: "Фундамент здания",
-      workTypes: ["земляные работы", "монолит", "гидроизоляция"],
+      workTypes: ["фундамент", "монолит", "бетонные работы"],
       defaultArea: 100,
       technology: [
-        { title: "Геодезическая разбивка и подготовка площадки" },
-        { title: "Разработка котлована или траншей" },
-        { title: "Устройство подготовки и дренажа" },
+        { title: "Геодезическая разбивка" },
+        { title: "Разработка котлована и подготовка основания" },
+        { title: "Устройство песчано-щебёночной подготовки" },
         { title: "Монтаж опалубки" },
-        { title: "Изготовление и монтаж арматурных каркасов" },
-        { title: "Бетонирование и виброуплотнение" },
+        { title: "Армирование" },
+        { title: "Бетонирование и вибрирование" },
         { title: "Уход за бетоном и распалубка" },
-        { title: "Гидроизоляция, утепление и обратная засыпка" }
+        { title: "Гидроизоляция и обратная засыпка" }
       ],
-      assumptions: ["Объём бетона предварительно принят по площади пятна и условной толщине 0,3 м."],
-      missing: ["геология", "тип фундамента", "рабочая документация", "класс бетона", "армирование"],
+      assumptions: ["Фундамент принят ленточным монолитным."],
+      missing: ["геология", "размеры ленты", "класс бетона", "схема армирования"],
       sections: (area, region) => {
-        const concrete = Math.ceil(area * 0.3 * 10) / 10;
+        const concrete = Math.max(10, Math.round(area * 0.4 * 10) / 10);
         return [
           {
             id: "foundation-earth",
-            title: "Земляные работы и подготовка",
+            title: "Земляные и подготовительные работы",
             items: [
-              item("foundation-excavation", "Разработка грунта", "м³", Math.ceil(area * 0.6), "machine", region),
-              item("foundation-base", "Песчано-щебёночная подготовка", "м³", Math.ceil(area * 0.2), "material", region),
-              item("foundation-concrete-prep", "Бетонная подготовка", "м³", Math.ceil(area * 0.08), "material", region)
+              item("foundation-excavation", "Разработка грунта", "м³", Math.round(concrete * 1.8 * 10) / 10, "work", region, { unitPrice: 950, confidence: 30 }),
+              item("foundation-base", "Песчано-щебёночная подготовка", "м³", Math.round(concrete * 0.35 * 10) / 10, "material", region, { unitPrice: 2600, confidence: 30 })
             ]
           },
           {
             id: "foundation-concrete",
-            title: "Монолитные конструкции",
+            title: "Монолитные работы",
             items: [
-              item("foundation-formwork", "Опалубка", "м²", Math.ceil(area * 1.4), "material", region),
-              item("foundation-rebar", "Арматурная сталь", "т", Math.ceil(concrete * 0.11 * 100) / 100, "material", region),
-              item("foundation-concrete", "Бетонная смесь", "м³", concrete, "material", region),
-              item("foundation-install", "Комплекс монолитных работ", "м³", concrete, "work", region),
-              item("foundation-waterproof", "Гидроизоляция конструкций", "м²", Math.ceil(area * 1.5), "work", region)
+              item("foundation-formwork", "Опалубка", "м²", Math.round(area * 1.4), "work", region, { unitPrice: 1200, confidence: 30 }),
+              item("foundation-rebar", "Арматура", "кг", Math.round(concrete * 110), "material", region, { unitPrice: 82, confidence: 30 }),
+              item("foundation-concrete-material", "Бетон", "м³", concrete, "material", region, { unitPrice: 6800, confidence: 30 }),
+              item("foundation-placement", "Бетонирование и вибрирование", "м³", concrete, "work", region, { unitPrice: 2200, confidence: 30 })
             ]
           }
         ];
@@ -694,21 +659,21 @@ function scenarioDefinitions(): Record<ScenarioKind, Scenario> {
   };
 }
 
-const scenarios = scenarioDefinitions();
-
-function detectScenario(input: string): ScenarioKind | null {
+function detectScenario(input: string) {
   const value = normal(input);
-  if (/штукатур|гипсов|маяк/.test(value)) return "plaster";
-  if (/кровл|шифер|профлист|металлочереп|крыша/.test(value)) return "roof";
-  if (/отоплен|радиатор|котел|котёл|теплоснаб/.test(value)) return "heating";
-  if (/электр|розет|выключател|кабел|электромонтаж/.test(value)) return "electrical";
-  if (/фасад|утеплен.*стен|мокрый фасад/.test(value)) return "facade";
-  if (/благоустр|тротуар|брусчат|асфальт|бордюр/.test(value)) return "landscaping";
-  if (/демонтаж|разборк|снос/.test(value)) return "demolition";
-  if (/водоснаб|канализац|сантех|водопровод/.test(value)) return "plumbing";
-  if (/фундамент|монолит|бетонирован|армирован/.test(value)) return "foundation";
-  if (/ремонт|капремонт|отделк|реконструк/.test(value)) return "renovation";
-  return null;
+  const map: Array<[ScenarioKind, RegExp]> = [
+    ["roof", /кровл|крыша|шифер|металлочереп/],
+    ["heating", /отоплен|котел|котёл|радиатор|овик/],
+    ["electrical", /электр|провод|розет|щит/],
+    ["facade", /фасад|утеплен/],
+    ["landscaping", /благоустр|плитк|асфальт|дорож/],
+    ["demolition", /демонтаж|снос|разбор/],
+    ["renovation", /капремонт|капитальн|ремонт помещ|ремонт квартир/],
+    ["plumbing", /водоснаб|канализац|сантех/],
+    ["foundation", /фундамент|монолит|бетон/],
+    ["plaster", /штукатур/]
+  ];
+  return map.find(([, expression]) => expression.test(value))?.[0] ?? "renovation";
 }
 
 function titleForScenario(scenario: Scenario, area: number) {
@@ -718,15 +683,21 @@ function titleForScenario(scenario: Scenario, area: number) {
 function projectCase(scenario: Scenario, estimate: EstimateDraft, input: string) {
   const intake = extractSiteIntake(input);
   return {
-    id: uuid("project"),
-    objectName: estimate.objectName,
+    id: `project_${estimate.id}`,
+    name: estimate.objectName,
+    customer: estimate.customer,
+    kind: scenario.kind,
+    stage: "estimate",
     region: estimate.region,
-    stage: "Предварительная смета",
-    summary: `Распознана задача «${scenario.title}». Сначала сформирована технология, затем ресурсы и позиции сметы.`,
-    workTypes: scenario.workTypes,
+    sourceMessage: input,
     assumptions: estimate.assumptions,
-    missing: scenario.missing.filter((item) => !normal(input).includes(normal(item))),
-    customer: intake.customer ?? estimate.customer
+    missingCriticalFields: scenario.missing,
+    extracted: {
+      objectName: intake.objectName,
+      customer: intake.customer,
+      area: extractArea(input, scenario.defaultArea),
+      layerCm: scenario.kind === "plaster" ? extractLayerCm(input) : undefined
+    }
   };
 }
 
@@ -879,8 +850,8 @@ function estimateRun(scenario: Scenario, input: string): RulesRun {
   const candidatePrices = priceCandidates(estimate);
   return {
     text:
-      `Создал карточку объекта, технологическую карту, ресурсную ведомость и редактируемую смету «${estimate.title}». ` +
-      "Все основные действия остаются в этом чате: меняйте объёмы, цены, материалы и коэффициенты обычным сообщением или прямо в таблице.",
+      `Подготовил технологическую карту, ресурсную ведомость, проверку цен и редактируемую смету «${estimate.title}». ` +
+      "Откройте карточку сметы: объёмы, цены и позиции редактируются в печатном документе, а новая версия появится в этом же чате.",
     tools: [
       { name: "project_case", args: projectCase(scenario, estimate, input) },
       { name: "technology_card", args: { title: estimate.title, steps: estimate.technology } },
@@ -927,492 +898,233 @@ function findEstimate(value: unknown, depth = 0): EstimateDraft | null {
     return null;
   }
   const object = record(value);
-  for (const key of [
-    "activeEstimate",
-    "estimate",
-    "draft",
-    "args",
-    "result",
-    "state",
-    "content",
-    "toolCallArgs",
-    "messages"
-  ]) {
-    if (!(key in object)) continue;
-    const found = findEstimate(object[key], depth + 1);
+  for (const key of ["activeEstimate", "estimate", "args", "state", "snapshot", "draft", "content", "message", "messages"]) {
+    if (key in object) {
+      const found = findEstimate(object[key], depth + 1);
+      if (found) return found;
+    }
+  }
+  for (const nested of Object.values(object)) {
+    const found = findEstimate(nested, depth + 1);
     if (found) return found;
   }
   return null;
 }
 
-function activeEstimate(context?: RulesAgentContext) {
+function latestEstimate(context?: RulesAgentContext) {
   return findEstimate(context?.state) ?? findEstimate(context?.messages);
 }
 
-function cloneDraft(draft: EstimateDraft): EstimateDraft {
-  return EstimateDraftSchema.parse(structuredClone(draft));
+function looksLikeModification(value: string) {
+  return /измени|поменяй|замени|добавь|удали|убери|исключи|скидк|ндс|налог|накладн|прибыл|заказчик|объект|регион|цена|стоимост|количеств|объем|объём/i.test(value);
 }
 
-function changedState(draft: EstimateDraft, validation = reviewArgs(draft)) {
-  return {
-    state: fullState(draft, { validation }),
-    stateDelta: [
-      { op: "replace" as const, path: "/activeEstimate", value: draft },
-      { op: "replace" as const, path: "/estimateRevision", value: draft.revision },
-      { op: "replace" as const, path: "/validation", value: validation },
-      {
-        op: "replace" as const,
-        path: "/project",
-        value: { objectName: draft.objectName, customer: draft.customer, region: draft.region }
-      }
-    ]
-  };
+function parseNamedNumber(input: string, label: RegExp) {
+  const match = input.match(new RegExp(`${label.source}[^\d]{0,24}(\d+(?:[.,]\d+)?)`, "i"));
+  return match ? Number(match[1].replace(",", ".")) : null;
 }
 
-function targetTokens(input: string) {
-  const value = normal(input);
-  const known = [
-    "штукатур",
-    "смесь",
-    "маяк",
-    "угол",
-    "достав",
-    "подъем",
-    "профлист",
-    "кровел",
-    "радиатор",
-    "котел",
-    "труб",
-    "кабел",
-    "розет",
-    "фасад",
-    "утепл",
-    "бетон",
-    "арматур",
-    "демонтаж",
-    "вывоз"
-  ];
-  return known.filter((token) => value.includes(token));
-}
+function updateEstimate(previous: EstimateDraft, input: string): EstimateDraft {
+  const next = structuredClone(previous) as EstimateDraft;
+  next.revision = previous.revision + 1;
+  next.status = "draft";
+  next.updatedAt = new Date().toISOString();
+  const normalized = normal(input);
 
-function findTargetItem(draft: EstimateDraft, input: string) {
-  const tokens = targetTokens(input);
-  const items = draft.sections.flatMap((section) => section.items);
-  if (tokens.length) {
-    const found = items.find((line) => tokens.some((token) => normal(line.name).includes(token)));
-    if (found) return found;
+  const customerMatch = input.match(/(?:заказчик|клиент)\s*[:—-]\s*([^\n,.]+)/i);
+  if (customerMatch?.[1]) next.customer = customerMatch[1].trim();
+  const objectMatch = input.match(/(?:объект|адрес)\s*[:—-]\s*([^\n]+)/i);
+  if (objectMatch?.[1]) next.objectName = objectMatch[1].trim().replace(/[.]+$/, "");
+  const region = extractRegion(input);
+  if (region !== "Регион не указан") next.region = region;
+
+  const discount = parseNamedNumber(input, /скидк\w*/);
+  if (discount !== null) next.discountPercent = discount;
+  const vat = parseNamedNumber(input, /(?:ндс|налог\w*)/);
+  if (vat !== null) next.vatPercent = vat;
+  const overhead = parseNamedNumber(input, /накладн\w*/);
+  if (overhead !== null) next.overheadPercent = overhead;
+  const profit = parseNamedNumber(input, /(?:прибыл\w*|рентабельност\w*)/);
+  if (profit !== null) next.profitPercent = profit;
+
+  const remove = input.match(/(?:удали|убери|исключи)\s+([^\n,.]+)/i)?.[1]?.trim();
+  if (remove) {
+    const token = normal(remove).split(" ").find((part) => part.length >= 4);
+    if (token) {
+      next.sections = next.sections
+        .map((section) => ({
+          ...section,
+          items: section.items.filter((line) => !normal(line.name).includes(token))
+        }))
+        .filter((section) => section.items.length > 0);
+    }
   }
-  return items.find((line) => line.resourceType === "work") ?? items[0] ?? null;
-}
 
-function mutateEstimate(input: string, current: EstimateDraft): RulesRun | null {
-  const lower = normal(input);
-  const next = cloneDraft(current);
-  let changed = false;
-  const notes: string[] = [];
-
-  const priceMatch = input.match(
-    /(?:цен\w*|стоимост\w*)[^\d]{0,80}(\d+(?:[.,]\d+)?)\s*(?:₽|руб(?:лей|ля|ль)?\.?)/i
-  );
+  const priceMatch = input.match(/(?:цена|цену|стоимость)\s+(?:на\s+)?([^\n,.;]+?)\s+(?:на\s+|=\s*)?(\d+(?:[.,]\d+)?)\s*(?:руб|₽)?/i);
   if (priceMatch) {
-    const target = findTargetItem(next, input);
-    if (target) {
-      const value = Number(priceMatch[1].replace(",", "."));
-      target.unitPrice = value;
-      target.source = priceSource("Цена подтверждена пользователем в чате", "personal", next.region, 100);
-      target.warning = "";
-      notes.push(`Цена «${target.name}» изменена на ${value} ₽/${target.unit}.`);
-      changed = true;
+    const target = normal(priceMatch[1]);
+    const price = Number(priceMatch[2].replace(",", "."));
+    const targetTokens = target.split(" ").filter((part) => part.length >= 4);
+    for (const section of next.sections) {
+      const matching = section.items.filter((line) => {
+        const name = normal(line.name);
+        return targetTokens.some((token) => name.includes(token));
+      });
+      for (const line of matching.length ? matching : section.items.filter((line) => line.resourceType === "work")) {
+        line.unitPrice = price;
+        line.source = priceSource("Цена изменена пользователем в чате", "personal", next.region, 100);
+      }
+      if (matching.length) break;
     }
   }
 
-  const quantityMatch = input.match(
-    /(?:объ[её]м|количеств\w*)[^\d]{0,80}(\d+(?:[.,]\d+)?)\s*(м²|м2|м3|м³|пог\.?\s*м|шт|кг|т)?/i
-  );
-  if (quantityMatch && !priceMatch) {
-    const target = findTargetItem(next, input);
-    if (target) {
-      const value = Number(quantityMatch[1].replace(",", "."));
-      target.quantity = value;
-      if (quantityMatch[2]) target.unit = quantityMatch[2].replace("м2", "м²").replace("м3", "м³");
-      notes.push(`Объём «${target.name}» изменён на ${value} ${target.unit}.`);
-      changed = true;
-    }
+  const addMatch = input.match(/добавь\s+([^\n,.;]+?)\s+(\d+(?:[.,]\d+)?)\s*(м²|м2|м|п\.?\s*м|шт|компл\.?)[^\d]*(?:по\s+)?(\d+(?:[.,]\d+)?)\s*(?:руб|₽)?/i);
+  if (addMatch) {
+    const [, name, quantityText, unitText, priceText] = addMatch;
+    const section = next.sections.at(-1) ?? { id: uuid("section"), title: "Дополнительные работы", items: [] };
+    if (!next.sections.length) next.sections.push(section);
+    section.items.push(
+      item(uuid("item"), name.trim(), unitText.replace(/м2/i, "м²"), Number(quantityText.replace(",", ".")), "work", next.region, {
+        unitPrice: Number(priceText.replace(",", ".")),
+        sourceKind: "personal",
+        sourceLabel: "Пользовательская цена из сообщения",
+        confidence: 100
+      })
+    );
   }
 
-  if (/(запас|коэффициент|коэф)/.test(lower) && /%/.test(input)) {
-    const percent = extractPercent(input);
-    const coefficient = 1 + percent / 100;
-    const tokens = targetTokens(input);
+  if (normalized.includes("замени") && /металлочереп/.test(normalized)) {
     for (const section of next.sections) {
       for (const line of section.items) {
-        const targetMatches = !tokens.length || tokens.some((token) => normal(line.name).includes(token));
-        if (targetMatches && (line.resourceType === "material" || tokens.length > 0)) {
-          line.coefficient = Math.round(coefficient * 10000) / 10000;
-          changed = true;
+        if (/профлист|профнастил|шифер/i.test(line.name)) {
+          line.name = "Металлочерепица 0,5 мм с доборными элементами";
+          line.unitPrice = Math.max(line.unitPrice, 780);
+          line.source = priceSource("Ориентировочная замена материала", "indicative", next.region, 45);
         }
       }
     }
-    if (changed) notes.push(`Применён запас ${percent}% к выбранным ресурсам.`);
   }
 
-  const replaceMatch = input.match(/замени\s+(.{2,80}?)\s+на\s+(.{2,120}?)(?:[.!?]|$)/i);
-  if (replaceMatch) {
-    const from = normal(replaceMatch[1]);
-    const replacement = replaceMatch[2].trim();
-    const lines = next.sections.flatMap((section) => section.items);
-    const target =
-      lines.find((line) => normal(line.name).includes(from)) ??
-      lines.find((line) => line.resourceType === "material");
-    if (target) {
-      const previous = target.name;
-      target.name = replacement;
-      target.unitPrice = 0;
-      target.source = priceSource("Цена нового материала не подтверждена", "unknown", next.region, 0);
-      target.warning = "Подберите фактическую цену и проверьте технологическую совместимость замены.";
-      notes.push(`Материал «${previous}» заменён на «${replacement}». Цена сброшена до подтверждения.`);
-      changed = true;
-    }
-  }
-
-  const addMatch = input.match(/добавь\s+(?:позици\w*\s+)?(.{3,100}?)(?:\s+(\d+(?:[.,]\d+)?)\s*(м²|м3|м³|пог\.?\s*м|шт|кг|т))?(?:[.!?]|$)/i);
-  if (addMatch && !/добавь\s+\d+\s*%/.test(lower)) {
-    const name = addMatch[1].trim();
-    if (name && !/(цена|стоимость|запас|коэффициент)/.test(normal(name))) {
-      const quantity = addMatch[2] ? Number(addMatch[2].replace(",", ".")) : 1;
-      const unit = addMatch[3] ?? "шт";
-      const section = next.sections.at(-1);
-      if (section) {
-        section.items.push(
-          item(uuid("item"), name, unit, quantity, "service", next.region, {
-            sourceKind: "unknown",
-            warning: "Новая позиция добавлена из сообщения; укажите тип ресурса и цену."
-          })
-        );
-        notes.push(`Добавлена позиция «${name}».`);
-        changed = true;
-      }
-    }
-  }
-
-  const discountMatch = input.match(/скидк\w*[^\d]{0,30}(\d+(?:[.,]\d+)?)\s*%/i);
-  if (discountMatch) {
-    next.discountPercent = Number(discountMatch[1].replace(",", "."));
-    notes.push(`Скидка изменена на ${next.discountPercent}%.`);
-    changed = true;
-  }
-
-  const vatMatch = input.match(/(?:ндс|налог)[^\d]{0,30}(\d+(?:[.,]\d+)?)\s*%/i);
-  if (vatMatch) {
-    next.vatPercent = Number(vatMatch[1].replace(",", "."));
-    notes.push(`НДС изменён на ${next.vatPercent}%.`);
-    changed = true;
-  }
-
-  const profitMatch = input.match(/(?:прибыл|марж)[^\d]{0,30}(\d+(?:[.,]\d+)?)\s*%/i);
-  if (profitMatch) {
-    next.profitPercent = Number(profitMatch[1].replace(",", "."));
-    notes.push(`Прибыль изменена на ${next.profitPercent}%.`);
-    changed = true;
-  }
-
-  if (!changed) return null;
-  next.status = "draft";
-  next.revision = current.revision + 1;
-  next.updatedAt = new Date().toISOString();
-  const review = reviewArgs(next);
-  const state = changedState(next, review);
-  return {
-    text: `${notes.join(" ")} Создана версия ${next.revision}; предыдущая версия сохранена в истории.`,
-    tools: [
-      { name: "estimate_draft", args: next },
-      { name: "estimate_review", args: review }
-    ],
-    ...state,
-    steps: ["apply-change", "recalculate", "review"]
-  };
-}
-
-function compareRun(draft: EstimateDraft): RulesRun {
-  const calculation = calculateEstimate(draft);
-  const total = calculation.total;
-  const options = [
-    {
-      id: "economy",
-      label: "Экономичный",
-      total: Math.round(total * 0.9 * 100) / 100,
-      description: "Оптимизация закупки и замена только допустимых материалов после проверки технологии.",
-      changes: ["−10% ориентир", "нужна проверка замен"]
-    },
-    {
-      id: "base",
-      label: "Базовый",
-      total,
-      description: "Текущий состав работ и ресурсов без скрытых сокращений.",
-      changes: ["текущая редакция"],
-      recommended: true
-    },
-    {
-      id: "robust",
-      label: "С резервом",
-      total: Math.round(total * 1.12 * 100) / 100,
-      description: "Резерв на колебание цен и уточнение скрытых объёмов.",
-      changes: ["+12% резерв", "меньше риск доплат"]
-    }
+  next.warnings = [
+    ...previous.warnings,
+    "Версия изменена по последнему сообщению пользователя; перед отправкой проверьте состав и цены."
   ];
-  return {
-    text:
-      "Сравнил три сценария в текущем чате. Это управленческие варианты, а не подмена подтверждённых цен: перед выбором проверьте источники и допустимость замен.",
-    tools: [
-      {
-        name: "estimate_comparison",
-        args: {
-          title: `Сравнение — ${draft.title}`,
-          currency: draft.currency,
-          options,
-          recommendation:
-            "Базовый вариант сохраняет технологическую полноту. Экономичный следует применять только после подтверждения конкретных замен."
-        }
-      }
-    ],
-    state: fullState(draft),
-    steps: ["compare-variants"]
-  };
+  return EstimateDraftSchema.parse(next);
 }
 
-function reviewRun(draft: EstimateDraft): RulesRun {
-  const review = reviewArgs(draft);
-  return {
-    text:
-      review.blockers.length > 0
-        ? "Независимая проверка нашла данные, которые необходимо подтвердить перед утверждением."
-        : "Независимая проверка завершена: смету можно утверждать и передавать клиенту.",
-    tools: [{ name: "estimate_review", args: review }],
-    state: fullState(draft, { validation: review }),
-    stateDelta: [{ op: "replace", path: "/validation", value: review }],
-    steps: ["independent-review"]
-  };
-}
-
-function executionRun(input: string, draft: EstimateDraft): RulesRun {
-  const percent = Math.max(0, Math.min(100, extractPercent(input, 100)));
-  const calculation = calculateEstimate(draft);
-  const completed = Math.round((calculation.total * percent) / 100 * 100) / 100;
-  const remaining = Math.round((calculation.total - completed) * 100) / 100;
-  const tools: RulesToolCall[] = [
-    {
-      name: "execution_progress",
-      args: {
-        title: `Исполнение — ${draft.title}`,
-        percent,
-        currency: draft.currency,
-        total: calculation.total,
-        completed,
-        remaining,
-        notes: [
-          "Процент принят из сообщения пользователя.",
-          "Перед подписанием акта проверьте фактические объёмы каждой позиции."
-        ]
-      }
-    }
+function documentTool(name: string, title: string, estimate: EstimateDraft) {
+  const calculation = calculateEstimate(estimate);
+  const missingFields = [
+    ...(estimate.contractor.trim() ? [] : ["Реквизиты подрядчика"]),
+    ...(estimate.customer.trim() ? [] : ["Реквизиты заказчика"]),
+    ...(estimate.objectName.trim() ? [] : ["Адрес или описание объекта"])
   ];
-  if (/акт|кс\s*2|кс-2/.test(normal(input))) {
-    tools.push(documentToolCall("act_draft", "Акт выполненных работ", draft, percent));
-  }
+  const content = [
+    `# ${title}`,
+    "",
+    `**Объект:** ${estimate.objectName || "не указан"}`,
+    `**Заказчик:** ${estimate.customer || "не указан"}`,
+    `**Подрядчик:** ${estimate.contractor || "не указан"}`,
+    `**Регион:** ${estimate.region || "не указан"}`,
+    `**Основание:** смета «${estimate.title}», версия ${estimate.revision}`,
+    `**Стоимость:** ${calculation.total.toLocaleString("ru-RU")} ${estimate.currency}`,
+    "",
+    "## Состав работ",
+    ...estimate.sections.flatMap((section) => [
+      `### ${section.title}`,
+      ...section.items.map(
+        (line) =>
+          `- ${line.name}: ${line.quantity} ${line.unit} × ${line.unitPrice.toLocaleString("ru-RU")} ${estimate.currency}`
+      )
+    ]),
+    "",
+    "## Условия, требующие заполнения",
+    ...(missingFields.length ? missingFields.map((field) => `- ${field}`) : ["- Критичные поля заполнены."]),
+    "",
+    "Документ сформирован автоматически и требует проверки существенных условий сторонами."
+  ].join("\n");
   return {
-    text: `Рассчитал выполнение ${percent}% по текущей смете и остаток.`,
-    tools,
-    state: fullState(draft, {
-      documents: tools.filter((tool) => tool.name.endsWith("draft")).map((tool) => tool.args)
-    }),
-    steps: ["calculate-execution", "prepare-document"]
-  };
-}
-
-function documentToolCall(tool: string, title: string, draft: EstimateDraft | null, percent?: number) {
-  const total = draft ? calculateEstimate(draft).total : 0;
-  const amount = percent == null ? total : Math.round((total * percent) / 100 * 100) / 100;
-  const object = draft?.objectName || "____________________";
-  const customer = draft?.customer || "____________________";
-  const contractor = draft?.contractor || "____________________";
-  const content = `
-    <h2>Объект</h2>
-    <p>${object}</p>
-    <h2>Стороны</h2>
-    <p>Заказчик: ${customer}</p>
-    <p>Подрядчик: ${contractor}</p>
-    <h2>Основание</h2>
-    <p>Документ сформирован на основании сметы «${draft?.title || "смета не выбрана"}», версия ${draft?.revision ?? "—"}.</p>
-    <h2>Стоимость</h2>
-    <p>${amount.toLocaleString("ru-RU")} ${draft?.currency ?? "RUB"}${percent == null ? "" : ` — ${percent}% выполнения`}.</p>
-    <h2>Условия и подтверждение</h2>
-    <p>Фактические объёмы, сроки, порядок оплаты, НДС, гарантии и реквизиты должны быть проверены сторонами до подписания.</p>
-    <h2>Подписи</h2>
-    <p>Заказчик: ____________________</p>
-    <p>Подрядчик: ____________________</p>
-  `;
-  return {
-    name: tool,
+    name,
     args: {
       id: uuid("document"),
-      type: tool.replace(/_draft$/, ""),
+      type: name,
       title,
-      content,
-      missingFields: [
-        ...(draft?.customer ? [] : ["реквизиты заказчика"]),
-        ...(draft?.contractor ? [] : ["реквизиты подрядчика"]),
-        "срок выполнения",
-        "порядок оплаты",
-        "подписи сторон"
-      ],
       status: "draft",
-      revision: 1
+      revision: 1,
+      estimateId: estimate.id,
+      estimateRevision: estimate.revision,
+      objectName: estimate.objectName,
+      customer: estimate.customer,
+      contractor: estimate.contractor,
+      region: estimate.region,
+      total: calculation.total,
+      currency: estimate.currency,
+      missingFields,
+      content
     }
-  } satisfies RulesToolCall;
-}
-
-function documentRun(input: string, draft: EstimateDraft | null): RulesRun {
-  const lower = normal(input);
-  const percent = /%/.test(input) ? extractPercent(input, 100) : undefined;
-  let tool = "commercial_proposal";
-  let title = "Коммерческое предложение";
-  if (/договор/.test(lower) && /приложен/.test(lower)) {
-    tool = "contract_appendix";
-    title = "Приложение к договору — смета и условия работ";
-  } else if (/договор/.test(lower)) {
-    tool = "contract_draft";
-    title = "Договор подряда на выполнение строительных работ";
-  } else if (/кс\s*2|кс-2/.test(lower)) {
-    tool = "ks2_draft";
-    title = "Акт о приёмке выполненных работ (КС-2)";
-  } else if (/кс\s*3|кс-3/.test(lower)) {
-    tool = "ks3_draft";
-    title = "Справка о стоимости выполненных работ (КС-3)";
-  } else if (/м\s*29|м-29/.test(lower)) {
-    tool = "m29_draft";
-    title = "Отчёт о расходе материалов (М-29)";
-  } else if (/дефект/.test(lower)) {
-    tool = "defect_statement";
-    title = "Дефектная ведомость";
-  } else if (/ведомост.*материал|материал.*ведомост/.test(lower)) {
-    tool = "material_statement";
-    title = "Ведомость материалов";
-  } else if (/спецификац.*оборуд/.test(lower)) {
-    tool = "equipment_specification";
-    title = "Спецификация оборудования";
-  } else if (/график|календарн/.test(lower)) {
-    tool = "work_schedule";
-    title = "График производства работ";
-  } else if (/сч[её]т|инвойс/.test(lower)) {
-    tool = "invoice_draft";
-    title = "Счёт на оплату";
-  } else if (/акт/.test(lower)) {
-    tool = "act_draft";
-    title = "Акт выполненных работ";
-  }
-
-  const call = documentToolCall(tool, title, draft, percent);
-  const tools: RulesToolCall[] = [];
-  if (draft && percent != null && /акт|кс\s*2|кс-2|кс\s*3|кс-3/.test(lower)) {
-    const calculation = calculateEstimate(draft);
-    const completed = Math.round((calculation.total * percent) / 100 * 100) / 100;
-    tools.push({
-      name: "execution_progress",
-      args: {
-        title: `Исполнение — ${draft.title}`,
-        percent,
-        currency: draft.currency,
-        total: calculation.total,
-        completed,
-        remaining: Math.round((calculation.total - completed) * 100) / 100,
-        notes: ["Процент выполнения принят из сообщения."]
-      }
-    });
-  }
-  tools.push(call);
-  return {
-    text:
-      `Подготовил редактируемый документ «${title}» прямо в текущем чате. ` +
-      "Критичные незаполненные условия отмечены отдельно; перед подписанием проверьте реквизиты, сроки и расчёты.",
-    tools,
-    state: fullState(draft, { documents: [call.args] }),
-    steps: ["prepare-document", "validate-required-fields"]
   };
 }
 
-function needsDocument(input: string) {
-  return /договор|коммерческ.*предлож|\bкп\b|акт|кс\s*[- ]?2|кс\s*[- ]?3|м\s*[- ]?29|дефект|ведомост.*материал|спецификац.*оборуд|график|календарн|сч[её]т|инвойс/i.test(
-    input
-  );
-}
-
-function needsComparison(input: string) {
-  return /сравн|вариант|оптимист|эконом|дорог|value engineering|замен.*вариант/i.test(input);
-}
-
-function needsReview(input: string) {
-  return /проверь|проверка|ревью|ошибк|точност|можно утверждать/i.test(input);
-}
-
-function needsExecution(input: string) {
-  return /выполнен|закрыт|процент выполнения|остаток|частичн/i.test(input) && /%/.test(input);
-}
-
-function askForInput(input: string): RulesRun {
-  const intake = extractSiteIntake(input);
+function documentRequest(input: string, estimate: EstimateDraft): RulesRun | null {
+  const value = normal(input);
+  let tool: RulesToolCall | null = null;
+  if (/коммерческ.*предлож|\bкп\b/.test(value)) {
+    tool = documentTool("commercial_proposal", "Коммерческое предложение", estimate);
+  } else if (/договор/.test(value)) {
+    tool = documentTool("contract_draft", "Договор подряда", estimate);
+  } else if (/кс\s*2|кс-2/.test(value)) {
+    tool = documentTool("ks2_draft", "Акт о приёмке выполненных работ КС-2", estimate);
+  } else if (/кс\s*3|кс-3/.test(value)) {
+    tool = documentTool("ks3_draft", "Справка о стоимости выполненных работ КС-3", estimate);
+  } else if (/м\s*29|м-29/.test(value)) {
+    tool = documentTool("m29_draft", "Отчёт о расходе материалов М-29", estimate);
+  } else if (/акт/.test(value)) {
+    tool = documentTool("act_draft", "Акт выполненных работ", estimate);
+  } else if (/счет|счёт|инвойс/.test(value)) {
+    tool = documentTool("invoice_draft", "Счёт на оплату", estimate);
+  } else if (/ведомост.*материал|материал.*ведомост/.test(value)) {
+    tool = documentTool("material_statement", "Ведомость материалов", estimate);
+  }
+  if (!tool) return null;
   return {
-    text:
-      "Я сохраню всё в одном чате, но пока не распознал вид работ. Укажите вид работ и хотя бы один измеримый объём; остальные данные можно уточнить позднее.",
-    tools: [
-      {
-        name: "project_case",
-        args: {
-          id: uuid("project"),
-          objectName: intake.objectName || "Новый объект",
-          region: extractRegion(input),
-          stage: "Сбор исходных данных",
-          summary: input.slice(0, 500),
-          workTypes: [],
-          assumptions: [],
-          missing: ["вид работ", "измеримый объём", "регион или адрес объекта"]
-        }
-      },
-      {
-        name: "ask_user",
-        args: {
-          title: "Опишите строительную задачу",
-          context: "Достаточно короткой записи замерщика — формальный бриф не нужен.",
-          questions: [
-            "Что именно нужно построить, отремонтировать или демонтировать?",
-            "Какой известен объём: м², м³, пог. м, количество точек или комплектов?",
-            "Где находится объект?"
-          ],
-          assumptions: ["Неизвестные цены будут оставлены пустыми, а не выдуманы."]
-        }
-      }
-    ],
-    state: fullState(null, {
-      project: { objectName: intake.objectName || "", customer: intake.customer || "", region: extractRegion(input) },
-      validation: { status: "input_required" }
+    text: "Подготовил редактируемый документ на основании последней версии сметы. Заполните критичные реквизиты и проверьте существенные условия перед подписанием.",
+    tools: [tool],
+    state: fullState(estimate, {
+      documents: [tool.args],
+      workTrace: [
+        { stage: "estimate", status: "completed" },
+        { stage: "document", status: "completed" }
+      ]
     }),
-    steps: ["analysis", "request-critical-input"]
+    steps: ["estimate", "document"]
   };
 }
 
 export function runRulesAgent(input: string, context: RulesAgentContext = {}): RulesRun {
-  const current = activeEstimate(context);
-
-  if (current) {
-    if (needsComparison(input)) return compareRun(current);
-    if (needsExecution(input)) return executionRun(input, current);
-    if (needsReview(input)) return reviewRun(current);
-    if (needsDocument(input)) return documentRun(input, current);
-    const mutation = mutateEstimate(input, current);
-    if (mutation) return mutation;
+  const prompt = input.trim();
+  const previous = latestEstimate(context);
+  if (previous) {
+    const document = documentRequest(prompt, previous);
+    if (document) return document;
+    if (looksLikeModification(prompt)) {
+      const estimate = updateEstimate(previous, prompt);
+      const review = reviewArgs(estimate);
+      return {
+        text: `Обновил смету «${estimate.title}» и создал версию ${estimate.revision}. Изменения можно проверить и продолжить в этом же чате.`,
+        tools: [
+          { name: "estimate_draft", args: estimate },
+          { name: "estimate_review", args: review }
+        ],
+        state: fullState(estimate, { validation: review }),
+        stateDelta: [
+          { op: "replace", path: "/activeEstimate", value: estimate },
+          { op: "replace", path: "/estimateRevision", value: estimate.revision },
+          { op: "replace", path: "/validation", value: review }
+        ],
+        steps: ["estimate-update", "review"]
+      };
+    }
   }
-
-  if (needsDocument(input)) return documentRun(input, current);
-  const kind = detectScenario(input);
-  if (kind) return estimateRun(scenarios[kind], input);
-  return askForInput(input);
+  const scenario = scenarioDefinitions()[detectScenario(prompt)];
+  return estimateRun(scenario, prompt);
 }
