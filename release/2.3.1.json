@@ -1,0 +1,16 @@
+{
+  "version": "2.3.1",
+  "candidate": "editor-v2-price-intelligence",
+  "target": "prosmet-primary:3200",
+  "required": [
+    "source-contract",
+    "typecheck",
+    "unit-tests",
+    "production-build",
+    "desktop-chromium",
+    "mobile-chromium",
+    "postgresql-sync",
+    "immutable-deploy",
+    "live-sha"
+  ]
+}
