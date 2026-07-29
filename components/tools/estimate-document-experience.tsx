@@ -1079,10 +1079,12 @@ function EstimateLineRow({
         {editable ? <DocumentTextInput value={item.unit} ariaLabel={`Единица позиции ${position}`} onChange={(value) => onUpdate("unit", value)} className="px-2 py-2 text-center text-sm" /> : <span className="px-2 text-center text-sm">{item.unit}</span>}
         {editable ? <DocumentNumberInput value={item.quantity} ariaLabel={`Количество позиции ${position}`} onChange={(value) => onUpdate("quantity", value)} className="px-2 py-2 text-right text-sm" /> : <span className="px-2 text-right text-sm tabular-nums">{item.quantity}</span>}
         {editable ? (
-          <button type="button" onClick={onOpenPrice} className="group/price relative flex min-h-11 flex-col items-end justify-center px-2 text-right hover:bg-indigo-50">
+          <div className="group/price relative flex min-h-11 flex-col items-end justify-center px-2 text-right hover:bg-indigo-50">
             <DocumentNumberInput value={item.unitPrice} ariaLabel={`Цена позиции ${position}`} onChange={(value) => onUpdate("unitPrice", value, false)} onFocus={onPriceFocus} onBlur={onPriceBlur} className="w-full text-right text-sm font-medium" stopPropagation />
-            <span className="text-[10px] text-indigo-600 opacity-0 group-hover/price:opacity-100">{sourceLabels[item.source.kind]}</span>
-          </button>
+            <button type="button" onClick={onOpenPrice} aria-label={`Показать аналитику цены позиции ${position}`} className="text-[10px] text-indigo-600 opacity-0 transition-opacity group-hover/price:opacity-100 focus:opacity-100">
+              {sourceLabels[item.source.kind]}
+            </button>
+          </div>
         ) : <span className="px-2 text-right text-sm tabular-nums">{formatMoney(item.unitPrice, currency)}</span>}
         <span className="px-2 text-right text-sm font-semibold tabular-nums">{formatMoney(amount, currency)}</span>
         {editable ? <button type="button" aria-label={`Удалить позицию ${position}`} onClick={onDelete} className="flex size-8 items-center justify-center rounded-lg text-neutral-300 opacity-0 hover:bg-red-50 hover:text-red-600 group-hover/row:opacity-100"><Trash2Icon className="size-4" /></button> : <span />}
