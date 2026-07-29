@@ -86,10 +86,12 @@ const priceFieldAfter = `          <Field label="Цена">
                     false
                   )
                 }
-                onBlur={() => {
-                  const current = findItem(draft, row)?.item;
-                  if (current) onPriceBlur(current);
-                }}
+                onBlur={(event) =>
+                  onPriceBlur({
+                    ...item,
+                    unitPrice: Math.max(0, Number(event.currentTarget.value) || 0)
+                  })
+                }
               />
               <button
                 type="button"
