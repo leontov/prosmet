@@ -15,6 +15,7 @@
     "incremental": true,
     "plugins": [{ "name": "next" }],
     "paths": {
+      "@/lib/exports/estimate": ["./lib/exports/estimate-runtime.ts"],
       "@/lib/server/rules-agent": ["./lib/server/rules-agent-runtime.ts"],
       "@/lib/server/postgres": ["./lib/server/postgres-compat.ts"],
       "@/lib/server/price-intelligence": ["./lib/server/price-intelligence-compat.ts"],
