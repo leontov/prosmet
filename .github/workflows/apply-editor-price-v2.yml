@@ -1,0 +1,61 @@
+name: Apply Estimate Editor V2 and Price Intelligence
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .prosmet-patches/editor-price-v2.tar.gz
+
+permissions:
+  contents: write
+
+concurrency:
+  group: prosmet-editor-price-v2-apply
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    name: Materialize the reviewed V2 source patch on main
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 20
+    steps:
+      - name: Verify Primary runner
+        run: |
+          set -Eeuo pipefail
+          test "${{ runner.name }}" = "prosmet-primary"
+          test "${GITHUB_REF_NAME}" = "main"
+
+      - name: Checkout exact patch carrier commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          clean: true
+          persist-credentials: true
+
+      - name: Verify and apply source archive
+        run: |
+          set -Eeuo pipefail
+          ARCHIVE=.prosmet-patches/editor-price-v2.tar.gz
+          echo "a6237f5364fff6ce4f7bafd51e7286baf8fefdabf7dfb5452af6e3d5ae1c58d3  ${ARCHIVE}" | sha256sum -c -
+          tar -xzf "${ARCHIVE}" -C .
+          rm -f components/tools/estimate-editor.tsx
+          test -s components/tools/estimate-document-editor.tsx
+          test -s lib/domain/price-intelligence.ts
+          test -s lib/local/price-intelligence.ts
+          test -s lib/server/price-intelligence.ts
+          test -s docs/PROSMET_ESTIMATE_EDITOR_V2.md
+          test -s docs/PROSMET_PRICE_INTELLIGENCE.md
+
+      - name: Commit the materialized application source to main
+        run: |
+          set -Eeuo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Source patch is already materialized."
+            exit 0
+          fi
+          git commit -m "feat(estimates): ship document editor v2 and price intelligence"
+          git push origin HEAD:main
