@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: prosmet-main-production
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   verify-and-deploy:
