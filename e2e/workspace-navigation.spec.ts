@@ -9,9 +9,6 @@ function visibleSidebar(page: Page) {
 }
 
 async function openSidebar(page: Page) {
-  // Switching or archiving the active assistant thread remounts the runtime. On
-  // mobile the drawer can therefore still be visible for a frame and then
-  // disappear. Let that transition settle before deciding whether to reuse it.
   await page.waitForTimeout(180);
   const sidebar = visibleSidebar(page);
   if ((await sidebar.count()) > 0) {
@@ -65,7 +62,7 @@ function watchErrors(page: Page) {
 
 function relevantErrors(errors: string[]) {
   return errors.filter((message) =>
-    /Content Security Policy|hydration|Connection closed|ZodError|Maximum update depth|Too many re-renders|Page crashed|IndexedDB.*not found|TypeError|ReferenceError/i.test(
+    /Content Security Policy|hydration|Connection closed|ZodError|Maximum update depth|Too many re-renders|Page crashed|IndexedDB.*not found|TypeError|ReferenceError|validateDOMNesting/i.test(
       message
     )
   );
@@ -83,10 +80,18 @@ test("all workspace sections and thread history actions are functional", async (
   const threadTitle = estimatePrompt.slice(0, 72);
   await send(page, estimatePrompt);
 
-  const estimate = page.getByTestId("estimate-editor");
-  await expect(estimate).toBeVisible({ timeout: 30_000 });
-  await estimate.getByRole("button", { name: "Утвердить", exact: true }).click();
-  await expect(estimate.getByText("Утверждена", { exact: true })).toBeVisible();
+  const card = page.getByTestId("estimate-artifact-card");
+  await expect(card).toBeVisible({ timeout: 30_000 });
+  await card.getByRole("button", { name: /Открыть смету/ }).click();
+  const overlay = page.getByTestId("estimate-document-overlay");
+  await expect(overlay).toBeVisible();
+  await overlay.getByRole("button", { name: "Готово", exact: true }).click();
+  const preview = page.getByTestId("estimate-revision-preview");
+  await expect(preview).toBeVisible({ timeout: 30_000 });
+  await preview.getByRole("button", { name: "Поделиться", exact: true }).click();
+  const share = page.getByRole("dialog", { name: "Передача сметы клиенту" });
+  await share.getByRole("button", { name: /Скопировать итог/ }).click();
+  await expect(share).toHaveCount(0);
 
   await navigate(page, "Объекты");
   const objectsView = page.getByTestId("objects-view");
@@ -115,7 +120,7 @@ test("all workspace sections and thread history actions are functional", async (
   }
 
   await estimatesView.getByRole("button", { name: "Открыть в чате" }).click();
-  await expect(page.getByTestId("estimate-editor")).toBeVisible();
+  await expect(page.getByTestId("estimate-artifact-card")).toBeVisible();
 
   await send(page, "Сделай коммерческое предложение по текущей смете.");
   const documentEditor = page.getByTestId("document-editor");
@@ -143,7 +148,9 @@ test("all workspace sections and thread history actions are functional", async (
   await navigate(page, "Каталог цен");
   const pricesView = page.getByTestId("prices-view");
   await expect(pricesView).toBeVisible();
-  await expect(pricesView.getByText("Механизированная гипсовая штукатурка", { exact: true })).toBeVisible();
+  await expect(
+    pricesView.getByText("Механизированная гипсовая штукатурка", { exact: true })
+  ).toBeVisible();
   await expect(pricesView.getByText("Подтверждена", { exact: true }).first()).toBeVisible();
 
   await page.getByRole("button", { name: "Настройки" }).click();
@@ -162,7 +169,7 @@ test("all workspace sections and thread history actions are functional", async (
   await expect(profile.getByRole("button", { name: "Сохранено" })).toBeVisible();
 
   await navigate(page, "Сметы и чаты");
-  await expect(page.getByTestId("estimate-editor")).toBeVisible();
+  await expect(page.getByTestId("estimate-artifact-card")).toBeVisible();
 
   let sidebar = await openThreadMenu(page, threadTitle);
   await sidebar.getByRole("button", { name: "Переименовать", exact: true }).click();
