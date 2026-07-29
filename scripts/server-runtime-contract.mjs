@@ -1,21 +1,26 @@
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 
 const failures = [];
 const read = (path) => readFile(path, "utf8");
 const need = (source, token, scope) => {
   if (!source.includes(token)) failures.push(`${scope}:missing:${token}`);
 };
+const forbid = (source, token, scope) => {
+  if (source.includes(token)) failures.push(`${scope}:forbidden:${token}`);
+};
 
-const [runtime, compat, priceCompat, tsconfig, agent, health, backend, sync] = await Promise.all([
-  read("lib/server/postgres-runtime.ts"),
-  read("lib/server/postgres-compat.ts"),
-  read("lib/server/price-intelligence-compat.ts"),
-  read("tsconfig.json"),
-  read("app/api/agent/route.ts"),
-  read("app/api/health/route.ts"),
-  read("app/api/backend/status/route.ts"),
-  read("app/api/sync/route.ts")
-]);
+const [runtime, compat, priceCompat, tsconfig, agent, health, backend, sync, editor] =
+  await Promise.all([
+    read("lib/server/postgres-runtime.ts"),
+    read("lib/server/postgres-compat.ts"),
+    read("lib/server/price-intelligence-compat.ts"),
+    read("tsconfig.json"),
+    read("app/api/agent/route.ts"),
+    read("app/api/health/route.ts"),
+    read("app/api/backend/status/route.ts"),
+    read("app/api/sync/route.ts"),
+    read("components/tools/estimate-document-experience.tsx")
+  ]);
 
 for (const token of [
   "beginAgentRun",
@@ -63,6 +68,36 @@ need(agent, 'from "@/lib/server/postgres"', "agent-runtime-import");
 need(health, "checkServerDatabase", "health-runtime-import");
 need(backend, "checkServerDatabase", "backend-runtime-import");
 need(sync, 'from "@/lib/server/price-intelligence"', "sync-price-intelligence-import");
+
+for (const token of [
+  "EstimateArtifactCard",
+  "EstimateDocumentOverlay",
+  "EstimateDocumentCanvas",
+  "EstimateLineRow",
+  "EstimateRowDetailsSheet",
+  "PriceInspector",
+  "EstimateRevisionPreview"
+]) {
+  need(editor, token, "estimate-editor-v2");
+}
+forbid(
+  editor,
+  '<button type="button" onClick={onOpenPrice} className="group/price',
+  "estimate-price-cell"
+);
+
+for (const obsolete of [
+  "components/tools/estimate-document-v2.tsx",
+  "components/tools/estimate-document-v2-shell.tsx",
+  "components/tools/estimate-document-v2.module.css"
+]) {
+  try {
+    await access(obsolete);
+    failures.push(`obsolete-editor:${obsolete}`);
+  } catch {
+    // Expected: there is only one production estimate editor.
+  }
+}
 
 if (failures.length) {
   console.error("SERVER RUNTIME CONTRACT FAILED");
