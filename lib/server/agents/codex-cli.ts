@@ -43,6 +43,7 @@ function sanitizedEnvironment() {
     "SSL_CERT_DIR"
   ];
   const environment: NodeJS.ProcessEnv = {
+    NODE_ENV: "production",
     CODEX_HOME: codexHome(),
     RUST_BACKTRACE: "0",
     NO_COLOR: "1"
