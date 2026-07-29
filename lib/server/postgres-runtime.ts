@@ -5,7 +5,7 @@ import {
   ensureTenant,
   getServerDatabase,
   postgresConfigured
-} from "@/lib/server/postgres";
+} from "./postgres";
 
 export async function beginAgentRun(input: {
   tenantId: string;
