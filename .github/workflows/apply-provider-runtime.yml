@@ -1,0 +1,43 @@
+name: Apply provider runtime
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/apply-provider-runtime.mjs
+      - .github/workflows/apply-provider-runtime.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: prosmet-provider-runtime-patch
+  cancel-in-progress: true
+
+jobs:
+  apply:
+    name: Materialize provider runtime on main
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Apply focused source patch
+        run: node scripts/apply-provider-runtime.mjs
+
+      - name: Commit visible source and remove carrier files
+        run: |
+          set -Eeuo pipefail
+          rm -f scripts/apply-provider-runtime.mjs
+          rm -f .github/workflows/apply-provider-runtime.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "feat(agent): execute selected MiMo OpenAI Ollama and Codex providers"
+          git pull --rebase origin main
+          git push origin HEAD:main
