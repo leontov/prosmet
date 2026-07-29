@@ -216,11 +216,11 @@ async function runDomainPipeline(input: {
   body: Record<string, unknown>;
   prepared: PreparedProviderRun;
   signal: AbortSignal;
+  service: RulesRun | null;
 }) {
-  const service = runServiceCommand(input.prompt);
-  if (service) {
+  if (input.service) {
     return {
-      result: service,
+      result: input.service,
       semantic: null,
       providerSteps: [] as string[]
     };
@@ -295,10 +295,36 @@ export async function POST(request: Request) {
     typeof body.parentRunId === "string" && body.parentRunId ? body.parentRunId : undefined;
   const prompt = latestUserText(body);
   const identity = resolveServerIdentity(request);
+  const service = runServiceCommand(prompt);
+  const servicePrepared: PreparedProviderRun = {
+    connection: {
+      id: "provider:prosmet-services",
+      kind: "rules",
+      name: "Подкапотные сервисы Просметчика",
+      baseUrl: "",
+      model: "prosmet-service-command-v1",
+      status: "connected",
+      selected: true,
+      hasSecret: false,
+      lastError: null,
+      lastCheckedAt: null,
+      updatedAt: new Date().toISOString(),
+      apiKey: ""
+    },
+    descriptor: {
+      id: "provider:prosmet-services",
+      kind: "rules",
+      name: "Подкапотные сервисы Просметчика",
+      model: "prosmet-service-command-v1"
+    }
+  };
 
   let prepared: PreparedProviderRun;
   try {
-    prepared = await prepareProviderRun(identity.ownerId);
+    // Provider settings and service recovery must stay reachable even when a
+    // previously selected external provider is unavailable. Estimation runs
+    // never fall back silently: only explicit service commands use this local path.
+    prepared = service ? servicePrepared : await prepareProviderRun(identity.ownerId);
     await beginAgentRun({
       tenantId: identity.ownerId,
       runId,
@@ -359,7 +385,8 @@ export async function POST(request: Request) {
           prompt,
           body,
           prepared,
-          signal: request.signal
+          signal: request.signal,
+          service
         });
         if (prepared.descriptor.kind !== "rules") {
           send({ type: "STEP_FINISHED", stepName: "provider-analysis" });
