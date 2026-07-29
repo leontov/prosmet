@@ -122,6 +122,8 @@ const SCHEMA_SQL = `
     FOREIGN KEY (tenant_id) REFERENCES prosmet_tenants(id) ON DELETE CASCADE
   );
 
+  -- Compatibility cache for the original catalogue. New price intelligence is
+  -- append-only in the tables below and never overwrites historical evidence.
   CREATE TABLE IF NOT EXISTS prosmet_prices (
     tenant_id TEXT NOT NULL,
     id TEXT NOT NULL,
@@ -131,6 +133,156 @@ const SCHEMA_SQL = `
     PRIMARY KEY (tenant_id, id),
     FOREIGN KEY (tenant_id) REFERENCES prosmet_tenants(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS prosmet_canonical_works (
+    tenant_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    normalized_name TEXT NOT NULL,
+    code TEXT NOT NULL DEFAULT '',
+    unit TEXT NOT NULL,
+    payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (tenant_id, id),
+    FOREIGN KEY (tenant_id) REFERENCES prosmet_tenants(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_prosmet_canonical_work_lookup
+    ON prosmet_canonical_works(tenant_id, normalized_name, unit);
+
+  CREATE TABLE IF NOT EXISTS prosmet_price_observations (
+    tenant_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    canonical_work_id TEXT NOT NULL,
+    estimate_id TEXT NOT NULL DEFAULT '',
+    estimate_revision INTEGER NOT NULL DEFAULT 0,
+    item_id TEXT NOT NULL DEFAULT '',
+    stage TEXT NOT NULL,
+    source_type TEXT NOT NULL,
+    region TEXT NOT NULL DEFAULT '',
+    locality TEXT NOT NULL DEFAULT '',
+    unit TEXT NOT NULL,
+    price NUMERIC(20,4) NOT NULL CHECK (price >= 0),
+    currency TEXT NOT NULL DEFAULT 'RUB',
+    confidence NUMERIC(7,3) NOT NULL DEFAULT 0,
+    observed_at TIMESTAMPTZ NOT NULL,
+    market_eligible BOOLEAN NOT NULL DEFAULT FALSE,
+    payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (tenant_id, id),
+    FOREIGN KEY (tenant_id) REFERENCES prosmet_tenants(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_prosmet_price_observation_work_region
+    ON prosmet_price_observations(tenant_id, canonical_work_id, unit, region, observed_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_prosmet_price_observation_estimate_item
+    ON prosmet_price_observations(tenant_id, estimate_id, item_id, observed_at DESC);
+  CREATE INDEX IF NOT EXISTS idx_prosmet_price_observation_market
+    ON prosmet_price_observations(canonical_work_id, unit, region, observed_at DESC)
+    WHERE market_eligible = TRUE;
+
+  CREATE TABLE IF NOT EXISTS prosmet_estimate_item_price_history (
+    tenant_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    estimate_id TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    observation_id TEXT NOT NULL,
+    previous_observation_id TEXT NOT NULL DEFAULT '',
+    previous_price NUMERIC(20,4),
+    price NUMERIC(20,4) NOT NULL CHECK (price >= 0),
+    stage TEXT NOT NULL,
+    payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (tenant_id, id),
+    FOREIGN KEY (tenant_id) REFERENCES prosmet_tenants(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_prosmet_price_history_estimate_item
+    ON prosmet_estimate_item_price_history(tenant_id, estimate_id, item_id, created_at DESC);
+
+  CREATE TABLE IF NOT EXISTS prosmet_user_price_profiles (
+    tenant_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    canonical_work_id TEXT NOT NULL,
+    unit TEXT NOT NULL,
+    region TEXT NOT NULL DEFAULT '',
+    locality TEXT NOT NULL DEFAULT '',
+    currency TEXT NOT NULL DEFAULT 'RUB',
+    price NUMERIC(20,4) NOT NULL CHECK (price >= 0),
+    observation_id TEXT NOT NULL,
+    stage TEXT NOT NULL,
+    confidence NUMERIC(7,3) NOT NULL DEFAULT 0,
+    payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (tenant_id, id),
+    FOREIGN KEY (tenant_id) REFERENCES prosmet_tenants(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_prosmet_user_price_profile_lookup
+    ON prosmet_user_price_profiles(tenant_id, canonical_work_id, unit, region, updated_at DESC);
+
+  CREATE TABLE IF NOT EXISTS prosmet_organization_price_profiles (
+    tenant_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    canonical_work_id TEXT NOT NULL,
+    unit TEXT NOT NULL,
+    region TEXT NOT NULL DEFAULT '',
+    locality TEXT NOT NULL DEFAULT '',
+    currency TEXT NOT NULL DEFAULT 'RUB',
+    price NUMERIC(20,4) NOT NULL CHECK (price >= 0),
+    observation_id TEXT NOT NULL,
+    stage TEXT NOT NULL,
+    confidence NUMERIC(7,3) NOT NULL DEFAULT 0,
+    payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (tenant_id, id),
+    FOREIGN KEY (tenant_id) REFERENCES prosmet_tenants(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_prosmet_org_price_profile_lookup
+    ON prosmet_organization_price_profiles(tenant_id, canonical_work_id, unit, region, updated_at DESC);
+
+  CREATE TABLE IF NOT EXISTS prosmet_market_price_buckets (
+    tenant_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    canonical_work_id TEXT NOT NULL,
+    unit TEXT NOT NULL,
+    region TEXT NOT NULL DEFAULT '',
+    locality TEXT NOT NULL DEFAULT '',
+    sample_count INTEGER NOT NULL DEFAULT 0,
+    independent_actors INTEGER NOT NULL DEFAULT 0,
+    median NUMERIC(20,4) NOT NULL DEFAULT 0,
+    p25 NUMERIC(20,4) NOT NULL DEFAULT 0,
+    p75 NUMERIC(20,4) NOT NULL DEFAULT 0,
+    confidence NUMERIC(7,3) NOT NULL DEFAULT 0,
+    payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (tenant_id, id),
+    FOREIGN KEY (tenant_id) REFERENCES prosmet_tenants(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_prosmet_market_bucket_lookup
+    ON prosmet_market_price_buckets(tenant_id, canonical_work_id, unit, region, updated_at DESC);
+
+  CREATE TABLE IF NOT EXISTS prosmet_price_research_evidence (
+    tenant_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    canonical_work_id TEXT NOT NULL,
+    unit TEXT NOT NULL,
+    region TEXT NOT NULL DEFAULT '',
+    source_url TEXT NOT NULL DEFAULT '',
+    observed_at TIMESTAMPTZ NOT NULL,
+    payload_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    PRIMARY KEY (tenant_id, id),
+    FOREIGN KEY (tenant_id) REFERENCES prosmet_tenants(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_prosmet_price_research_lookup
+    ON prosmet_price_research_evidence(tenant_id, canonical_work_id, unit, region, observed_at DESC);
 
   CREATE TABLE IF NOT EXISTS prosmet_files (
     tenant_id TEXT NOT NULL,
@@ -251,10 +403,7 @@ function networkClient(client: Pool | PoolClient): ServerSqlClient {
   return {
     async query<Row extends object>(sql: string, params: readonly unknown[] = []) {
       const result = await client.query<Row>(sql, [...params]);
-      return {
-        rows: result.rows,
-        rowCount: result.rowCount ?? 0
-      };
+      return { rows: result.rows, rowCount: result.rowCount ?? 0 };
     }
   };
 }
@@ -326,98 +475,4 @@ export async function writeAuditEvent(input: {
       JSON.stringify(input.details ?? {})
     ]
   );
-}
-
-export async function beginAgentRun(input: {
-  tenantId: string;
-  runId: string;
-  threadId: string;
-  provider: string;
-  model?: string;
-  request: unknown;
-}) {
-  if (!postgresConfigured()) return;
-  await ensureTenant(input.tenantId);
-  const database = await getServerDatabase();
-  await database.query(
-    `INSERT INTO prosmet_agent_runs
-      (tenant_id, run_id, thread_id, provider, model, status, request_json, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, 'running', $6::jsonb, NOW(), NOW())
-     ON CONFLICT (tenant_id, run_id) DO UPDATE SET
-       thread_id = EXCLUDED.thread_id,
-       provider = EXCLUDED.provider,
-       model = EXCLUDED.model,
-       status = 'running',
-       request_json = EXCLUDED.request_json,
-       result_json = NULL,
-       error_text = NULL,
-       updated_at = NOW()`,
-    [
-      input.tenantId,
-      input.runId,
-      input.threadId,
-      input.provider,
-      input.model ?? null,
-      JSON.stringify(input.request ?? null)
-    ]
-  );
-}
-
-export async function finishAgentRun(input: {
-  tenantId: string;
-  runId: string;
-  status: "completed" | "cancelled" | "failed";
-  result?: unknown;
-  error?: string;
-}) {
-  if (!postgresConfigured()) return;
-  await ensureServerSchema();
-  await (await getServerDatabase()).query(
-    `UPDATE prosmet_agent_runs SET
-       status = $3,
-       result_json = $4::jsonb,
-       error_text = $5,
-       updated_at = NOW()
-     WHERE tenant_id = $1 AND run_id = $2`,
-    [
-      input.tenantId,
-      input.runId,
-      input.status,
-      JSON.stringify(input.result ?? null),
-      input.error ?? null
-    ]
-  );
-}
-
-export async function checkServerDatabase() {
-  if (!connectionString) {
-    return {
-      configured: false,
-      connected: false,
-      driver: null,
-      latencyMs: null,
-      message: "DATABASE_URL is not configured"
-    };
-  }
-
-  const started = Date.now();
-  try {
-    await ensureServerSchema();
-    await (await getServerDatabase()).query("SELECT 1");
-    return {
-      configured: true,
-      connected: true,
-      driver: "postgres" as const,
-      latencyMs: Date.now() - started,
-      message: null
-    };
-  } catch (error) {
-    return {
-      configured: true,
-      connected: false,
-      driver: "postgres" as const,
-      latencyMs: Date.now() - started,
-      message: error instanceof Error ? error.message : "PostgreSQL connection failed"
-    };
-  }
 }
