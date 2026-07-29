@@ -1,25 +1,24 @@
-name: Apply Estimate Editor V2 and Price Intelligence
+name: Verify Estimate Editor V2 source is visible
 
 on:
   push:
     branches: [main]
     paths:
-      - .prosmet-patches/editor-price-v2.tar.gz
       - .github/workflows/apply-editor-price-v2.yml
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: prosmet-editor-price-v2-apply
   cancel-in-progress: true
 
 jobs:
-  apply:
-    name: Materialize the reviewed V2 source patch on main
+  verify-visible-source:
+    name: Verify source is committed directly to main
     runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
       - name: Verify Primary runner
         run: |
@@ -27,45 +26,15 @@ jobs:
           test "${{ runner.name }}" = "prosmet-primary"
           test "${GITHUB_REF_NAME}" = "main"
 
-      - name: Checkout patch carrier and move to latest main
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 0
+          fetch-depth: 1
           clean: true
-          persist-credentials: true
 
-      - name: Rebase source application onto latest main
+      - name: Report direct-source status
         run: |
           set -Eeuo pipefail
-          git fetch origin main
-          git checkout -B prosmet-materialize origin/main
-
-      - name: Verify and apply source archive
-        run: |
-          set -Eeuo pipefail
-          ARCHIVE=.prosmet-patches/editor-price-v2.tar.gz
-          echo "a6237f5364fff6ce4f7bafd51e7286baf8fefdabf7dfb5452af6e3d5ae1c58d3  ${ARCHIVE}" | sha256sum -c -
-          tar -xzf "${ARCHIVE}" -C .
-          rm -f components/tools/estimate-editor.tsx
-          test -s components/tools/estimate-document-editor.tsx
+          echo "Editor V2 and Price Intelligence are being committed as ordinary source files on main."
           test -s lib/domain/price-intelligence.ts
-          test -s lib/local/price-intelligence.ts
-          test -s lib/server/price-intelligence.ts
-          test -s docs/PROSMET_ESTIMATE_EDITOR_V2.md
-          test -s docs/PROSMET_PRICE_INTELLIGENCE.md
-
-      - name: Commit the materialized application source to main
-        run: |
-          set -Eeuo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          if git diff --cached --quiet; then
-            echo "Source patch is already materialized."
-            exit 0
-          fi
-          git commit -m "feat(estimates): ship document editor v2 and price intelligence"
-          git fetch origin main
-          git rebase origin/main
-          git push origin HEAD:main
+          test -s lib/local/idb.ts
