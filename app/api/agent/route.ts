@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
+import {
+  executePreparedProvider,
+  prepareProviderRun,
+  type PreparedProviderRun
+} from "@/lib/server/agents/provider-executor";
 import { runServiceCommand } from "@/lib/server/service-command";
-import { runRulesAgent } from "@/lib/server/rules-agent";
+import { runRulesAgent, type RulesRun } from "@/lib/server/rules-agent";
 import { resolveServerIdentity } from "@/lib/server/identity";
 import { beginAgentRun, finishAgentRun } from "@/lib/server/postgres";
 
@@ -132,7 +137,17 @@ function sleep(ms: number, signal: AbortSignal) {
   });
 }
 
-function initialState(body: Record<string, unknown>, provider: string) {
+function providerState(prepared: PreparedProviderRun) {
+  return {
+    id: prepared.descriptor.id,
+    kind: prepared.descriptor.kind,
+    name: prepared.descriptor.name,
+    model: prepared.descriptor.model,
+    status: "available"
+  };
+}
+
+function initialState(body: Record<string, unknown>, prepared: PreparedProviderRun) {
   const incoming = asRecord(body.state);
   const base = {
     project: {},
@@ -149,18 +164,17 @@ function initialState(body: Record<string, unknown>, provider: string) {
     sync: { ...asRecord(incoming.sync), status: "server-connected" },
     provider: {
       ...asRecord(incoming.provider),
-      id: provider,
-      status: "available"
+      ...providerState(prepared)
     }
   };
 }
 
 function finalState(
   body: Record<string, unknown>,
-  provider: string,
+  prepared: PreparedProviderRun,
   resultState: Record<string, unknown>
 ) {
-  const baseline = initialState(body, provider);
+  const baseline = initialState(body, prepared);
   return {
     ...baseline,
     ...resultState,
@@ -172,10 +186,85 @@ function finalState(
     provider: {
       ...asRecord(baseline.provider),
       ...asRecord(resultState.provider),
-      id: provider,
-      status: "available"
+      ...providerState(prepared)
     }
   };
+}
+
+function providerPrompt(input: {
+  original: string;
+  normalized: string;
+  assumptions: string[];
+  warnings: string[];
+}) {
+  return [
+    input.original,
+    "",
+    "Нормализованное профессиональное задание:",
+    input.normalized,
+    ...(input.assumptions.length
+      ? ["", "Явные допущения:", ...input.assumptions.map((item) => `- ${item}`)]
+      : []),
+    ...(input.warnings.length
+      ? ["", "Риски и требующие подтверждения данные:", ...input.warnings.map((item) => `- ${item}`)]
+      : [])
+  ].join("\n");
+}
+
+async function runDomainPipeline(input: {
+  prompt: string;
+  body: Record<string, unknown>;
+  prepared: PreparedProviderRun;
+  signal: AbortSignal;
+}) {
+  const service = runServiceCommand(input.prompt);
+  if (service) {
+    return {
+      result: service,
+      semantic: null,
+      providerSteps: [] as string[]
+    };
+  }
+
+  const semantic = await executePreparedProvider(input.prepared, {
+    prompt: input.prompt,
+    messages: input.body.messages,
+    state: input.body.state,
+    signal: input.signal
+  });
+  if (!semantic) {
+    return {
+      result: runRulesAgent(input.prompt, {
+        state: input.body.state,
+        messages: input.body.messages
+      }),
+      semantic: null,
+      providerSteps: [] as string[]
+    };
+  }
+
+  const domain = runRulesAgent(
+    providerPrompt({
+      original: input.prompt,
+      normalized: semantic.interpretation.normalizedRequest,
+      assumptions: semantic.interpretation.assumptions,
+      warnings: semantic.interpretation.warnings
+    }),
+    {
+      state: input.body.state,
+      messages: input.body.messages
+    }
+  );
+  const result: RulesRun = {
+    ...domain,
+    text: `${semantic.interpretation.summary}\n\n${domain.text}`,
+    state: {
+      ...domain.state,
+      providerInterpretation: semantic.interpretation
+    },
+    steps: ["provider-analysis", ...(domain.steps ?? [])]
+  };
+  return { result, semantic, providerSteps: ["provider-analysis"] };
 }
 
 export async function POST(request: Request) {
@@ -205,38 +294,35 @@ export async function POST(request: Request) {
   const parentRunId =
     typeof body.parentRunId === "string" && body.parentRunId ? body.parentRunId : undefined;
   const prompt = latestUserText(body);
-  const provider = process.env.PROSMET_DEFAULT_PROVIDER || "rules";
   const identity = resolveServerIdentity(request);
 
+  let prepared: PreparedProviderRun;
   try {
+    prepared = await prepareProviderRun(identity.ownerId);
     await beginAgentRun({
       tenantId: identity.ownerId,
       runId,
       threadId,
-      provider,
-      model: provider === "rules" ? "prosmet-chief-estimator-v2" : undefined,
-      request: requestSummary(body, prompt)
+      provider: prepared.descriptor.kind,
+      model: prepared.descriptor.model || undefined,
+      request: {
+        ...requestSummary(body, prompt),
+        providerConnectionId: prepared.descriptor.id,
+        providerName: prepared.descriptor.name
+      }
     });
   } catch (error) {
     return Response.json(
       {
-        error: "agent_backend_unavailable",
+        error: "agent_provider_unavailable",
         message:
           error instanceof Error
             ? error.message
-            : "Серверная база запусков недоступна."
+            : "Выбранный AI-провайдер недоступен."
       },
       { status: 503 }
     );
   }
-
-  const result =
-    runServiceCommand(prompt) ??
-    runRulesAgent(prompt, {
-      state: body.state,
-      messages: body.messages
-    });
-  const snapshot = finalState(body, provider, result.state);
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -257,9 +343,32 @@ export async function POST(request: Request) {
           runId,
           ...(parentRunId ? { parentRunId } : {})
         });
-        send({ type: "STATE_SNAPSHOT", snapshot: initialState(body, provider) });
+        send({ type: "STATE_SNAPSHOT", snapshot: initialState(body, prepared) });
+
+        if (prepared.descriptor.kind !== "rules") {
+          send({ type: "STEP_STARTED", stepName: "provider-analysis" });
+          sendActivity({
+            stage: "provider-analysis",
+            title: `Анализ запроса · ${prepared.descriptor.name}`,
+            status: "running",
+            position: 1
+          });
+        }
+
+        const execution = await runDomainPipeline({
+          prompt,
+          body,
+          prepared,
+          signal: request.signal
+        });
+        if (prepared.descriptor.kind !== "rules") {
+          send({ type: "STEP_FINISHED", stepName: "provider-analysis" });
+        }
+        const { result, semantic } = execution;
+        const snapshot = finalState(body, prepared, result.state);
 
         for (const [index, stepName] of (result.steps ?? ["analysis"]).entries()) {
+          if (stepName === "provider-analysis") continue;
           send({ type: "STEP_STARTED", stepName });
           sendActivity({
             stage: stepName,
@@ -331,11 +440,16 @@ export async function POST(request: Request) {
             textLength: result.text.length,
             tools: result.tools.map((tool) => tool.name),
             steps: result.steps ?? [],
-            stateKeys: Object.keys(snapshot)
+            stateKeys: Object.keys(snapshot),
+            providerConnectionId: prepared.descriptor.id,
+            provider: prepared.descriptor.kind,
+            model: prepared.descriptor.model,
+            providerUsage: semantic?.usage ?? null,
+            providerSessionId: semantic?.sessionId ?? null
           }
         });
       } catch (error) {
-        if (request.signal.aborted) {
+        if (request.signal.aborted || (error instanceof DOMException && error.name === "AbortError")) {
           await finishAgentRun({
             tenantId: identity.ownerId,
             runId,
@@ -371,7 +485,9 @@ export async function POST(request: Request) {
     "Cache-Control": "no-cache, no-transform",
     Connection: "keep-alive",
     "X-Accel-Buffering": "no",
-    "X-Prosmet-Provider": provider
+    "X-Prosmet-Provider": prepared.descriptor.kind,
+    "X-Prosmet-Provider-Id": prepared.descriptor.id,
+    "X-Prosmet-Model": prepared.descriptor.model
   });
   if (identity.setCookie) headers.append("Set-Cookie", identity.setCookie);
 
@@ -380,6 +496,7 @@ export async function POST(request: Request) {
 
 function stepTitle(step: string) {
   const titles: Record<string, string> = {
+    "provider-analysis": "Анализ запроса выбранным AI-провайдером",
     analysis: "Анализ исходных данных",
     technology: "Определение технологии",
     resources: "Формирование ресурсов",
