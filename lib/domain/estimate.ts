@@ -12,6 +12,19 @@ export const ResourceTypeSchema = z.enum([
   "logistics"
 ]);
 
+export const PriceObservationStatusSchema = z.enum([
+  "researched",
+  "suggested",
+  "edited",
+  "approved",
+  "sent_to_client",
+  "contracted",
+  "executed",
+  "rejected",
+  "stale",
+  "suspicious"
+]);
+
 export const PriceSourceSchema = z.object({
   label: z.string().min(1),
   kind: z.enum([
@@ -31,7 +44,20 @@ export const PriceSourceSchema = z.object({
   vatIncluded: z.boolean().default(false),
   deliveryIncluded: z.boolean().default(false),
   confidence: z.number().min(0).max(100).default(0),
-  confirmed: z.boolean().default(false)
+  confirmed: z.boolean().default(false),
+  observationId: z.string().optional(),
+  canonicalWorkId: z.string().optional(),
+  status: PriceObservationStatusSchema.default("suggested"),
+  contextHash: z.string().optional(),
+  sampleCount: z.number().int().nonnegative().optional(),
+  uniqueOrganizations: z.number().int().nonnegative().optional(),
+  marketRange: z
+    .object({
+      p25: z.number().finite().nonnegative(),
+      median: z.number().finite().nonnegative(),
+      p75: z.number().finite().nonnegative()
+    })
+    .optional()
 });
 
 export const EstimateItemSchema = z.object({
@@ -46,7 +72,24 @@ export const EstimateItemSchema = z.object({
   resourceType: ResourceTypeSchema,
   source: PriceSourceSchema,
   comment: z.string().default(""),
-  warning: z.string().default("")
+  warning: z.string().default(""),
+  canonicalWorkId: z.string().optional(),
+  suggestedUnitPrice: z.number().finite().nonnegative().optional(),
+  priceObservationId: z.string().optional(),
+  priceContext: z
+    .object({
+      materialsIncluded: z.boolean().default(false),
+      deliveryIncluded: z.boolean().default(false),
+      equipmentIncluded: z.boolean().default(false),
+      vatIncluded: z.boolean().default(false),
+      layerThicknessMm: z.number().finite().nonnegative().optional(),
+      constrainedConditions: z.boolean().default(false),
+      floor: z.number().int().optional(),
+      qualityLevel: z.string().default("standard"),
+      urgency: z.string().default("normal"),
+      season: z.string().default("")
+    })
+    .optional()
 });
 
 export const EstimateSectionSchema = z.object({
@@ -93,10 +136,12 @@ export const EstimateDraftSchema = z.object({
   assumptions: z.array(z.string()).default([]),
   warnings: z.array(z.string()).default([]),
   reviewerNotes: z.array(z.string()).default([]),
-  updatedAt: z.string().default(() => new Date().toISOString())
+  updatedAt: z.string().default(() => new Date().toISOString()),
+  deletedAt: z.string().nullable().optional()
 });
 
 export type ResourceType = z.infer<typeof ResourceTypeSchema>;
+export type PriceObservationStatus = z.infer<typeof PriceObservationStatusSchema>;
 export type PriceSource = z.infer<typeof PriceSourceSchema>;
 export type EstimateItem = z.infer<typeof EstimateItemSchema>;
 export type EstimateSection = z.infer<typeof EstimateSectionSchema>;
