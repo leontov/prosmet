@@ -1,5 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 
+// One-shot source migration. The workflow removes this file after committing
+// the corrected React markup, so the repository keeps only production source.
 const path = "components/tools/estimate-document-experience.tsx";
 const source = await readFile(path, "utf8");
 const before = `          <button type="button" onClick={onOpenPrice} className="group/price relative flex min-h-11 flex-col items-end justify-center px-2 text-right hover:bg-indigo-50">
