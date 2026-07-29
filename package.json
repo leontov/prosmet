@@ -14,7 +14,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "playwright test",
-    "source:contract": "node scripts/source-contract-v2.mjs && node scripts/server-runtime-contract.mjs",
+    "db:migrate": "node deployment/migrate-postgres.mjs",
+    "source:contract": "node scripts/source-contract-v2.mjs && node scripts/server-runtime-contract.mjs && node scripts/schema-migration-contract.mjs",
     "verify": "npm run source:contract && npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {
