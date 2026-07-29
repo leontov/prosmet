@@ -12,8 +12,8 @@ export async function GET() {
     {
       ok,
       service: "prosmet",
-      version: "2.3.2",
-      releaseCandidate: "editor-v2-price-intelligence-relay",
+      version: "2.3.3",
+      releaseCandidate: "editor-v2-mobile-price-intelligence-relay",
       releaseSha: process.env.PROSMET_RELEASE_SHA || "development",
       time: new Date().toISOString(),
       frontend: {
@@ -22,7 +22,8 @@ export async function GET() {
         codexDesktopShell: true,
         leftSidebar: true,
         rightInspector: true,
-        estimateEditor: "document-v2"
+        estimateEditor: "document-v2",
+        mobileEstimateEditor: true
       },
       backend: {
         runtime: "Next.js Node server",
@@ -45,6 +46,7 @@ export async function GET() {
         technologyCard: true,
         editableEstimate: true,
         estimateDocumentEditorV2: true,
+        mobileEstimateEditing: true,
         immutableEstimateRevisions: true,
         priceIntelligence: true,
         immutablePriceHistory: true,
