@@ -5,6 +5,8 @@ on:
     branches: [main]
     paths:
       - .prosmet-patches/editor-price-v2.tar.gz
+      - .github/workflows/apply-editor-price-v2.yml
+  workflow_dispatch:
 
 permissions:
   contents: write
