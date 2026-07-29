@@ -1,4 +1,9 @@
-import { createServer, type Server } from "node:http";
+import {
+  createServer,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse
+} from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 import { executePreparedProvider } from "@/lib/server/agents/provider-executor";
 
@@ -9,13 +14,16 @@ afterEach(async () => {
     servers.splice(0).map(
       (server) =>
         new Promise<void>((resolve) => {
+          server.closeAllConnections?.();
           server.close(() => resolve());
         })
     )
   );
 });
 
-async function fakeProvider(handler: Parameters<typeof createServer>[0]) {
+async function fakeProvider(
+  handler: (request: IncomingMessage, response: ServerResponse) => void
+) {
   const server = createServer(handler);
   servers.push(server);
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -55,7 +63,7 @@ describe("selected provider executor", () => {
     let requestBody = "";
     const baseUrl = await fakeProvider((request, response) => {
       authorization = String(request.headers.authorization ?? "");
-      request.on("data", (chunk) => {
+      request.on("data", (chunk: Buffer) => {
         requestBody += chunk.toString("utf8");
       });
       request.on("end", () => {
@@ -98,10 +106,12 @@ describe("selected provider executor", () => {
 
   it("cancels an active provider request through AbortSignal", async () => {
     const baseUrl = await fakeProvider((_request, response) => {
-      setTimeout(() => {
+      const timer = setTimeout(() => {
+        if (response.destroyed || response.writableEnded) return;
         response.writeHead(200, { "content-type": "application/json" });
         response.end("{}");
       }, 5_000);
+      response.on("close", () => clearTimeout(timer));
     });
     const controller = new AbortController();
     const run = executePreparedProvider(prepared(baseUrl), {
