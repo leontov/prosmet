@@ -120,7 +120,16 @@ test("all workspace sections and thread history actions are functional", async (
   }
 
   await estimatesView.getByRole("button", { name: "Открыть в чате" }).click();
-  await expect(page.getByTestId("estimate-artifact-card")).toBeVisible();
+  // The chat restores the user's last visual state. A saved estimate may open
+  // as its print preview rather than being collapsed back into the compact
+  // card, but the canonical estimate experience must remain mounted and usable.
+  const estimateExperience = page.getByTestId("estimate-document-experience");
+  await expect(estimateExperience).toBeVisible();
+  await expect(
+    estimateExperience
+      .getByTestId("estimate-artifact-card")
+      .or(estimateExperience.getByTestId("estimate-revision-preview"))
+  ).toBeVisible();
 
   await send(page, "Сделай коммерческое предложение по текущей смете.");
   const documentEditor = page.getByTestId("document-editor");
@@ -169,7 +178,7 @@ test("all workspace sections and thread history actions are functional", async (
   await expect(profile.getByRole("button", { name: "Сохранено" })).toBeVisible();
 
   await navigate(page, "Сметы и чаты");
-  await expect(page.getByTestId("estimate-artifact-card")).toBeVisible();
+  await expect(page.getByTestId("estimate-document-experience")).toBeVisible();
 
   let sidebar = await openThreadMenu(page, threadTitle);
   await sidebar.getByRole("button", { name: "Переименовать", exact: true }).click();
