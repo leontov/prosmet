@@ -1,0 +1,38 @@
+name: Apply provider service recovery
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - scripts/apply-provider-service-bypass.mjs
+      - .github/workflows/apply-provider-service-bypass.yml
+
+permissions:
+  contents: write
+
+concurrency:
+  group: prosmet-provider-service-recovery
+  cancel-in-progress: true
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: true
+      - run: node scripts/apply-provider-service-bypass.mjs
+      - run: |
+          set -Eeuo pipefail
+          rm -f scripts/apply-provider-service-bypass.mjs
+          rm -f .github/workflows/apply-provider-service-bypass.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "fix(agent): keep provider settings reachable during provider outages"
+          git pull --rebase origin main
+          git push origin HEAD:main
