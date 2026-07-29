@@ -1,5 +1,6 @@
 "use client";
 
+import "@/lib/local/estimate-lifecycle";
 import { EstimateDocumentExperience } from "@/components/tools/estimate-document-experience";
 
 export function EstimateExperience({
