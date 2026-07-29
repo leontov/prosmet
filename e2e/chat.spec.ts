@@ -292,10 +292,24 @@ test("streaming chat creates a compact estimate card and document editor", async
   await expect(overlay.getByLabel("Название сметы")).toHaveValue(
     "Механизированная гипсовая штукатурка — 358 м²"
   );
-  const price = overlay.getByLabel("Цена позиции 1");
-  await price.fill("650");
-  await price.blur();
-  await expect(price).toHaveValue("650");
+  if (testInfo.project.name === "mobile-chromium") {
+    await overlay
+      .getByRole("button", { name: /Укрытие и защита поверхностей/ })
+      .click();
+    const rowEditor = page.getByRole("dialog", { name: "Редактирование позиции" });
+    await expect(rowEditor).toBeVisible();
+    const mobilePrice = rowEditor.getByLabel("Цена");
+    await mobilePrice.fill("650");
+    await mobilePrice.blur();
+    await expect(mobilePrice).toHaveValue("650");
+    await rowEditor.getByRole("button", { name: "Готово", exact: true }).click();
+    await expect(rowEditor).toHaveCount(0);
+  } else {
+    const price = overlay.getByLabel("Цена позиции 1");
+    await price.fill("650");
+    await price.blur();
+    await expect(price).toHaveValue("650");
+  }
 
   await overlay.getByRole("button", { name: "Готово", exact: true }).click();
   const preview = page.getByTestId("estimate-revision-preview");

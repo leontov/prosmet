@@ -569,6 +569,8 @@ export function EstimateDocumentExperience({
           onClose={() => setActiveRow(null)}
           onChange={updateItem}
           onDelete={deleteItem}
+          onPriceFocus={beginPriceEdit}
+          onPriceBlur={(item) => void finishPriceEdit(item)}
           onOpenPrice={() => {
             setPriceRow(activeRow);
             setActiveRow(null);
@@ -1108,6 +1110,8 @@ function EstimateRowDetailsSheet({
   onClose,
   onChange,
   onDelete,
+  onPriceFocus,
+  onPriceBlur,
   onOpenPrice
 }: {
   draft: EstimateDraft;
@@ -1115,6 +1119,8 @@ function EstimateRowDetailsSheet({
   onClose: () => void;
   onChange: <K extends keyof EstimateItem>(sectionId: string, itemId: string, key: K, value: EstimateItem[K], remember?: boolean) => void;
   onDelete: (sectionId: string, itemId: string) => void;
+  onPriceFocus: (item: EstimateItem) => void;
+  onPriceBlur: (item: EstimateItem) => void;
   onOpenPrice: () => void;
 }) {
   const target = findItem(draft, row);
@@ -1131,7 +1137,40 @@ function EstimateRowDetailsSheet({
           <Field label="Наименование" wide><input className="prosmet-input" value={item.name} onChange={(event) => onChange(row.sectionId, row.itemId, "name", event.target.value)} /></Field>
           <Field label="Количество"><input className="prosmet-input" type="number" min="0" step="any" value={item.quantity} onChange={(event) => onChange(row.sectionId, row.itemId, "quantity", Math.max(0, Number(event.target.value) || 0))} /></Field>
           <Field label="Единица"><input className="prosmet-input" value={item.unit} onChange={(event) => onChange(row.sectionId, row.itemId, "unit", event.target.value)} /></Field>
-          <Field label="Цена"><button type="button" onClick={onOpenPrice} className="prosmet-input flex items-center justify-between text-left"><span>{item.unitPrice}</span><span className="text-xs text-indigo-600">Открыть аналитику</span></button></Field>
+          <Field label="Цена">
+            <div className="grid gap-2">
+              <input
+                className="prosmet-input"
+                type="number"
+                min="0"
+                step="any"
+                value={item.unitPrice}
+                onFocus={() => onPriceFocus(item)}
+                onChange={(event) =>
+                  onChange(
+                    row.sectionId,
+                    row.itemId,
+                    "unitPrice",
+                    Math.max(0, Number(event.target.value) || 0),
+                    false
+                  )
+                }
+                onBlur={(event) =>
+                  onPriceBlur({
+                    ...item,
+                    unitPrice: Math.max(0, Number(event.currentTarget.value) || 0)
+                  })
+                }
+              />
+              <button
+                type="button"
+                onClick={onOpenPrice}
+                className="h-9 rounded-lg border border-neutral-200 px-3 text-xs font-semibold text-indigo-700 hover:bg-indigo-50"
+              >
+                Открыть аналитику цены
+              </button>
+            </div>
+          </Field>
           <Field label="Код нормы"><input className="prosmet-input" value={item.code} onChange={(event) => onChange(row.sectionId, row.itemId, "code", event.target.value)} /></Field>
           <Field label="Тип ресурса"><select className="prosmet-input" value={item.resourceType} onChange={(event) => onChange(row.sectionId, row.itemId, "resourceType", event.target.value as ResourceType)}>{Object.entries(resourceLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
           <Field label="Норма"><input className="prosmet-input" type="number" min="0.000001" step="any" value={item.norm} onChange={(event) => onChange(row.sectionId, row.itemId, "norm", Math.max(0.000001, Number(event.target.value) || 1))} /></Field>
