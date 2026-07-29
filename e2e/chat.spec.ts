@@ -11,6 +11,11 @@ const REQUIRED_STORES = [
   "documents",
   "documentRevisions",
   "prices",
+  "canonicalWorks",
+  "priceObservations",
+  "priceHistory",
+  "marketPriceBuckets",
+  "priceResearchEvidence",
   "files",
   "outbox",
   "syncState"
@@ -64,8 +69,7 @@ async function waitForPersistedEstimateMessage(page: import("@playwright/test").
                   const messages = transaction.objectStore("messages").getAll();
                   transaction.oncomplete = () => {
                     const persisted = (messages.result as Array<{ message?: unknown }>).some(
-                      (record) =>
-                        JSON.stringify(record.message ?? {}).includes("estimate_draft")
+                      (record) => JSON.stringify(record.message ?? {}).includes("estimate_draft")
                     );
                     database.close();
                     resolve(persisted);
@@ -126,7 +130,7 @@ function watchRuntimeErrors(page: import("@playwright/test").Page) {
 
 function relevantRuntimeErrors(errors: string[]) {
   return errors.filter((message) =>
-    /Content Security Policy|Refused to execute inline script|Refused to evaluate|blocks the use of ['"]eval['"]|unsafe-eval|EvalError|hydration|Connection closed|randomUUID is not a function|sql-wasm|both async and sync fetching|wasm streaming compile failed|ZodError|messageId.*Required|Maximum update depth exceeded|Too many re-renders|Page crashed|out of memory|IndexedDB.*not found/i.test(
+    /Content Security Policy|Refused to execute inline script|Refused to evaluate|blocks the use of ['"]eval['"]|unsafe-eval|EvalError|hydration|Connection closed|randomUUID is not a function|sql-wasm|both async and sync fetching|wasm streaming compile failed|ZodError|messageId.*Required|Maximum update depth exceeded|Too many re-renders|Page crashed|out of memory|IndexedDB.*not found|validateDOMNesting/i.test(
       message
     )
   );
@@ -165,7 +169,7 @@ test("plain HTTP boots with native IndexedDB and no browser WASM", async ({ page
     return databases.find((database) => database.name === databaseName);
   }, DB_NAME);
   expect(localDatabase?.name).toBe(DB_NAME);
-  expect(Number(localDatabase?.version)).toBeGreaterThanOrEqual(2);
+  expect(Number(localDatabase?.version)).toBeGreaterThanOrEqual(3);
 
   for (const obsolete of ["/sql-wasm.wasm", "/sql-wasm-browser.wasm"]) {
     const asset = await page.request.get(obsolete);
@@ -266,34 +270,37 @@ test("Codex desktop shell hydrates without eval and exposes both sidebars", asyn
   });
 });
 
-test("streaming chat creates a technology card and editable estimate", async ({
+test("streaming chat creates a compact estimate card and document editor", async ({
   page
 }, testInfo) => {
   const runtimeErrors = watchRuntimeErrors(page);
   await page.goto("/");
   await expect(page.getByTestId("chat-empty-state")).toBeVisible();
-  await expect(page.getByRole("heading", { name: /Смета и документы/ })).toBeVisible();
-
   await sendPrompt(
     page,
     "Составь полную смету механизированной гипсовой штукатурки 358 м² в Лениногорске. Средний слой 15 мм. Учти подготовку, маяки, углы, материалы, логистику и уборку."
   );
 
   await expect(page.getByText(/Подготовил технологическую карту/)).toBeVisible();
-  await expect(page.getByText(/технологических операций/)).toBeVisible();
-  const editor = page.getByTestId("estimate-editor");
-  await expect(editor).toBeVisible({ timeout: 30_000 });
-  await expect(editor.getByLabel("Название сметы")).toHaveValue(
+  const card = page.getByTestId("estimate-artifact-card");
+  await expect(card).toBeVisible({ timeout: 30_000 });
+  await expect(card.getByRole("button", { name: /Открыть смету/ })).toBeVisible();
+  await card.getByRole("button", { name: /Открыть смету/ }).click();
+
+  const overlay = page.getByTestId("estimate-document-overlay");
+  await expect(overlay).toBeVisible();
+  await expect(overlay.getByLabel("Название сметы")).toHaveValue(
     "Механизированная гипсовая штукатурка — 358 м²"
   );
+  const price = overlay.getByLabel("Цена позиции 1");
+  await price.fill("650");
+  await price.blur();
+  await expect(price).toHaveValue("650");
 
-  const price = editor.getByLabel("Цена позиции 1").first();
-  await price.fill("50");
-  await expect(price).toHaveValue("50");
-  await editor.getByRole("button", { name: "Сохранить", exact: true }).click();
-  await expect(editor.getByRole("button", { name: "Сохранено", exact: true })).toBeVisible();
-  await editor.getByRole("button", { name: "Утвердить", exact: true }).click();
-  await expect(editor.getByText("Утверждена", { exact: true })).toBeVisible();
+  await overlay.getByRole("button", { name: "Готово", exact: true }).click();
+  const preview = page.getByTestId("estimate-revision-preview");
+  await expect(preview).toBeVisible({ timeout: 30_000 });
+  await expect(preview.getByText(/Версия 2/)).toBeVisible();
 
   expect(relevantRuntimeErrors(runtimeErrors)).toEqual([]);
   await openMenuIfMobile(page);
@@ -304,21 +311,23 @@ test("streaming chat creates a technology card and editable estimate", async ({
   });
 });
 
-test("reload restores the active conversation and local estimate", async ({ page }) => {
+test("reload restores the compact card and opens the saved document", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByTestId("chat-empty-state")).toBeVisible();
   await sendPrompt(
     page,
     "Составь полную смету механизированной штукатурки 120 м² в Казани, слой 10 мм."
   );
-  await expect(page.getByTestId("estimate-editor")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId("estimate-artifact-card")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByRole("button", { name: "Остановить генерацию" })).toHaveCount(0, {
     timeout: 30_000
   });
   await waitForPersistedEstimateMessage(page);
   await page.reload();
-  await expect(page.getByTestId("estimate-editor")).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByLabel("Название сметы")).toHaveValue(
+  const card = page.getByTestId("estimate-artifact-card");
+  await expect(card).toBeVisible({ timeout: 30_000 });
+  await card.getByRole("button", { name: /Открыть смету/ }).click();
+  await expect(page.getByTestId("estimate-document-overlay").getByLabel("Название сметы")).toHaveValue(
     "Механизированная гипсовая штукатурка — 120 м²"
   );
 });
