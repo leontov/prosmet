@@ -9,6 +9,7 @@
     "production-build",
     "desktop-chromium",
     "mobile-chromium",
+    "pdf-download-preserves-thread",
     "postgresql-sync",
     "immutable-deploy",
     "live-sha"
