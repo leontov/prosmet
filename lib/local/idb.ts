@@ -1,9 +1,9 @@
 "use client";
 
 const DB_NAME = "prosmet-cache-v3";
-// Version 2 upgrades every incomplete version-1 database created by the old
-// runtime/test race and adds any missing stores or indexes without deleting data.
-const DB_VERSION = 2;
+// Version 3 adds immutable Price Intelligence stores while retaining every
+// thread, message, estimate, document and price created by earlier versions.
+const DB_VERSION = 3;
 const OPEN_TIMEOUT_MS = 8_000;
 
 export const LOCAL_STORES = {
@@ -15,6 +15,11 @@ export const LOCAL_STORES = {
   documents: "documents",
   documentRevisions: "documentRevisions",
   prices: "prices",
+  canonicalWorks: "canonicalWorks",
+  priceObservations: "priceObservations",
+  priceHistory: "priceHistory",
+  marketPriceBuckets: "marketPriceBuckets",
+  priceResearchEvidence: "priceResearchEvidence",
   files: "files",
   outbox: "outbox",
   syncState: "syncState"
@@ -85,6 +90,7 @@ function createSchema(database: IDBDatabase, transaction: IDBTransaction) {
   });
   ensureIndex(estimates, "threadId", "threadId");
   ensureIndex(estimates, "updatedAt", "updatedAt");
+  ensureIndex(estimates, "deletedAt", "deletedAt");
 
   const estimateRevisions = ensureStore(
     database,
@@ -113,6 +119,52 @@ function createSchema(database: IDBDatabase, transaction: IDBTransaction) {
   });
   ensureIndex(prices, "lookup", ["normalizedName", "unit"]);
   ensureIndex(prices, "updatedAt", "updatedAt");
+
+  const canonicalWorks = ensureStore(database, transaction, LOCAL_STORES.canonicalWorks, {
+    keyPath: "id"
+  });
+  ensureIndex(canonicalWorks, "canonicalName", "canonicalName");
+  ensureIndex(canonicalWorks, "category", "category");
+  ensureIndex(canonicalWorks, "active", "active");
+
+  const priceObservations = ensureStore(
+    database,
+    transaction,
+    LOCAL_STORES.priceObservations,
+    { keyPath: "id" }
+  );
+  ensureIndex(priceObservations, "workUnit", ["canonicalWorkId", "unit"]);
+  ensureIndex(priceObservations, "workRegion", ["canonicalWorkId", "region"]);
+  ensureIndex(priceObservations, "estimateItem", ["estimateId", "estimateItemId"]);
+  ensureIndex(priceObservations, "status", "status");
+  ensureIndex(priceObservations, "observedAt", "observedAt");
+
+  const priceHistory = ensureStore(database, transaction, LOCAL_STORES.priceHistory, {
+    keyPath: "id"
+  });
+  ensureIndex(priceHistory, "estimateItem", ["estimateId", "estimateItemId"]);
+  ensureIndex(priceHistory, "canonicalWorkId", "canonicalWorkId");
+  ensureIndex(priceHistory, "changedAt", "changedAt");
+
+  const marketPriceBuckets = ensureStore(
+    database,
+    transaction,
+    LOCAL_STORES.marketPriceBuckets,
+    { keyPath: "id" }
+  );
+  ensureIndex(marketPriceBuckets, "workRegion", ["canonicalWorkId", "region"]);
+  ensureIndex(marketPriceBuckets, "timeBucket", "timeBucket");
+  ensureIndex(marketPriceBuckets, "updatedAt", "updatedAt");
+
+  const priceResearchEvidence = ensureStore(
+    database,
+    transaction,
+    LOCAL_STORES.priceResearchEvidence,
+    { keyPath: "id" }
+  );
+  ensureIndex(priceResearchEvidence, "canonicalWorkId", "canonicalWorkId");
+  ensureIndex(priceResearchEvidence, "region", "region");
+  ensureIndex(priceResearchEvidence, "observedAt", "observedAt");
 
   const files = ensureStore(database, transaction, LOCAL_STORES.files, {
     keyPath: "id"
