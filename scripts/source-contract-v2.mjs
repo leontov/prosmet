@@ -21,8 +21,12 @@ const required = [
   "components/app/right-inspector.tsx",
   "components/app/workspace-library.tsx",
   "components/chat/prosmet-thread.tsx",
-  "components/tools/estimate-editor.tsx",
+  "components/tools/estimate-experience.tsx",
+  "components/tools/estimate-document-experience.tsx",
   "components/tools/document-editor.tsx",
+  "lib/domain/price-intelligence.ts",
+  "lib/local/price-intelligence.ts",
+  "lib/local/estimate-lifecycle.ts",
   "lib/local/catalog.ts",
   "lib/local/context.tsx",
   "lib/local/idb.ts",
@@ -109,7 +113,7 @@ for (const token of [
 const idb = await read("lib/local/idb.ts");
 for (const token of [
   "prosmet-cache-v3",
-  "const DB_VERSION = 2",
+  "const DB_VERSION = 3",
   "indexedDB.open",
   "threads",
   "messages",
@@ -118,6 +122,11 @@ for (const token of [
   "documents",
   "documentRevisions",
   "prices",
+  "canonicalWorks",
+  "priceObservations",
+  "priceHistory",
+  "marketPriceBuckets",
+  "priceResearchEvidence",
   "files",
   "outbox",
   "syncState",
@@ -138,6 +147,87 @@ for (const path of ["lib/local/repository.ts", "lib/local/files.ts", "lib/local/
     forbid(source, token, path);
   }
 }
+
+const priceDomain = await read("lib/domain/price-intelligence.ts");
+for (const token of [
+  "PriceObservationSchema",
+  "MarketPriceBucketSchema",
+  "PriceHistoryEventSchema",
+  "canonicalWorkId",
+  "priceContextHash",
+  "rankPriceCandidates",
+  "aggregateMarketPrices",
+  "sourceWeights",
+  "statusWeights",
+  "percentile"
+]) {
+  need(priceDomain, token, "price-intelligence-domain");
+}
+
+const localPrices = await read("lib/local/price-intelligence.ts");
+for (const token of [
+  "recordSuggestedEstimatePrices",
+  "recordPriceEdit",
+  "recordEstimatePriceStatus",
+  "resolveLocalPrice",
+  "listPriceHistory",
+  "saveResearchEvidence",
+  "LOCAL_STORES.priceObservations",
+  "LOCAL_STORES.priceHistory",
+  "LOCAL_STORES.marketPriceBuckets",
+  "entityType: \"price\""
+]) {
+  need(localPrices, token, "price-intelligence-local");
+}
+
+const lifecycle = await read("lib/local/estimate-lifecycle.ts");
+for (const token of [
+  "deleteEstimateRecord",
+  "restoreEstimateRecord",
+  "operation: \"delete\"",
+  "ProsmetRepository.prototype.deleteEstimate",
+  "ProsmetRepository.prototype.restoreEstimate"
+]) {
+  need(lifecycle, token, "estimate-lifecycle");
+}
+
+const editorExperience = await read("components/tools/estimate-document-experience.tsx");
+for (const token of [
+  "EstimateArtifactCard",
+  "EstimateDocumentOverlay",
+  "EstimateDocumentCanvas",
+  "EstimateLineRow",
+  "EstimateRowDetailsSheet",
+  "PriceInspector",
+  "EstimateRevisionPreview",
+  'data-testid="estimate-artifact-card"',
+  'data-testid="estimate-document-overlay"',
+  'data-testid="estimate-document-canvas"',
+  'data-testid="price-inspector"',
+  "Открыть смету",
+  "Готово",
+  "Добавить позицию",
+  "Добавить раздел",
+  "Расчёт итога",
+  "Основание расчёта",
+  "recordPriceEdit",
+  "resolveLocalPrice",
+  "recordEstimatePriceStatus"
+]) {
+  need(editorExperience, token, "estimate-editor-v2");
+}
+for (const token of [
+  "Интерактивная смета",
+  "xl:grid-cols-[78px_86px",
+  "Смета для работы на объекте"
+]) {
+  forbid(editorExperience, token, "estimate-editor-v2");
+}
+
+const editorWrapper = await read("components/tools/estimate-experience.tsx");
+need(editorWrapper, "EstimateDocumentExperience", "estimate-experience-wrapper");
+need(editorWrapper, "estimate-lifecycle", "estimate-experience-wrapper");
+forbid(editorWrapper, "EstimateEditor", "estimate-experience-wrapper");
 
 const catalog = await read("lib/local/catalog.ts");
 for (const token of [
@@ -366,4 +456,5 @@ if (failures.length) {
   for (const failure of failures) console.error(`- ${failure}`);
   process.exit(1);
 }
+
 console.log(`SOURCE CONTRACT PASS (${required.length} required files)`);
