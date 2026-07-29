@@ -7,7 +7,6 @@ type VirtualFileSystem = Record<string, string>;
 
 type PdfDocument = {
   getBlob: (callback: (blob: Blob) => void) => void;
-  download: (filename?: string, callback?: () => void, options?: unknown) => void;
 };
 
 type PdfMakeApi = {
@@ -32,11 +31,13 @@ function saveBlob(blob: Blob, filename: string) {
   const anchor = document.createElement("a");
   anchor.href = url;
   anchor.download = filename;
+  anchor.rel = "noopener";
   anchor.style.display = "none";
   document.body.appendChild(anchor);
   anchor.click();
   anchor.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 2_000);
+  // Do not revoke synchronously: Chromium resolves the download asynchronously.
+  window.setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
 
 function isVirtualFileSystem(value: unknown): value is VirtualFileSystem {
@@ -88,9 +89,6 @@ async function loadPdfMake() {
       throw new Error("Встроенные шрифты PDF не загрузились");
     }
 
-    // pdfmake >= 0.2.15 exports vfs_fonts as the VFS object itself. Older
-    // bundles exposed nested pdfMake.vfs. Prefer the public registration API
-    // and retain assignment only for compatible older builds.
     if (typeof pdfMake.addVirtualFileSystem === "function") {
       pdfMake.addVirtualFileSystem(vfs);
     } else {
@@ -273,12 +271,12 @@ export async function createEstimatePdfBlob(draft: EstimateDraft) {
 }
 
 export async function exportEstimatePdf(draft: EstimateDraft) {
-  const pdfDocument = await createEstimatePdfDocument(draft);
-  await withPdfTimeout<void>("Загрузка PDF", (resolve) => {
-    // Official pdfmake 0.2 client helper. Using it directly produces a real
-    // browser download event and avoids a fragile delayed blob-anchor click.
-    pdfDocument.download(estimatePdfFilename(draft), () => resolve());
-  });
+  // pdfmake's built-in `download()` helper may replace the current page with a
+  // blob URL in some headless/embedded Chromium builds. Generate the blob
+  // explicitly and use an anchor carrying the HTML download attribute so the
+  // active chat/editor remains mounted after the browser download event.
+  const blob = await createEstimatePdfBlob(draft);
+  saveBlob(blob, estimatePdfFilename(draft));
 }
 
 export async function exportEstimateXlsx(draft: EstimateDraft) {
@@ -358,35 +356,31 @@ export async function exportEstimateXlsx(draft: EstimateDraft) {
     ["Прибыль", calculation.profit],
     ["Скидка", -calculation.discount],
     ["НДС", calculation.vat],
-    ["ИТОГО", calculation.total]
+    ["Итого", calculation.total]
   ] as const;
   for (const [label, value] of totals) {
-    const row = sheet.addRow(["", "", "", "", "", "", "", label, "", value]);
-    row.getCell(8).font = { bold: label === "ИТОГО" };
-    row.getCell(10).font = { bold: label === "ИТОГО" };
-    row.getCell(10).numFmt = "#,##0.00";
+    const row = sheet.addRow([label, value]);
+    row.getCell(1).font = { bold: label === "Итого" };
+    row.getCell(2).font = { bold: label === "Итого" };
+    row.getCell(2).numFmt = "#,##0.00";
   }
 
   sheet.columns = [
     { width: 7 },
     { width: 16 },
-    { width: 48 },
-    { width: 18 },
+    { width: 42 },
+    { width: 16 },
     { width: 10 },
     { width: 14 },
     { width: 12 },
     { width: 14 },
-    { width: 15 },
-    { width: 17 }
+    { width: 14 },
+    { width: 16 }
   ];
-  sheet.eachRow((row) => {
-    row.alignment = { vertical: "middle", wrapText: true };
-  });
 
   const buffer = await workbook.xlsx.writeBuffer();
-  const bytes = new Uint8Array(buffer as ArrayBuffer);
   saveBlob(
-    new Blob([bytes], {
+    new Blob([buffer], {
       type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     }),
     `${safeName(draft.title)}-v${draft.revision}.xlsx`
