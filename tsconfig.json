@@ -16,6 +16,7 @@
     "plugins": [{ "name": "next" }],
     "paths": {
       "@/lib/server/postgres": ["./lib/server/postgres-compat.ts"],
+      "@/lib/server/price-intelligence": ["./lib/server/price-intelligence-compat.ts"],
       "@/*": ["./*"]
     }
   },
