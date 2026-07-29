@@ -48,7 +48,7 @@ async function estimateStatus(page: Page) {
 
 test("a measurer edits the printable estimate and hands it to a client", async ({
   page
-}) => {
+}, testInfo) => {
   const runtimeErrors = watchErrors(page);
   await page.addInitScript(() => {
     const opened: string[] = [];
@@ -84,10 +84,25 @@ test("a measurer edits the printable estimate and hands it to a client", async (
   await expect(overlay).toBeVisible();
   await expect(overlay.getByLabel("Объект")).toHaveValue("Квартира Ивановых, Казань");
   await expect(overlay.getByLabel("Заказчик")).toHaveValue("Иванов Алексей");
-  const workPrice = overlay.getByLabel("Цена позиции 1");
-  await workPrice.fill("650");
-  await workPrice.blur();
-  await expect(workPrice).toHaveValue("650");
+
+  if (testInfo.project.name === "mobile-chromium") {
+    await overlay
+      .getByRole("button", { name: /Укрытие и защита поверхностей/ })
+      .click();
+    const rowEditor = page.getByRole("dialog", { name: "Редактирование позиции" });
+    await expect(rowEditor).toBeVisible();
+    const mobilePrice = rowEditor.getByLabel("Цена");
+    await mobilePrice.fill("650");
+    await mobilePrice.blur();
+    await expect(mobilePrice).toHaveValue("650");
+    await rowEditor.getByRole("button", { name: "Готово", exact: true }).click();
+    await expect(rowEditor).toHaveCount(0);
+  } else {
+    const workPrice = overlay.getByLabel("Цена позиции 1");
+    await workPrice.fill("650");
+    await workPrice.blur();
+    await expect(workPrice).toHaveValue("650");
+  }
 
   await overlay.getByRole("button", { name: "Готово", exact: true }).click();
   const preview = page.getByTestId("estimate-revision-preview");
