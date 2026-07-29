@@ -12,8 +12,8 @@ export async function GET() {
     {
       ok,
       service: "prosmet",
-      version: "2.3.3",
-      releaseCandidate: "editor-v2-mobile-price-intelligence-relay",
+      version: "2.4.0",
+      releaseCandidate: "selected-provider-executor",
       releaseSha: process.env.PROSMET_RELEASE_SHA || "development",
       time: new Date().toISOString(),
       frontend: {
@@ -31,7 +31,8 @@ export async function GET() {
         syncEndpoint: "/api/sync",
         statusEndpoint: "/api/backend/status",
         agUiStreaming: true,
-        provider: process.env.PROSMET_DEFAULT_PROVIDER || "rules"
+        providerRouting: "tenant-selected",
+        hiddenFallback: false
       },
       database,
       localFirst: {
@@ -52,6 +53,13 @@ export async function GET() {
         immutablePriceHistory: true,
         regionalMarketBuckets: true,
         crossDevicePriceIntelligence: true,
+        selectedProviderExecution: true,
+        mimoAdapter: true,
+        openAiCompatibleAdapter: true,
+        ollamaAdapter: true,
+        codexCliAdapter: true,
+        providerCancellation: true,
+        encryptedProviderSecrets: true,
         editableDocuments: true,
         pdf: true,
         xlsx: true
