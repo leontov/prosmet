@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: prosmet-main-production
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   verify-and-deploy:
@@ -111,6 +111,11 @@ jobs:
           }
           NODE
 
+      - name: Migrate persistent PostgreSQL schema
+        run: |
+          set -o pipefail
+          node deployment/migrate-postgres.mjs 2>&1 | tee artifacts/database/postgres-migration.json
+
       - name: Source contract
         run: |
           set -o pipefail
@@ -137,6 +142,8 @@ jobs:
           npx playwright install chromium 2>&1 | tee artifacts/logs/chromium-install.log
 
       - name: Desktop and mobile Chromium before deployment
+        env:
+          DEBUG: pw:webserver
         run: |
           set -o pipefail
           npm run e2e 2>&1 | tee artifacts/logs/e2e-predeploy.log
@@ -206,6 +213,7 @@ jobs:
         run: |
           cp "$HOME/.prosmet/release.json" artifacts/release/release.json
           cp "$HOME/.prosmet/postgres-status.json" artifacts/database/postgres-status.json 2>/dev/null || true
+          cp "$HOME/.prosmet/postgres-migration.json" artifacts/database/postgres-deploy-migration.json 2>/dev/null || true
           cat > artifacts/release/summary.json <<JSON
           {
             "status": "PASS",
