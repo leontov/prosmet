@@ -27,6 +27,12 @@ if [[ -z "${PROSMET_PROVIDER_MASTER_KEY:-}" && -s "${PROVIDER_KEY_FILE}" ]]; the
 fi
 : "${PROSMET_PROVIDER_MASTER_KEY:?PROSMET_PROVIDER_MASTER_KEY is required}"
 
+# The database is persistent across immutable application releases. Apply the
+# idempotent, non-destructive compatibility migration before the new process is
+# allowed to replace the currently healthy release.
+DATABASE_URL="${DATABASE_URL}" node deployment/migrate-postgres.mjs \
+  > "${ROOT}/postgres-migration.json"
+
 mkdir -p "${ROOT}" "${RELEASES_ROOT}"
 rm -rf "${STAGING}"
 mkdir -p "${STAGING}/.next"
