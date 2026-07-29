@@ -21,7 +21,32 @@ function watchErrors(page: Page) {
   return errors;
 }
 
-test("a measurer can edit an estimate on site and hand it to a client", async ({
+async function estimateStatus(page: Page) {
+  return page.evaluate(
+    async () =>
+      new Promise<string | null>((resolve) => {
+        const request = indexedDB.open("prosmet-cache-v3");
+        request.onerror = () => resolve(null);
+        request.onsuccess = () => {
+          const database = request.result;
+          const transaction = database.transaction("estimates", "readonly");
+          const all = transaction.objectStore("estimates").getAll();
+          transaction.oncomplete = () => {
+            const latest = (all.result as Array<{ draft?: { status?: string }; updatedAt?: string }>)
+              .sort((left, right) => String(right.updatedAt).localeCompare(String(left.updatedAt)))[0];
+            database.close();
+            resolve(latest?.draft?.status ?? null);
+          };
+          transaction.onerror = () => {
+            database.close();
+            resolve(null);
+          };
+        };
+      })
+  );
+}
+
+test("a measurer edits the printable estimate and hands it to a client", async ({
   page
 }) => {
   const runtimeErrors = watchErrors(page);
@@ -51,40 +76,38 @@ test("a measurer can edit an estimate on site and hand it to a client", async ({
     ].join("\n")
   );
 
-  const handoff = page.getByTestId("estimate-handoff");
-  const editor = page.getByTestId("estimate-editor");
-  await expect(handoff).toBeVisible({ timeout: 30_000 });
-  await expect(editor).toBeVisible({ timeout: 30_000 });
+  const card = page.getByTestId("estimate-artifact-card");
+  await expect(card).toBeVisible({ timeout: 30_000 });
+  await card.getByRole("button", { name: /Открыть смету/ }).click();
 
-  await expect(editor.getByLabel("Объект")).toHaveValue("Квартира Ивановых, Казань");
-  await expect(editor.getByLabel("Заказчик")).toHaveValue("Иванов Алексей");
-  const workPrice = editor.getByLabel("Цена позиции 1").last();
+  const overlay = page.getByTestId("estimate-document-overlay");
+  await expect(overlay).toBeVisible();
+  await expect(overlay.getByLabel("Объект")).toHaveValue("Квартира Ивановых, Казань");
+  await expect(overlay.getByLabel("Заказчик")).toHaveValue("Иванов Алексей");
+  const workPrice = overlay.getByLabel("Цена позиции 1");
   await workPrice.fill("650");
+  await workPrice.blur();
   await expect(workPrice).toHaveValue("650");
 
-  await handoff.getByRole("button", { name: "Поделиться сметой с клиентом" }).click();
-  const share = page.getByRole("dialog", { name: "Передать смету клиенту" });
-  await expect(share).toBeVisible({ timeout: 30_000 });
-  await expect(
-    share.getByText("Квартира Ивановых, Казань · Иванов Алексей", { exact: true })
-  ).toBeVisible();
+  await overlay.getByRole("button", { name: "Готово", exact: true }).click();
+  const preview = page.getByTestId("estimate-revision-preview");
+  await expect(preview).toBeVisible({ timeout: 30_000 });
+
+  const pdfDownload = page.waitForEvent("download");
+  await preview.getByRole("button", { name: /Скачать PDF/ }).click();
+  expect((await pdfDownload).suggestedFilename()).toMatch(/\.pdf$/i);
+
+  await preview.getByRole("button", { name: /Поделиться/ }).click();
+  const share = page.getByRole("dialog", { name: "Передача сметы клиенту" });
+  await expect(share).toBeVisible();
   await expect(share.getByRole("button", { name: /WhatsApp/ })).toBeVisible();
   await expect(share.getByRole("button", { name: /Электронная почта/ })).toBeVisible();
   await expect(share.getByRole("button", { name: /Скачать PDF/ })).toBeVisible();
   await expect(share.getByRole("button", { name: /Скопировать итог/ })).toBeVisible();
 
-  await share.getByRole("button", { name: /Скопировать итог/ }).click();
-  await expect(share.getByText(/Краткая смета скопирована/)).toBeVisible();
-
-  const pdfDownload = page.waitForEvent("download");
-  await share.getByRole("button", { name: /Скачать PDF/ }).click();
-  expect((await pdfDownload).suggestedFilename()).toMatch(/\.pdf$/i);
-  await expect(share.getByText(/PDF сохранён на устройстве/)).toBeVisible();
-
   await share.getByRole("button", { name: /WhatsApp/ }).click();
   await expect(share).toHaveCount(0);
-  await expect(handoff.getByText("Передана клиенту", { exact: true })).toBeVisible();
-  await expect(page.getByTestId("estimate-editor").getByText("Передана клиенту", { exact: true })).toBeVisible();
+  await expect.poll(() => estimateStatus(page)).toBe("sent");
 
   const opened = await page.evaluate(
     () => (window as typeof window & { __prosmetOpenedUrls?: string[] }).__prosmetOpenedUrls ?? []
@@ -92,11 +115,12 @@ test("a measurer can edit an estimate on site and hand it to a client", async ({
   expect(opened.some((url) => url.startsWith("https://wa.me/?text="))).toBe(true);
 
   await page.reload();
-  await expect(page.getByTestId("estimate-handoff")).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByTestId("estimate-editor").getByText("Передана клиенту", { exact: true })).toBeVisible();
+  const restoredCard = page.getByTestId("estimate-artifact-card");
+  await expect(restoredCard).toBeVisible({ timeout: 30_000 });
+  await expect(restoredCard.getByText("Передана клиенту", { exact: true })).toBeVisible();
 
   const relevant = runtimeErrors.filter((message) =>
-    /Content Security Policy|hydration|Connection closed|ZodError|Maximum update depth|Too many re-renders|Page crashed|TypeError|ReferenceError/i.test(
+    /Content Security Policy|hydration|Connection closed|ZodError|Maximum update depth|Too many re-renders|Page crashed|TypeError|ReferenceError|validateDOMNesting/i.test(
       message
     )
   );
