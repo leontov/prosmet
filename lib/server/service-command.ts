@@ -35,7 +35,8 @@ function workspaceTool(section: "profile" | "estimating"): RulesRun {
 function providerHint(value: string) {
   if (/ollama|локальн.*модел/.test(value)) return "ollama";
   if (/mimo|ми ?мо/.test(value)) return "mimo";
-  if (/openai|codex|кодекс/.test(value)) return "openai-compatible";
+  if (/codex|кодекс/.test(value)) return "codex-cli";
+  if (/openai/.test(value)) return "openai-compatible";
   return "mimo";
 }
 

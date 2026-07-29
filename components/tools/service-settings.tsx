@@ -42,7 +42,7 @@ type WorkspaceSnapshot = {
   };
 };
 
-type ProviderKind = "rules" | "mimo" | "openai-compatible" | "ollama";
+type ProviderKind = "rules" | "mimo" | "openai-compatible" | "ollama" | "codex-cli";
 
 type ProviderConnection = {
   id: string;
@@ -443,7 +443,7 @@ export function ProviderSettingsTool({
 }) {
   const hint = record(args).providerHint;
   const initialKind: ProviderKind =
-    hint === "ollama" || hint === "openai-compatible" || hint === "rules"
+    hint === "ollama" || hint === "openai-compatible" || hint === "codex-cli" || hint === "rules"
       ? hint
       : "mimo";
   const [connections, setConnections] = useState<ProviderConnection[]>([]);
@@ -594,6 +594,7 @@ export function ProviderSettingsTool({
                 <option value="mimo">MiMo direct API</option>
                 <option value="openai-compatible">OpenAI-compatible API</option>
                 <option value="ollama">Ollama на сервере</option>
+                <option value="codex-cli">Codex CLI · ChatGPT на Primary</option>
                 <option value="rules">Встроенный сметный сервис</option>
               </select>
             </Field>
@@ -605,7 +606,7 @@ export function ProviderSettingsTool({
                 className={inputClass}
               />
             </Field>
-            {form.kind !== "rules" ? (
+            {form.kind !== "rules" && form.kind !== "codex-cli" ? (
               <Field label="Server-side endpoint">
                 <input
                   aria-label="Endpoint AI-провайдера"
@@ -655,7 +656,7 @@ export function ProviderSettingsTool({
           </label>
           <div className="mt-4 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2.5 text-xs leading-5 text-blue-800">
             <ShieldCheckIcon className="mr-1 inline size-3.5" />
-            Codex desktop не подключается как модель. Для OpenAI используется официальный API; MiMo и Ollama работают через отдельные server-side adapters.
+            MiMo, OpenAI-compatible и Ollama работают server-side. Codex CLI запускается только в изолированном read-only workspace Primary и использует server-side вход ChatGPT.
           </div>
           <ToolFeedback message={message} error={error} />
           <button
@@ -820,6 +821,16 @@ function providerDefaults(kind: ProviderKind) {
       kind,
       name: "OpenAI-compatible API",
       baseUrl: "https://api.openai.com/v1",
+      model: "",
+      apiKey: "",
+      selected: true
+    };
+  }
+  if (kind === "codex-cli") {
+    return {
+      kind,
+      name: "Codex CLI · ChatGPT",
+      baseUrl: "",
       model: "",
       apiKey: "",
       selected: true

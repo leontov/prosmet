@@ -8,6 +8,7 @@ import {
   randomUUID
 } from "node:crypto";
 import { z } from "zod";
+import { checkCodexCli } from "@/lib/server/agents/codex-cli";
 import {
   ensureTenant,
   getServerDatabase,
@@ -20,7 +21,8 @@ export const ProviderKindSchema = z.enum([
   "rules",
   "mimo",
   "openai-compatible",
-  "ollama"
+  "ollama",
+  "codex-cli"
 ]);
 
 export const ProviderConnectionInputSchema = z
@@ -35,7 +37,7 @@ export const ProviderConnectionInputSchema = z
     test: z.boolean().optional().default(true)
   })
   .superRefine((value, context) => {
-    if (value.kind !== "rules" && !value.baseUrl) {
+    if (!["rules", "codex-cli"].includes(value.kind) && !value.baseUrl) {
       context.addIssue({
         code: "custom",
         path: ["baseUrl"],
@@ -66,6 +68,10 @@ export type ProviderConnection = {
   lastError: string | null;
   lastCheckedAt: string | null;
   updatedAt: string;
+};
+
+export type ProviderRuntimeConnection = ProviderConnection & {
+  apiKey: string;
 };
 
 type ProviderRow = {
@@ -101,7 +107,7 @@ class ProviderConfigurationError extends Error {
 }
 
 function encryptionKey() {
-  const raw = process.env.PROSMET_MASTER_KEY?.trim();
+  const raw = (process.env.PROSMET_MASTER_KEY ?? process.env.PROSMET_PROVIDER_MASTER_KEY)?.trim();
   if (!raw || raw.length < 24) {
     throw new ProviderConfigurationError(
       "secret_store_not_configured",
@@ -164,7 +170,7 @@ function publicConnection(row: ProviderRow): ProviderConnection {
 }
 
 function normalizedBaseUrl(kind: ProviderKind, value: string) {
-  if (kind === "rules") return "";
+  if (kind === "rules" || kind === "codex-cli") return "";
   const url = new URL(value);
   if (!['http:', 'https:'].includes(url.protocol)) {
     throw new ProviderConfigurationError(
@@ -208,6 +214,7 @@ async function checkProvider(input: {
       detail: "Встроенный детерминированный сметный сервис доступен."
     };
   }
+  if (input.kind === "codex-cli") return checkCodexCli();
 
   const baseUrl = normalizedBaseUrl(input.kind, input.baseUrl);
   const endpoint =
@@ -441,4 +448,50 @@ export function providerErrorCode(error: unknown) {
   return error instanceof ProviderConfigurationError
     ? error.code
     : "provider_operation_failed";
+}
+
+function defaultRulesRuntime(): ProviderRuntimeConnection {
+  return {
+    id: "provider:rules:default",
+    kind: "rules",
+    name: "Встроенный сметный сервис",
+    baseUrl: "",
+    model: "prosmet-chief-estimator-v2",
+    status: "connected",
+    selected: true,
+    hasSecret: false,
+    lastError: null,
+    lastCheckedAt: null,
+    updatedAt: new Date().toISOString(),
+    apiKey: ""
+  };
+}
+
+export async function getSelectedProviderRuntime(
+  tenantId: string
+): Promise<ProviderRuntimeConnection> {
+  if (!postgresConfigured()) return defaultRulesRuntime();
+  await ensureTenant(tenantId);
+  const result = await (await getServerDatabase()).query<ProviderRow>(
+    `SELECT id, kind, name, base_url, model, status, selected,
+            secret_ciphertext, secret_iv, secret_tag, last_error,
+            last_checked_at, updated_at
+       FROM prosmet_provider_connections
+      WHERE tenant_id = $1 AND selected = TRUE
+      ORDER BY updated_at DESC
+      LIMIT 1`,
+    [tenantId]
+  );
+  const row = result.rows[0];
+  if (!row) return defaultRulesRuntime();
+  if (row.status !== "connected") {
+    throw new ProviderConfigurationError(
+      "selected_provider_unavailable",
+      row.last_error || "Выбранный AI-провайдер не прошёл проверку соединения."
+    );
+  }
+  return {
+    ...publicConnection(row),
+    apiKey: decryptSecret(row)
+  };
 }

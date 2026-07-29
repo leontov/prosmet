@@ -156,7 +156,7 @@ const workspaceSettingsSchema = z
 
 const providerSettingsSchema = z
   .object({
-    providerHint: z.enum(["mimo", "openai-compatible", "ollama", "rules"]).optional()
+    providerHint: z.enum(["mimo", "openai-compatible", "ollama", "codex-cli", "rules"]).optional()
   })
   .passthrough();
 
