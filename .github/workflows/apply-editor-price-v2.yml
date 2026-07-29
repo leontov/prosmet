@@ -13,7 +13,7 @@ permissions:
 
 concurrency:
   group: prosmet-editor-price-v2-apply
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   apply:
@@ -27,13 +27,19 @@ jobs:
           test "${{ runner.name }}" = "prosmet-primary"
           test "${GITHUB_REF_NAME}" = "main"
 
-      - name: Checkout exact patch carrier commit
+      - name: Checkout patch carrier and move to latest main
         uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
           clean: true
           persist-credentials: true
+
+      - name: Rebase source application onto latest main
+        run: |
+          set -Eeuo pipefail
+          git fetch origin main
+          git checkout -B prosmet-materialize origin/main
 
       - name: Verify and apply source archive
         run: |
@@ -60,4 +66,6 @@ jobs:
             exit 0
           fi
           git commit -m "feat(estimates): ship document editor v2 and price intelligence"
+          git fetch origin main
+          git rebase origin/main
           git push origin HEAD:main
