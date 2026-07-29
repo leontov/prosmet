@@ -129,4 +129,74 @@ describe("Price Intelligence", () => {
     expect(candidates.map((entry) => entry.observation.sourceType)).toContain("official");
     expect(candidates.map((entry) => entry.observation.sourceType)).toContain("regional_market");
   });
+
+  it("never resolves rejected or suspicious observations", () => {
+    const candidates = rankPriceCandidates({
+      observations: [
+        observation("accepted", 700, "personal", "approved"),
+        observation("rejected", 1, "personal", "rejected"),
+        observation("suspicious", 99999, "personal", "suspicious")
+      ],
+      canonicalWorkId: workId,
+      unit: "м²",
+      region: "Лениногорск",
+      currency: "RUB",
+      context
+    });
+
+    expect(candidates.map((candidate) => candidate.observation.id)).toEqual(["accepted"]);
+  });
+
+  it("prefers a recent observation when all other signals are equal", () => {
+    const candidates = rankPriceCandidates({
+      observations: [
+        observation("old", 680, "personal", "approved", {
+          observedAt: "2023-01-01T00:00:00.000Z",
+          createdAt: "2023-01-01T00:00:00.000Z"
+        }),
+        observation("recent", 700, "personal", "approved", {
+          observedAt: "2026-07-01T00:00:00.000Z",
+          createdAt: "2026-07-01T00:00:00.000Z"
+        })
+      ],
+      canonicalWorkId: workId,
+      unit: "м²",
+      region: "Лениногорск",
+      currency: "RUB",
+      context
+    });
+
+    expect(candidates[0]?.observation.id).toBe("recent");
+    expect(candidates[0]?.recencyWeight).toBeGreaterThan(candidates[1]?.recencyWeight ?? 0);
+  });
+
+  it("reports independent users and organizations in a regional bucket", () => {
+    const bucket = aggregateMarketPrices({
+      observations: [
+        observation("one", 620, "personal", "sent_to_client", {
+          userId: "user-1",
+          organizationId: "org-1"
+        }),
+        observation("two", 650, "organization", "contracted", {
+          userId: "user-2",
+          organizationId: "org-2"
+        }),
+        observation("three", 680, "regional_market", "approved", {
+          userId: "user-3",
+          organizationId: "org-2"
+        })
+      ],
+      canonicalWorkId: workId,
+      unit: "м²",
+      region: "Лениногорск",
+      context,
+      timeBucket: "2026-07"
+    });
+
+    expect(bucket?.sampleCount).toBe(3);
+    expect(bucket?.uniqueUsers).toBe(3);
+    expect(bucket?.uniqueOrganizations).toBe(2);
+    expect(bucket?.p25).toBeLessThanOrEqual(bucket?.median ?? 0);
+    expect(bucket?.median).toBeLessThanOrEqual(bucket?.p75 ?? 0);
+  });
 });
