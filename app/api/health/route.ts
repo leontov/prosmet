@@ -12,7 +12,8 @@ export async function GET() {
     {
       ok,
       service: "prosmet",
-      version: "2.3.0",
+      version: "2.3.1",
+      releaseCandidate: "editor-v2-price-intelligence",
       releaseSha: process.env.PROSMET_RELEASE_SHA || "development",
       time: new Date().toISOString(),
       frontend: {
