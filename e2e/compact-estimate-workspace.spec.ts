@@ -78,6 +78,10 @@ test("a compact estimate card opens the focused desktop or mobile workspace", as
     const rowBox = await rowSheet.locator("section").boundingBox();
     expect(rowBox).not.toBeNull();
     expect(rowBox!.y + rowBox!.height).toBeGreaterThan(page.viewportSize()!.height - 4);
+    await page.screenshot({
+      path: "artifacts/screenshots/estimate-row-sheet-mobile-chromium.png",
+      fullPage: true
+    });
     await rowSheet.getByLabel("Цена").fill("650");
     await rowSheet.getByRole("button", { name: "Готово", exact: true }).click();
     await expect(rowSheet).toHaveCount(0);
