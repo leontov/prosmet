@@ -6,12 +6,17 @@
 
 Любая агентная разработка начинается с [`AGENTS.md`](./AGENTS.md). Канонический комплект:
 
-- [`docs/AGENT_CONTEXT_INDEX.md`](./docs/AGENT_CONTEXT_INDEX.md) — порядок источников истины и защита от устаревшего контекста;
-- [`docs/AGENT_ENGINEERING_PLAYBOOK.md`](./docs/AGENT_ENGINEERING_PLAYBOOK.md) — цикл observe → fix → release;
+- [`docs/PROJECT_SOURCE_OF_TRUTH.md`](./docs/PROJECT_SOURCE_OF_TRUTH.md) — требования, фактическое состояние, production truth и legacy;
+- [`docs/AGENT_CONTEXT_INDEX.md`](./docs/AGENT_CONTEXT_INDEX.md) — индекс обязательного контекста;
+- [`docs/AGENT_BOOTSTRAP_PROMPT.md`](./docs/AGENT_BOOTSTRAP_PROMPT.md) — единый стартовый prompt;
+- [`docs/AGENT_ENGINEERING_PLAYBOOK.md`](./docs/AGENT_ENGINEERING_PLAYBOOK.md) — цикл observe → reproduce → fix → release;
 - [`docs/AGENT_TASK_TEMPLATE.md`](./docs/AGENT_TASK_TEMPLATE.md) — task/evidence schema;
+- [`docs/WRITE_ACTIONS_RECOVERY.md`](./docs/WRITE_ACTIONS_RECOVERY.md) — восстановление connector/GitHub/Actions write access;
 - [`docs/PRODUCT_SPEC_AND_ROADMAP.md`](./docs/PRODUCT_SPEC_AND_ROADMAP.md) — полное ТЗ и roadmap;
 - [`docs/UX_PREMIUM_FOUNDATION_V1.md`](./docs/UX_PREMIUM_FOUNDATION_V1.md) — текущий UX/HTTPS release contract;
 - [`docs/A2A_DEVELOPER_MODE.md`](./docs/A2A_DEVELOPER_MODE.md) — A2A roles, permissions и execution architecture.
+
+Точки входа конкретных агентов: [`CLAUDE.md`](./CLAUDE.md), [`GEMINI.md`](./GEMINI.md), [`MIMO.md`](./MIMO.md) и [`.github/copilot-instructions.md`](./.github/copilot-instructions.md). Они обязаны ссылаться на один корневой контракт, а не создавать собственную архитектуру.
 
 Instruction contract входит в `npm run source:contract`. Работа агента считается завершённой только после `MAIN PRODUCTION PASS` exact SHA из `main` на `https://kolibriai.online`.
 
