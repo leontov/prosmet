@@ -99,7 +99,7 @@ for (const token of [
   "Не начинай новый bootstrap",
   "PROSMET UX PREMIUM FOUNDATION V1",
   "MAIN PRODUCTION PASS",
-  "точный SHA"
+  "exact main SHA"
 ]) {
   need(bootstrap, token, "agent-bootstrap");
 }
