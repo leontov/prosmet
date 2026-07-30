@@ -31,7 +31,7 @@ for (const token of [
   "ChatWorkspace",
   "EstimateWorkspaceEditor",
   'document.addEventListener("click", handleOpen, true)',
-  'data-prosmet-supporting-artifact',
+  "prosmetSupportingArtifact",
   'body.dataset.prosmetEstimateOpen = "true"',
   "saveEstimate(workspace.currentThreadId, draft)",
   "saveConfirmedPrices(sent)",
