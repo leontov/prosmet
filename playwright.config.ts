@@ -3,6 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 const externalBaseURL = process.env.PROSMET_BASE_URL?.trim();
 const e2ePort = Number(process.env.PROSMET_E2E_PORT || 13110);
 const baseURL = externalBaseURL || `http://127.0.0.1:${e2ePort}`;
+const hostResolverRules = process.env.PROSMET_HOST_RESOLVER_RULES?.trim();
 
 export default defineConfig({
   testDir: "./e2e",
@@ -16,7 +17,10 @@ export default defineConfig({
     baseURL,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
-    video: "retain-on-failure"
+    video: "retain-on-failure",
+    ...(hostResolverRules
+      ? { launchOptions: { args: [`--host-resolver-rules=${hostResolverRules}`] } }
+      : {})
   },
   webServer: externalBaseURL
     ? undefined

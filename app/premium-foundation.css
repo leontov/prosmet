@@ -1,0 +1,160 @@
+/*
+ * PROSMET UX PREMIUM FOUNDATION V1
+ * Shared interaction, accessibility and adaptive-layout rules.
+ * Keep this file intentionally limited to cross-surface policy. Feature-specific
+ * document styles remain in estimate-workspace.css.
+ */
+
+:root {
+  --prosmet-touch-target: 44px;
+  --prosmet-focus-ring: 0 0 0 3px rgba(37, 99, 235, 0.22);
+  --prosmet-motion-fast: 120ms;
+  --prosmet-motion-normal: 180ms;
+  --prosmet-surface: #ffffff;
+  --prosmet-canvas: #f5f6f8;
+  --prosmet-text: #202123;
+  --prosmet-muted-text: #6b6f76;
+  --prosmet-divider: rgba(15, 23, 42, 0.1);
+  --prosmet-danger: #b42318;
+}
+
+/* Unsupported assistant-ui actions must not be rendered as inert controls. */
+button[aria-label="Прочитать вслух"],
+button[aria-label="Хороший ответ"],
+button[aria-label="Плохой ответ"] {
+  display: none !important;
+}
+
+/* Strong, consistent keyboard focus across the application. */
+:where(button, a, input, textarea, select, [role="button"]):focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+  box-shadow: var(--prosmet-focus-ring);
+}
+
+/* The A2A dialog is emitted from a message tool. Disable paint containment while
+ * it is open, otherwise fixed descendants can be clipped below a later message
+ * on narrow mobile viewports. */
+[data-role="assistant"]:has([role="dialog"][aria-label="Режим разработчика"]) {
+  position: relative;
+  z-index: 300 !important;
+  contain: none !important;
+  content-visibility: visible !important;
+}
+
+[role="dialog"][aria-label="Режим разработчика"] {
+  isolation: isolate;
+  overscroll-behavior: contain;
+}
+
+[role="dialog"][aria-label="Режим разработчика"] > aside {
+  pointer-events: auto;
+}
+
+/* The developer-task action remains reachable above the mobile browser chrome. */
+[role="dialog"][aria-label="Режим разработчика"] textarea[aria-label="Задача команде разработчиков"]
+  + div {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  margin-inline: -4px;
+  padding: 10px 4px max(4px, env(safe-area-inset-bottom));
+  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.86), #fff 28%);
+}
+
+/* Mobile estimate toolbar: do not reduce the active title to an unreadable
+ * single-line ellipsis. The full editable title remains visible in the paper. */
+@media (max-width: 767px) {
+  .prosmet-estimate-toolbar {
+    min-height: 60px;
+  }
+
+  .prosmet-estimate-toolbar > div:nth-child(2) > div:first-child {
+    display: -webkit-box;
+    overflow: hidden;
+    white-space: normal;
+    text-overflow: clip;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-height: 1.25;
+  }
+
+  .prosmet-estimate-paper {
+    padding-bottom: calc(92px + env(safe-area-inset-bottom));
+  }
+
+  .prosmet-estimate-paper input[aria-label="Название сметы"] {
+    min-height: 58px;
+    font-size: clamp(18px, 5.6vw, 22px) !important;
+    line-height: 1.25;
+  }
+
+  .prosmet-estimate-paper input[aria-label^="Название раздела"] {
+    min-height: var(--prosmet-touch-target);
+    font-size: 12px;
+    letter-spacing: 0.035em;
+  }
+
+  .prosmet-row-sheet {
+    padding-bottom: calc(92px + env(safe-area-inset-bottom));
+    scroll-padding-bottom: calc(104px + env(safe-area-inset-bottom));
+    overscroll-behavior: contain;
+  }
+
+  .prosmet-row-sheet .prosmet-input,
+  .prosmet-row-sheet textarea,
+  .prosmet-row-sheet select {
+    min-height: var(--prosmet-touch-target);
+    font-size: 16px;
+  }
+
+  .prosmet-row-sheet > div:last-child {
+    position: sticky;
+    bottom: calc(-92px - env(safe-area-inset-bottom));
+    z-index: 5;
+    margin: 18px -16px calc(-92px - env(safe-area-inset-bottom));
+    min-height: calc(76px + env(safe-area-inset-bottom));
+    padding: 12px 16px max(12px, env(safe-area-inset-bottom));
+    border-top: 1px solid var(--prosmet-divider);
+    background: rgba(255, 255, 255, 0.97);
+    backdrop-filter: blur(16px);
+  }
+
+  .prosmet-row-sheet > div:last-child button {
+    min-height: var(--prosmet-touch-target);
+  }
+}
+
+/* Medium windows show one supporting surface instead of squeezing three panes. */
+@media (min-width: 1024px) and (max-width: 1279px) {
+  body[data-prosmet-estimate-open="true"] main {
+    display: none !important;
+  }
+
+  body[data-prosmet-estimate-open="true"] .prosmet-estimate-layer {
+    right: 0 !important;
+  }
+}
+
+/* Pointer and touch targets for high-frequency controls. */
+@media (pointer: coarse) {
+  .prosmet-toolbar-button,
+  .prosmet-toolbar-icon,
+  .prosmet-primary-action,
+  [data-testid="estimate-artifact-card"] button,
+  [data-thread-menu] > button {
+    min-width: var(--prosmet-touch-target);
+    min-height: var(--prosmet-touch-target);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

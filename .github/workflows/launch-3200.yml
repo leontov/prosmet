@@ -23,6 +23,10 @@ jobs:
       NEXT_TELEMETRY_DISABLED: "1"
       PROSMET_DEFAULT_PROVIDER: "rules"
       PROSMET_E2E_PORT: "13110"
+      PROSMET_PUBLIC_DOMAIN: kolibriai.online
+      PROSMET_PUBLIC_ORIGIN: https://kolibriai.online
+      NEXT_PUBLIC_APP_ORIGIN: https://kolibriai.online
+      PROSMET_PUBLIC_IP: 78.17.4.108
     steps:
       - name: Verify the only production runner
         run: |
@@ -46,7 +50,7 @@ jobs:
           cache: npm
 
       - name: Prepare evidence
-        run: mkdir -p artifacts/logs artifacts/database artifacts/screenshots artifacts/release
+        run: mkdir -p artifacts/logs artifacts/database artifacts/screenshots artifacts/release artifacts/https
 
       - name: Install exact locked dependencies
         run: |
@@ -169,7 +173,7 @@ jobs:
           set -o pipefail
           bash deployment/direct-primary.sh "$GITHUB_SHA" 3200 2>&1 | tee artifacts/logs/deploy.log
 
-      - name: Verify exact live release
+      - name: Verify exact internal release
         run: |
           set -Eeuo pipefail
           BASE_URL=http://127.0.0.1:3200
@@ -185,14 +189,18 @@ jobs:
           grep -q '"storage":"postgres"' artifacts/release/workspace.json
           grep -q '"storage":"postgres"' artifacts/release/providers.json
 
-          curl -fsSI "$BASE_URL/" | tee artifacts/release/headers.txt
-          grep -qi 'cache-control:.*no-store' artifacts/release/headers.txt
-          if grep -qi "content-security-policy:.*'unsafe-eval'" artifacts/release/headers.txt; then
+          curl -fsSI "$BASE_URL/" | tee artifacts/release/internal-headers.txt
+          grep -qi 'cache-control:.*no-store' artifacts/release/internal-headers.txt
+          if grep -qi "content-security-policy:.*'unsafe-eval'" artifacts/release/internal-headers.txt; then
             echo "Production CSP unexpectedly allows unsafe-eval" >&2
             exit 1
           fi
-          if grep -qi "content-security-policy:.*'wasm-unsafe-eval'" artifacts/release/headers.txt; then
+          if grep -qi "content-security-policy:.*'wasm-unsafe-eval'" artifacts/release/internal-headers.txt; then
             echo "Production CSP unexpectedly allows wasm-unsafe-eval" >&2
+            exit 1
+          fi
+          if grep -qi '^cross-origin-opener-policy:' artifacts/release/internal-headers.txt; then
+            echo "COOP must not be emitted on the raw HTTP compatibility endpoint" >&2
             exit 1
           fi
 
@@ -207,25 +215,82 @@ jobs:
           npx playwright test e2e/browser-smoke.spec.ts e2e/chat-services.spec.ts \
             --project=desktop-chromium \
             --project=mobile-chromium \
-            2>&1 | tee artifacts/logs/e2e-live.log
+            2>&1 | tee artifacts/logs/e2e-live-internal.log
+
+      - name: Provision HTTPS for kolibriai.online
+        run: |
+          set -o pipefail
+          bash deployment/provision-https.sh "$PROSMET_PUBLIC_DOMAIN" 3200 \
+            2>&1 | tee artifacts/logs/https-provision.log
+          cp "$HOME/.prosmet/caddy/status.json" artifacts/https/status.json
+          cp "$HOME/.prosmet/caddy/Caddyfile" artifacts/https/Caddyfile
+          cp "$HOME/.prosmet/caddy/https-headers.txt" artifacts/https/https-headers.txt
+          cp "$HOME/.prosmet/caddy/http-redirect-headers.txt" artifacts/https/http-redirect-headers.txt
+
+      - name: Verify the exact public HTTPS release
+        run: |
+          set -Eeuo pipefail
+          DOMAIN="$PROSMET_PUBLIC_DOMAIN"
+          ORIGIN="$PROSMET_PUBLIC_ORIGIN"
+          curl --fail --silent --show-error \
+            --resolve "${DOMAIN}:443:127.0.0.1" \
+            "${ORIGIN}/api/health" | tee artifacts/release/public-health.json
+          curl --fail --silent --show-error \
+            --resolve "${DOMAIN}:443:127.0.0.1" \
+            "${ORIGIN}/api/backend/status" | tee artifacts/release/public-backend.json
+          grep -q "\"releaseSha\":\"${GITHUB_SHA}\"" artifacts/release/public-health.json
+          grep -q '"connected":true' artifacts/release/public-backend.json
+          grep -q '"driver":"postgres"' artifacts/release/public-backend.json
+
+          curl --fail --silent --show-error --head \
+            --resolve "${DOMAIN}:443:127.0.0.1" \
+            "${ORIGIN}/" | tee artifacts/release/public-headers.txt
+          grep -qi '^strict-transport-security:.*max-age=31536000' artifacts/release/public-headers.txt
+          grep -qi '^content-security-policy:' artifacts/release/public-headers.txt
+          if grep -qi "content-security-policy:.*'unsafe-eval'" artifacts/release/public-headers.txt; then
+            echo "Public HTTPS CSP unexpectedly allows unsafe-eval" >&2
+            exit 1
+          fi
+
+          curl --fail --silent --show-error --head \
+            --resolve "${DOMAIN}:80:127.0.0.1" \
+            "http://${DOMAIN}/" | tee artifacts/release/public-redirect.txt
+          grep -Eqi '^HTTP/[^ ]+ (301|302|307|308)' artifacts/release/public-redirect.txt
+          grep -Eqi "^location: ${ORIGIN}/" artifacts/release/public-redirect.txt
+
+      - name: Desktop and mobile smoke against live HTTPS
+        env:
+          PROSMET_BASE_URL: https://kolibriai.online
+          PROSMET_HOST_RESOLVER_RULES: MAP kolibriai.online 127.0.0.1
+        run: |
+          set -o pipefail
+          npx playwright test \
+            e2e/browser-smoke.spec.ts \
+            e2e/compact-estimate-workspace.spec.ts \
+            --project=desktop-chromium \
+            --project=mobile-chromium \
+            2>&1 | tee artifacts/logs/e2e-live-https.log
 
       - name: Record release evidence
         run: |
           cp "$HOME/.prosmet/release.json" artifacts/release/release.json
           cp "$HOME/.prosmet/postgres-status.json" artifacts/database/postgres-status.json 2>/dev/null || true
           cp "$HOME/.prosmet/postgres-migration.json" artifacts/database/postgres-deploy-migration.json 2>/dev/null || true
+          cp "$HOME/.prosmet/caddy/status.json" artifacts/https/status.json 2>/dev/null || true
           cat > artifacts/release/summary.json <<JSON
           {
             "status": "PASS",
             "branch": "main",
             "commit": "${GITHUB_SHA}",
             "runner": "${{ runner.name }}",
-            "url": "http://78.17.4.108:3200/",
-            "health": "http://78.17.4.108:3200/api/health",
-            "backend": "http://78.17.4.108:3200/api/backend/status",
+            "url": "https://kolibriai.online/",
+            "health": "https://kolibriai.online/api/health",
+            "backend": "https://kolibriai.online/api/backend/status",
+            "internalUrl": "http://78.17.4.108:3200/",
             "database": "PostgreSQL",
             "browserCache": "IndexedDB",
             "browserWasm": false,
+            "tls": "Caddy automatic HTTPS",
             "workspaceService": "PostgreSQL tenant scoped",
             "providerService": "encrypted server side",
             "verifiedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -263,6 +328,8 @@ jobs:
                 `Runner: \`prosmet-primary\``,
                 `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
                 `Updated: ${new Date().toISOString()}`,
-                success ? "APP: http://78.17.4.108:3200/" : "Deployment was not accepted. Inspect the failed workflow step."
+                success
+                  ? "APP: https://kolibriai.online/"
+                  : "Deployment was not accepted. Inspect the failed workflow step."
               ].join("\n\n")
             });
