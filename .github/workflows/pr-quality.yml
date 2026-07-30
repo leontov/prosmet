@@ -5,7 +5,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: prosmet-pr-${{ github.event.pull_request.number }}
@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   verify:
-    name: Verify source, build and Chromium on Primary
+    name: Verify universal product on Primary
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 150
     env:
@@ -42,59 +42,38 @@ jobs:
           node-version: "22.16.0"
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-
-      - name: Materialize universal platform branch
-        if: github.event.pull_request.head.ref == 'feature/universal-platform-v1'
-        run: |
-          set -Eeuo pipefail
-          python3 scripts/scaffold-universal-core.py
-          python3 scripts/scaffold-universal-clients.py
-          chmod +x deployment/install-rust-engine.sh scripts/bootstrap-superadmin.mjs
-          cargo fmt --all
-          npm install --package-lock-only --ignore-scripts --legacy-peer-deps --prefix apps/mobile
-          npm install --package-lock-only --ignore-scripts --prefix apps/desktop
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path("scripts/source-contract-v2.mjs")
-          source = path.read_text(encoding="utf-8")
-          replacements = {
-              "'label=\"Объекты\"'": '"manifest.terminology.objects || \\"Объекты\\""',
-              "'label=\"Сметы\"'": '"manifest.terminology.estimates || \\"Сметы\\""',
-              "'label=\"Документы\"'": '"manifest.terminology.documents || \\"Документы\\""',
-              "'label=\"Цены\"'": '"manifest.terminology.prices || \\"Цены\\""',
-          }
-          for before, after in replacements.items():
-              if before in source:
-                  source = source.replace(before, after)
-          path.write_text(source, encoding="utf-8")
-          PY
-          # A workflow-scoped GITHUB_TOKEN cannot create or modify other workflow files.
-          # Materialize product sources first; workflow files are applied separately by the
-          # authenticated repository connector after the generated commit lands.
-          git restore --source=HEAD --staged --worktree .github/workflows
-          git clean -fd -- .github/workflows
-          git add -A
-          if git diff --cached --quiet; then
-            echo "Universal platform already materialized."
-          else
-            git config user.name "prosmet-release-bot"
-            git config user.email "prosmet-release-bot@users.noreply.github.com"
-            git commit -m "build(universal): materialize cross-platform product [universal-scaffold]"
-            git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
-            echo "Generated commit pushed; the next exact-head run will verify it."
-            exit 0
-          fi
 
       - name: Prepare evidence
         run: mkdir -p artifacts/logs artifacts/database artifacts/screenshots
 
-      - name: Install locked dependencies
+      - name: Install locked web dependencies
         run: |
           set -o pipefail
           npm ci --no-audit --no-fund 2>&1 | tee artifacts/logs/npm-ci.log
+
+      - name: Install locked mobile dependencies
+        run: |
+          set -o pipefail
+          npm ci --no-audit --no-fund --prefix apps/mobile 2>&1 | tee artifacts/logs/mobile-npm-ci.log
+
+      - name: Install locked desktop dependencies
+        run: |
+          set -o pipefail
+          npm ci --no-audit --no-fund --prefix apps/desktop 2>&1 | tee artifacts/logs/desktop-npm-ci.log
+
+      - name: Clean generated duplicates
+        run: npm run cleanup:universal
+
+      - name: Rust format and tests
+        run: |
+          set -o pipefail
+          cargo fmt --all --check 2>&1 | tee artifacts/logs/rustfmt.log
+          npm run engine:test 2>&1 | tee artifacts/logs/rust-tests.log
+          npm run desktop:check 2>&1 | tee artifacts/logs/desktop-check.log
 
       - name: Install authoritative Rust engine
         run: |
@@ -134,10 +113,11 @@ jobs:
           set -o pipefail
           npm run source:contract 2>&1 | tee artifacts/logs/source-contract.log
 
-      - name: Typecheck
+      - name: Web and mobile typecheck
         run: |
           set -o pipefail
           npm run typecheck 2>&1 | tee artifacts/logs/typecheck.log
+          npm run mobile:typecheck 2>&1 | tee artifacts/logs/mobile-typecheck.log
 
       - name: Unit tests
         run: |
