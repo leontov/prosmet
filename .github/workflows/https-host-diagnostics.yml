@@ -1,0 +1,53 @@
+name: Prosmet HTTPS Host Diagnostics
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - deployment/diagnose-https-host.sh
+      - .github/workflows/https-host-diagnostics.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prosmet-https-host-diagnostics
+  cancel-in-progress: true
+
+jobs:
+  diagnose:
+    name: Inspect Primary HTTPS capabilities
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 15
+    env:
+      PROSMET_PUBLIC_DOMAIN: kolibriai.online
+      PROSMET_PUBLIC_IP: 78.17.4.108
+    steps:
+      - name: Verify runner identity
+        run: |
+          set -Eeuo pipefail
+          test "${{ runner.name }}" = "prosmet-primary"
+          test "${GITHUB_REF_NAME}" = "main"
+
+      - name: Checkout exact main commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          clean: true
+
+      - name: Collect safe host capability evidence
+        run: |
+          set -o pipefail
+          mkdir -p artifacts/https
+          bash deployment/diagnose-https-host.sh artifacts/https/host-capabilities.txt
+
+      - name: Upload diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prosmet-https-host-${{ github.run_id }}
+          path: artifacts/https/host-capabilities.txt
+          if-no-files-found: error
+          retention-days: 7
