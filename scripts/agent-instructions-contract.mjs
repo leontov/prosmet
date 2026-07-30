@@ -16,12 +16,15 @@ const requiredFiles = [
   "AGENTS.md",
   "CLAUDE.md",
   "GEMINI.md",
+  "MIMO.md",
   ".github/copilot-instructions.md",
   ".github/pull_request_template.md",
   "docs/AGENT_BOOTSTRAP_PROMPT.md",
   "docs/AGENT_ENGINEERING_PLAYBOOK.md",
   "docs/AGENT_CONTEXT_INDEX.md",
   "docs/AGENT_TASK_TEMPLATE.md",
+  "docs/PROJECT_SOURCE_OF_TRUTH.md",
+  "docs/WRITE_ACTIONS_RECOVERY.md",
   "docs/PRODUCT_SPEC_AND_ROADMAP.md",
   "docs/UX_PREMIUM_FOUNDATION_V1.md",
   "docs/A2A_DEVELOPER_MODE.md"
@@ -83,6 +86,17 @@ for (const token of [
   need(context, token, "agent-context");
 }
 
+const sourceOfTruth = await read("docs/PROJECT_SOURCE_OF_TRUTH.md");
+for (const token of [
+  "Требования и фактическое состояние — разные источники",
+  "exact SHA ветки `main`",
+  "A2A task или development plan не означает выполненное изменение",
+  "Что является legacy",
+  "MAIN PRODUCTION PASS"
+]) {
+  need(sourceOfTruth, token, "project-source-of-truth");
+}
+
 const taskTemplate = await read("docs/AGENT_TASK_TEMPLATE.md");
 for (const token of [
   "base_sha",
@@ -104,6 +118,18 @@ for (const token of [
   need(bootstrap, token, "agent-bootstrap");
 }
 
+const writeRecovery = await read("docs/WRITE_ACTIONS_RECOVERY.md");
+for (const token of [
+  "Write-actions и `GITHUB_TOKEN` workflow — разные контуры",
+  "Contents: write",
+  "HTTP 409",
+  "Branch protection и rulesets",
+  "Server permissions — отдельный контур",
+  "MAIN PRODUCTION PASS"
+]) {
+  need(writeRecovery, token, "write-actions-recovery");
+}
+
 const copilot = await read(".github/copilot-instructions.md");
 need(copilot, "Перед любым изменением обязательно прочитай `/AGENTS.md`", "copilot");
 need(copilot, "Не добавляй новые большие продуктовые модули", "copilot");
@@ -116,6 +142,11 @@ need(claude, "MAIN PRODUCTION PASS", "claude-entrypoint");
 const gemini = await read("GEMINI.md");
 need(gemini, "AGENTS.md", "gemini-entrypoint");
 need(gemini, "MAIN PRODUCTION PASS", "gemini-entrypoint");
+
+const mimo = await read("MIMO.md");
+need(mimo, "AGENTS.md", "mimo-entrypoint");
+need(mimo, "docs/PROJECT_SOURCE_OF_TRUTH.md", "mimo-entrypoint");
+need(mimo, "MAIN PRODUCTION PASS", "mimo-entrypoint");
 
 const pr = await read(".github/pull_request_template.md");
 need(pr, "Verified blocker", "pull-request-template");
@@ -134,10 +165,11 @@ console.log(
   JSON.stringify(
     {
       status: "PASS",
-      contract: "prosmet-agent-development-instructions-v1",
+      contract: "prosmet-agent-development-instructions-v2",
       repository: "leontov/prosmet",
       completion: "MAIN PRODUCTION PASS exact main SHA",
-      documents: requiredFiles.length
+      documents: requiredFiles.length,
+      entrypoints: ["AGENTS.md", "CLAUDE.md", "GEMINI.md", "MIMO.md", ".github/copilot-instructions.md"]
     },
     null,
     2
