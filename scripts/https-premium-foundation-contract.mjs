@@ -10,6 +10,9 @@ const need = (source, token, scope) => {
 const forbid = (source, token, scope) => {
   if (source.includes(token)) failures.push(`${scope}:forbidden:${token}`);
 };
+const needMatch = (source, pattern, scope, label) => {
+  if (!pattern.test(source)) failures.push(`${scope}:missing:${label}`);
+};
 
 for (const path of [
   "deployment/provision-https.sh",
@@ -49,7 +52,12 @@ for (const token of [
 }
 
 const identity = await read("lib/server/identity.ts");
-need(identity, 'request.headers.get("x-forwarded-proto")', "secure-cookie");
+needMatch(
+  identity,
+  /request\.headers\s*\n?\s*\.get\("x-forwarded-proto"\)/,
+  "secure-cookie",
+  'request.headers.get("x-forwarded-proto")'
+);
 need(identity, '"; Secure"', "secure-cookie");
 need(identity, "Priority=High", "secure-cookie");
 
