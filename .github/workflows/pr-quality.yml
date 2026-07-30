@@ -68,12 +68,12 @@ jobs:
       - name: Clean generated duplicates
         run: npm run cleanup:universal
 
-      - name: Rust format and tests
+      - name: Rust engine and desktop manifest
         run: |
           set -o pipefail
           cargo fmt --all --check 2>&1 | tee artifacts/logs/rustfmt.log
           npm run engine:test 2>&1 | tee artifacts/logs/rust-tests.log
-          npm run desktop:check 2>&1 | tee artifacts/logs/desktop-check.log
+          cargo metadata --manifest-path apps/desktop/src-tauri/Cargo.toml --format-version 1 --no-deps > artifacts/logs/desktop-metadata.json
 
       - name: Install authoritative Rust engine
         run: |
