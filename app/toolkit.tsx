@@ -3,15 +3,13 @@
 import { defineToolkit } from "@assistant-ui/react";
 import { z } from "zod";
 import { ActivityIcon, CheckCircle2Icon, LoaderCircleIcon } from "lucide-react";
+import { BackgroundArtifact } from "@/components/tools/background-artifact";
+import { DeveloperWorkspace } from "@/components/tools/developer-workspace";
 import { DocumentEditor } from "@/components/tools/document-editor";
 import {
   AskUserCard,
   EstimateComparisonCard,
-  EstimateReviewCard,
-  ExecutionProgressCard,
-  PriceCandidatesCard,
-  ProjectCaseCard,
-  ResourceStatementCard
+  ExecutionProgressCard
 } from "@/components/tools/domain-artifacts";
 import { EstimateExperience } from "@/components/tools/estimate-experience";
 import {
@@ -19,7 +17,6 @@ import {
   ServiceStatusTool,
   WorkspaceSettingsTool
 } from "@/components/tools/service-settings";
-import { TechnologyCard } from "@/components/tools/technology-card";
 import { EstimateDraftSchema, TechnologyStepSchema } from "@/lib/domain/estimate";
 
 const documentSchema = z
@@ -166,6 +163,14 @@ const serviceStatusSchema = z
   })
   .passthrough();
 
+const developerWorkspaceSchema = z
+  .object({
+    focus: z.string().optional(),
+    protocol: z.string().optional(),
+    permissionMode: z.string().optional()
+  })
+  .passthrough();
+
 const documentTool = (description: string) => ({
   description,
   parameters: documentSchema,
@@ -177,9 +182,9 @@ const documentTool = (description: string) => ({
 export const prosmetToolkit = defineToolkit({
   project_case: {
     description:
-      "Show the project case inferred from the first message, including the object, region, work types, assumptions and missing facts.",
+      "Persist the inferred project case in the background. The normal customer view stays focused on the estimate card.",
     parameters: projectCaseSchema,
-    render: ({ args, status }) => <ProjectCaseCard args={args} status={status} />
+    render: ({ status }) => <BackgroundArtifact kind="project" status={status} />
   },
   ask_user: {
     description:
@@ -189,26 +194,28 @@ export const prosmetToolkit = defineToolkit({
   },
   technology_card: {
     description:
-      "Show the complete construction technology sequence before calculating an estimate.",
+      "Persist the complete construction technology sequence before calculating an estimate without expanding it in the normal chat flow.",
     parameters: z.object({
       title: z.string().optional(),
       steps: z.array(TechnologyStepSchema).optional()
     }),
-    render: ({ args, status }) => <TechnologyCard args={args} status={status} />
+    render: ({ status }) => <BackgroundArtifact kind="technology" status={status} />
   },
   resource_statement: {
-    description: "Show the consolidated work, material, equipment, machine and logistics resources.",
+    description:
+      "Persist the consolidated work, material, equipment, machine and logistics resources in the background.",
     parameters: resourceStatementSchema,
-    render: ({ args, status }) => <ResourceStatementCard args={args} status={status} />
+    render: ({ status }) => <BackgroundArtifact kind="resources" status={status} />
   },
   price_candidates: {
-    description: "Show price candidates with source, date and confidence without inventing provenance.",
+    description:
+      "Persist price candidates with source, date and confidence without inventing provenance or cluttering the customer thread.",
     parameters: priceCandidatesSchema,
-    render: ({ args, status }) => <PriceCandidatesCard args={args} status={status} />
+    render: ({ status }) => <BackgroundArtifact kind="prices" status={status} />
   },
   estimate_draft: {
     description:
-      "Show a complete editable professional estimate with technology, sections, resources, prices, totals and a client handoff flow.",
+      "Show one compact estimate card with the total first. Open a responsive sheet for the editable professional estimate, technology, sources and client handoff.",
     parameters: EstimateDraftSchema,
     render: ({ args, status }) => (
       <EstimateExperience
@@ -219,9 +226,10 @@ export const prosmetToolkit = defineToolkit({
     )
   },
   estimate_review: {
-    description: "Show an independent professional estimate review with blockers, warnings and passed checks.",
+    description:
+      "Persist independent estimate review data in the background; blockers remain available inside the estimate and workspace context.",
     parameters: reviewSchema,
-    render: ({ args, status }) => <EstimateReviewCard args={args} status={status} />
+    render: ({ status }) => <BackgroundArtifact kind="review" status={status} />
   },
   estimate_comparison: {
     description: "Compare alternative estimate variants and explain the recommended choice.",
@@ -251,9 +259,15 @@ export const prosmetToolkit = defineToolkit({
     parameters: serviceStatusSchema,
     render: ({ args, status }) => <ServiceStatusTool args={args} status={status} />
   },
+  developer_workspace: {
+    description:
+      "Open the owner-facing A2A developer workspace, agent roster, permission contour and development task planner inside the current chat.",
+    parameters: developerWorkspaceSchema,
+    render: ({ args, status }) => <DeveloperWorkspace args={args} status={status} />
+  },
   commercial_proposal: documentTool("Show an editable print-ready commercial proposal."),
   contract_draft: documentTool("Show an editable construction contract draft."),
-  contract_appendix: documentTool("Show an editable contract appendix linked to the estimate."),
+  contract_appendix: documentTool("Show a contract appendix linked to the estimate."),
   act_draft: documentTool("Show an editable completion act."),
   ks2_draft: documentTool("Show an editable KS-2 draft."),
   ks3_draft: documentTool("Show an editable KS-3 draft."),
