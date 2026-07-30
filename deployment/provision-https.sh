@@ -69,15 +69,28 @@ if [[ ! -x "${SOURCE_BINARY}" ]]; then
   curl --fail --silent --show-error --location \
     "${SOURCE_BASE}/${CHECKSUMS}" \
     --output "${CACHE_ROOT}/${CHECKSUMS}"
-  expected_line="$(grep -E "[[:space:]]${ARCHIVE}$" "${CACHE_ROOT}/${CHECKSUMS}" | head -n 1 || true)"
-  if [[ -z "${expected_line}" ]]; then
-    echo "Caddy checksum entry is missing for ${ARCHIVE}" >&2
+
+  EXPECTED_SHA="$(node --input-type=module - "${CACHE_ROOT}/${CHECKSUMS}" "${ARCHIVE}" <<'NODE'
+import { readFile } from "node:fs/promises";
+const [checksumFile, archiveName] = process.argv.slice(2);
+const lines = (await readFile(checksumFile, "utf8")).split(/\r?\n/);
+const line = lines.find((entry) => entry.includes(archiveName));
+const digest = line?.match(/\b[0-9a-fA-F]{64}\b/)?.[0]?.toLowerCase();
+if (!digest) {
+  process.stderr.write(`Caddy checksum entry is missing or malformed for ${archiveName}\n`);
+  process.exit(1);
+}
+process.stdout.write(digest);
+NODE
+)"
+  ACTUAL_SHA="$(sha256sum "${CACHE_ROOT}/${ARCHIVE}" | awk '{print tolower($1)}')"
+  if [[ "${ACTUAL_SHA}" != "${EXPECTED_SHA}" ]]; then
+    echo "Caddy archive checksum mismatch for ${ARCHIVE}" >&2
+    echo "expected=${EXPECTED_SHA}" >&2
+    echo "actual=${ACTUAL_SHA}" >&2
     exit 1
   fi
-  (
-    cd "${CACHE_ROOT}"
-    printf '%s\n' "${expected_line}" | sha256sum --check --status -
-  )
+
   tar -xzf "${CACHE_ROOT}/${ARCHIVE}" -C "${CACHE_ROOT}" caddy
   chmod 755 "${SOURCE_BINARY}"
 fi
