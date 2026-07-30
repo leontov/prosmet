@@ -1,8 +1,8 @@
-import { ChatWorkspace } from "@/components/app/chat-workspace";
+import { ProsmetApplication } from "@/components/app/prosmet-application";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export default function HomePage() {
-  return <ChatWorkspace />;
+  return <ProsmetApplication />;
 }
