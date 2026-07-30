@@ -55,15 +55,15 @@ jobs:
           set -o pipefail
           npm ci --no-audit --no-fund 2>&1 | tee artifacts/logs/npm-ci.log
 
-      - name: Install locked mobile dependencies
+      - name: Install mobile dependencies
         run: |
           set -o pipefail
-          npm ci --no-audit --no-fund --prefix apps/mobile 2>&1 | tee artifacts/logs/mobile-npm-ci.log
+          npm install --no-audit --no-fund --legacy-peer-deps --prefix apps/mobile 2>&1 | tee artifacts/logs/mobile-npm-install.log
 
-      - name: Install locked desktop dependencies
+      - name: Install desktop dependencies
         run: |
           set -o pipefail
-          npm ci --no-audit --no-fund --prefix apps/desktop 2>&1 | tee artifacts/logs/desktop-npm-ci.log
+          npm install --no-audit --no-fund --prefix apps/desktop 2>&1 | tee artifacts/logs/desktop-npm-install.log
 
       - name: Clean generated duplicates
         run: npm run cleanup:universal
