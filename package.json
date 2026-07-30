@@ -15,7 +15,7 @@
     "test:watch": "vitest",
     "e2e": "playwright test",
     "db:migrate": "node deployment/migrate-postgres.mjs",
-    "source:contract": "node scripts/source-contract-v2.mjs && node scripts/server-runtime-contract.mjs && node scripts/schema-migration-contract.mjs && node scripts/rules-agent-runtime-contract.mjs && node scripts/pdf-export-contract.mjs && node scripts/price-sync-contract.mjs && node scripts/provider-runtime-contract.mjs",
+    "source:contract": "node scripts/source-contract-v2.mjs && node scripts/server-runtime-contract.mjs && node scripts/schema-migration-contract.mjs && node scripts/rules-agent-runtime-contract.mjs && node scripts/pdf-export-contract.mjs && node scripts/price-sync-contract.mjs && node scripts/provider-runtime-contract.mjs && node scripts/a2a-developer-mode-contract.mjs",
     "verify": "npm run source:contract && npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {
