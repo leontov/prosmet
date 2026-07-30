@@ -5,7 +5,6 @@ import {
   ActivityIcon,
   BotIcon,
   CheckCircle2Icon,
-  CircleAlertIcon,
   DatabaseIcon,
   FileSpreadsheetIcon,
   FileTextIcon,
@@ -179,8 +178,8 @@ export function RightInspector({ onClose }: { onClose: () => void }) {
               <StatusRow
                 icon={<RefreshCwIcon />}
                 title="Синхронизация"
-                detail={runtime.sync.label}
-                status={runtime.sync.status}
+                detail={syncLabel(runtime.sync)}
+                status={syncTone(runtime.sync)}
               />
             </InspectorSection>
           </div>
@@ -331,4 +330,21 @@ function ArtifactList({
       )}
     </section>
   );
+}
+
+function syncLabel(sync: ReturnType<typeof useRuntimeStatus>["sync"]) {
+  if (sync.state === "syncing") return `Синхронизация · в очереди ${sync.pending}`;
+  if (sync.state === "synced") {
+    return `Синхронизировано · отправлено ${sync.pushed}, получено ${sync.pulled}`;
+  }
+  if (sync.state === "offline") return `Офлайн · в очереди ${sync.pending}`;
+  if (sync.state === "error") return `${sync.message} · в очереди ${sync.pending}`;
+  return `Готово · в очереди ${sync.pending}`;
+}
+
+function syncTone(sync: ReturnType<typeof useRuntimeStatus>["sync"]): StatusState {
+  if (sync.state === "syncing") return "loading";
+  if (sync.state === "error") return "error";
+  if (sync.state === "offline") return "warning";
+  return "ok";
 }
