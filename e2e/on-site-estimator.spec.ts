@@ -82,8 +82,8 @@ test("a measurer edits the printable estimate and hands it to a client", async (
 
   const overlay = page.getByTestId("estimate-document-overlay");
   await expect(overlay).toBeVisible();
-  await expect(overlay.getByLabel("Объект")).toHaveValue("Квартира Ивановых, Казань");
-  await expect(overlay.getByLabel("Заказчик")).toHaveValue("Иванов Алексей");
+  await expect(overlay.locator('input[aria-label="Объект"]:visible')).toHaveValue("Квартира Ивановых, Казань");
+  await expect(overlay.locator('input[aria-label="Заказчик"]:visible')).toHaveValue("Иванов Алексей");
 
   if (testInfo.project.name === "mobile-chromium") {
     await overlay.locator('button[aria-label$="— открыть позицию"]').first().click();
