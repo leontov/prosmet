@@ -1,21 +1,26 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { ChatWorkspace } from "@/components/app/chat-workspace";
 import {
   EstimateWorkspaceEditor,
   type EstimateWorkspaceMode,
   type EstimateWorkspaceSaveState
 } from "@/components/app/estimate-workspace-editor";
-import {
-  calculateEstimate,
-  cloneEstimate,
-  type EstimateDraft
-} from "@/lib/domain/estimate";
+import { cloneEstimate, type EstimateDraft } from "@/lib/domain/estimate";
 import { exportEstimatePdf, exportEstimateXlsx } from "@/lib/exports/estimate";
 import { useLocalWorkspace } from "@/lib/local/context";
+import { recordEstimatePriceStatus } from "@/lib/local/price-intelligence";
 import { getRepository } from "@/lib/local/repository";
-import { formatMoney } from "@/lib/utils";
+import {
+  canUseNativeEstimateShare,
+  copyEstimateSummary,
+  downloadEstimateForSharing,
+  openEstimateEmail,
+  openEstimateWhatsApp,
+  shareEstimateNative,
+  type EstimateShareChannel
+} from "@/lib/sharing/estimate";
 
 type BusyState = "finish" | "pdf" | "xlsx" | "share" | null;
 
@@ -55,6 +60,7 @@ export function ProsmetApplication() {
   const [mode, setMode] = useState<EstimateWorkspaceMode>("edit");
   const [saveState, setSaveState] = useState<EstimateWorkspaceSaveState>("saved");
   const [busy, setBusy] = useState<BusyState>(null);
+  const [shareOpen, setShareOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const draftRef = useRef<EstimateDraft | null>(null);
   const dirty = useRef(false);
@@ -67,6 +73,7 @@ export function ProsmetApplication() {
 
   const openEstimate = useCallback(async (title: string) => {
     setError(null);
+    setShareOpen(false);
     for (let attempt = 0; attempt < 24; attempt += 1) {
       const estimates = (await (await getRepository()).listEstimates()).filter(
         (estimate) => !estimate.deletedAt
@@ -200,6 +207,7 @@ export function ProsmetApplication() {
         return;
       }
     }
+    setShareOpen(false);
     setDraft(null);
     setMode("edit");
     setBusy(null);
@@ -253,32 +261,52 @@ export function ProsmetApplication() {
     }
   }, []);
 
-  const share = useCallback(async () => {
-    const current = draftRef.current;
-    if (!current) return;
-    setBusy("share");
-    setError(null);
-    try {
-      const total = calculateEstimate(current).total;
-      const text = [
-        current.title,
-        current.objectName || "Объект не указан",
-        `Итого: ${formatMoney(total, current.currency)}`
-      ].join("\n");
-      if (navigator.share) {
-        await navigator.share({ title: current.title, text });
-      } else if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(text);
-      } else {
-        throw new Error("Системная отправка недоступна в этом браузере");
+  const deliver = useCallback(
+    async (channel: EstimateShareChannel) => {
+      const current = draftRef.current;
+      if (!current) return;
+      setBusy("share");
+      setError(null);
+      try {
+        const sent: EstimateDraft = {
+          ...cloneEstimate(current),
+          status: "sent",
+          revision: current.revision + 1,
+          updatedAt: new Date().toISOString()
+        };
+        const repository = await getRepository();
+        await repository.saveEstimate(workspace.currentThreadId, sent, true);
+        await repository.saveConfirmedPrices(sent);
+        await recordEstimatePriceStatus(sent, "sent_to_client");
+
+        if (channel === "native") {
+          const result = await shareEstimateNative(sent);
+          if (result.status === "cancelled") return;
+          if (result.status === "unsupported") await downloadEstimateForSharing(sent);
+        } else if (channel === "whatsapp") {
+          openEstimateWhatsApp(sent);
+        } else if (channel === "email") {
+          openEstimateEmail(sent);
+        } else if (channel === "clipboard") {
+          await copyEstimateSummary(sent);
+        } else {
+          await downloadEstimateForSharing(sent);
+        }
+
+        dirty.current = false;
+        editVersion.current += 1;
+        setDraft(sent);
+        setSaveState(navigator.onLine ? "saved" : "offline");
+        setShareOpen(false);
+        window.dispatchEvent(new Event("prosmet:local-data-changed"));
+      } catch (reason) {
+        setError(reason instanceof Error ? reason.message : "Не удалось передать смету");
+      } finally {
+        setBusy(null);
       }
-    } catch (reason) {
-      if (reason instanceof DOMException && reason.name === "AbortError") return;
-      setError(reason instanceof Error ? reason.message : "Не удалось поделиться сметой");
-    } finally {
-      setBusy(null);
-    }
-  }, []);
+    },
+    [workspace.currentThreadId]
+  );
 
   return (
     <>
@@ -296,9 +324,100 @@ export function ProsmetApplication() {
           onEdit={() => setMode("edit")}
           onExportPdf={() => void runExport("pdf")}
           onExportXlsx={() => void runExport("xlsx")}
-          onShare={() => void share()}
+          onShare={() => setShareOpen(true)}
+        />
+      ) : null}
+      {draft && shareOpen ? (
+        <EstimateShareDialog
+          busy={busy === "share"}
+          onClose={() => setShareOpen(false)}
+          onDeliver={(channel) => void deliver(channel)}
         />
       ) : null}
     </>
+  );
+}
+
+function EstimateShareDialog({
+  busy,
+  onClose,
+  onDeliver
+}: {
+  busy: boolean;
+  onClose: () => void;
+  onDeliver: (channel: EstimateShareChannel) => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-[260] flex items-end justify-center sm:items-center sm:px-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Передача сметы клиенту"
+    >
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/25 backdrop-blur-[1px]"
+        aria-label="Закрыть передачу сметы"
+        onClick={onClose}
+      />
+      <section className="relative w-full max-w-lg rounded-t-3xl bg-white p-5 pb-[max(22px,env(safe-area-inset-bottom))] shadow-2xl sm:rounded-2xl sm:p-6">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">Передать смету клиенту</h2>
+            <p className="mt-1 text-sm leading-6 text-neutral-500">
+              Выберите один канал. Смета и подтверждённые цены сохранятся автоматически.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex size-9 shrink-0 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100"
+            aria-label="Закрыть"
+          >
+            ×
+          </button>
+        </div>
+        <div className="mt-5 grid gap-2 sm:grid-cols-2">
+          {canUseNativeEstimateShare() ? (
+            <ShareButton disabled={busy} onClick={() => onDeliver("native")}>
+              Системная отправка
+            </ShareButton>
+          ) : null}
+          <ShareButton disabled={busy} onClick={() => onDeliver("whatsapp")}>
+            WhatsApp
+          </ShareButton>
+          <ShareButton disabled={busy} onClick={() => onDeliver("email")}>
+            Электронная почта
+          </ShareButton>
+          <ShareButton disabled={busy} onClick={() => onDeliver("pdf")}>
+            Скачать PDF
+          </ShareButton>
+          <ShareButton disabled={busy} onClick={() => onDeliver("clipboard")}>
+            Скопировать итог
+          </ShareButton>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ShareButton({
+  disabled,
+  onClick,
+  children
+}: {
+  disabled: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="min-h-12 rounded-xl border border-neutral-200 bg-white px-4 text-left text-sm font-semibold text-neutral-800 transition hover:bg-neutral-50 disabled:opacity-50"
+    >
+      {children}
+    </button>
   );
 }
