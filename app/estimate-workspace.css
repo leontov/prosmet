@@ -306,6 +306,32 @@
   .prosmet-primary-action {
     padding: 0 12px;
   }
+
+  .prosmet-estimate-paper > div:first-child {
+    display: block;
+  }
+
+  .prosmet-estimate-paper > div:first-child > div:first-child {
+    width: 100%;
+  }
+
+  .prosmet-estimate-paper > div:first-child > div:last-child {
+    width: fit-content;
+    max-width: 100%;
+    margin-top: 16px;
+    margin-left: auto;
+  }
+
+  .prosmet-estimate-paper > div:first-child input[aria-label="Название сметы"] {
+    font-size: 22px;
+    line-height: 1.25;
+  }
+
+  .prosmet-estimate-paper > div:first-child h1 {
+    max-width: 100%;
+    font-size: 26px;
+    line-height: 1.25;
+  }
 }
 
 @media print {
