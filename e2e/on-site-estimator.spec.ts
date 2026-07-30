@@ -111,13 +111,13 @@ test("a measurer edits the printable estimate and hands it to a client", async (
   const applicationUrl = page.url();
   const [pdf] = await Promise.all([
     page.waitForEvent("download"),
-    preview.getByRole("button", { name: /Скачать PDF/ }).click()
+    overlay.getByRole("button", { name: "Скачать PDF", exact: true }).click()
   ]);
   expect(pdf.suggestedFilename()).toMatch(/\.pdf$/i);
   expect(page.url()).toBe(applicationUrl);
   await expect(preview).toBeVisible();
 
-  await preview.getByRole("button", { name: /Поделиться/ }).click();
+  await overlay.getByRole("button", { name: "Поделиться", exact: true }).click();
   const share = page.getByRole("dialog", { name: "Передача сметы клиенту" });
   await expect(share).toBeVisible();
   await expect(share.getByRole("button", { name: /WhatsApp/ })).toBeVisible();
