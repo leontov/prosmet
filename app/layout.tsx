@@ -4,6 +4,9 @@ import { RuntimeStatusProvider } from "@/components/app/runtime-status";
 import { LocalWorkspaceProvider } from "@/lib/local/context";
 import "./globals.css";
 import "./estimate-workspace.css";
+import "./premium-foundation.css";
+
+const publicOrigin = process.env.NEXT_PUBLIC_APP_ORIGIN || "https://kolibriai.online";
 
 const browserCompatibilityScript = String.raw`
 (() => {
@@ -55,6 +58,7 @@ const browserCompatibilityScript = String.raw`
 `;
 
 export const metadata: Metadata = {
+  metadataBase: new URL(publicOrigin),
   title: {
     default: "Просметчик — AI-сметная контора",
     template: "%s · Просметчик"
@@ -62,6 +66,9 @@ export const metadata: Metadata = {
   description:
     "Профессиональные строительные сметы, технологические карты и документы в одном AI-чате.",
   applicationName: "Просметчик",
+  alternates: {
+    canonical: "/"
+  },
   icons: {
     icon: "/favicon.ico"
   }
