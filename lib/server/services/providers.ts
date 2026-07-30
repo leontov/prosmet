@@ -11,6 +11,8 @@ import { z } from "zod";
 import { checkCodexCli } from "@/lib/server/agents/codex-cli";
 import { checkCodexAppServer } from "@/lib/server/agents/codex-app-server";
 import { probeUniversalAgent } from "@/lib/server/agents/universal-protocols";
+import { checkCodexAppServer } from "@/lib/server/agents/codex-app-server";
+import { probeUniversalAgent } from "@/lib/server/agents/universal-protocols";
 import {
   ensureTenant,
   getServerDatabase,
@@ -25,6 +27,9 @@ export const ProviderKindSchema = z.enum([
   "openai-compatible",
   "ollama",
   "codex-cli",
+  "codex-app-server",
+  "a2a",
+  "ag-ui",
   "codex-app-server",
   "a2a",
   "ag-ui"

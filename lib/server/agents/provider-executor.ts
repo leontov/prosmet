@@ -3,6 +3,8 @@ import "server-only";
 import { runCodexSemantic } from "@/lib/server/agents/codex-cli";
 import { runCodexAppServerSemantic } from "@/lib/server/agents/codex-app-server";
 import { runA2ACompatible, runAgUiCompatible } from "@/lib/server/agents/universal-protocols";
+import { runCodexAppServerSemantic } from "@/lib/server/agents/codex-app-server";
+import { runA2ACompatible, runAgUiCompatible } from "@/lib/server/agents/universal-protocols";
 import {
   parseProviderInterpretation,
   providerSystemPrompt,
@@ -206,6 +208,11 @@ export async function executePreparedProvider(
       resumeSessionId: input.resumeSessionId
     });
   }
+  if (connection.kind === "codex-app-server") {
+    return runCodexAppServerSemantic({ ...input, model: connection.model, resumeSessionId: input.resumeSessionId });
+  }
+  if (connection.kind === "a2a") return runA2ACompatible(connection, input);
+  if (connection.kind === "ag-ui") return runAgUiCompatible(connection, input);
   if (connection.kind === "codex-app-server") {
     return runCodexAppServerSemantic({ ...input, model: connection.model, resumeSessionId: input.resumeSessionId });
   }

@@ -204,10 +204,10 @@ for (const token of [
   "workspace.deleteThread",
   "workspace.renameThread",
   'label="Чаты"',
-  'label="Объекты"',
-  'label="Сметы"',
-  'label="Документы"',
-  'label="Цены"'
+  "manifest.terminology.objects || \"Объекты\"",
+  "manifest.terminology.estimates || \"Сметы\"",
+  "manifest.terminology.documents || \"Документы\"",
+  "manifest.terminology.prices || \"Цены\""
 ]) need(premiumShell, token, "premium-functional-shell");
 for (const token of [
   "IndexedDB-кэш готов",
