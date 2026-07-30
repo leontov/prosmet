@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 concurrency:
   group: prosmet-https-host-diagnostics
@@ -51,3 +52,24 @@ jobs:
           path: artifacts/https/host-capabilities.txt
           if-no-files-found: error
           retention-days: 7
+
+      - name: Publish diagnostic run location
+        if: always()
+        continue-on-error: true
+        uses: actions/github-script@v7
+        env:
+          FINAL_STATUS: ${{ job.status }}
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 1,
+              body: [
+                `HTTPS HOST DIAGNOSTICS ${process.env.FINAL_STATUS === "success" ? "PASS" : "FAILED"}`,
+                `Commit: \`${context.sha}\``,
+                `Runner: \`prosmet-primary\``,
+                `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                `Artifact: \`prosmet-https-host-${context.runId}\``
+              ].join("\n\n")
+            });
