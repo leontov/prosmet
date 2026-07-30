@@ -105,11 +105,6 @@ async function sendPrompt(page: import("@playwright/test").Page, prompt: string)
   await send.click();
 }
 
-async function openMenuIfMobile(page: import("@playwright/test").Page) {
-  const button = page.getByRole("button", { name: "Открыть меню" });
-  if (await button.isVisible()) await button.click();
-}
-
 function visibleSidebar(page: import("@playwright/test").Page) {
   return page.locator('[data-testid="app-sidebar"]:visible');
 }
@@ -270,7 +265,7 @@ test("Codex desktop shell hydrates without eval and exposes both sidebars", asyn
   });
 });
 
-test("streaming chat creates a compact estimate card and document editor", async ({
+test("streaming chat creates a compact estimate card and focused document workspace", async ({
   page
 }, testInfo) => {
   const runtimeErrors = watchRuntimeErrors(page);
@@ -315,10 +310,13 @@ test("streaming chat creates a compact estimate card and document editor", async
   const preview = page.getByTestId("estimate-revision-preview");
   await expect(preview).toBeVisible({ timeout: 30_000 });
   await expect(preview.getByText(/Версия 2/)).toBeVisible();
+  await expect(page.getByTestId("estimate-workspace-layer")).toBeVisible();
+  if (testInfo.project.name === "desktop-chromium") {
+    await expect(visibleSidebar(page)).toHaveCount(1);
+    await expect(composer(page)).toBeVisible();
+  }
 
   expect(relevantRuntimeErrors(runtimeErrors)).toEqual([]);
-  await openMenuIfMobile(page);
-  await expect(visibleSidebar(page)).toHaveCount(1);
   await page.screenshot({
     path: `artifacts/screenshots/estimate-${testInfo.project.name}.png`,
     fullPage: true
