@@ -1,0 +1,86 @@
+name: Agent development task
+description: Наблюдаемая задача для команды ИИ-разработчиков Просметчика
+title: "[Agent Task] "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Задача должна описывать пользовательский результат. Коммит, тест или отчёт не являются конечной целью.
+
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Наблюдаемый пользовательский результат
+      description: Кто, что делает, где и что должно измениться?
+      placeholder: На мобильном замерщик открывает...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Текущее поведение / воспроизведение
+      description: URL, SHA, шаги, console/network/data evidence.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Критерии приёмки
+      placeholder: |
+        - [ ] Desktop
+        - [ ] Mobile
+        - [ ] Reload/offline/sync
+        - [ ] Exact-SHA production PASS
+    validations:
+      required: true
+
+  - type: dropdown
+    id: permission
+    attributes:
+      label: Максимально требуемое право
+      options:
+        - read/analyze
+        - execute-tests
+        - write-sandbox
+        - write-branch/open-pr
+        - merge-main
+        - deploy-preview/canary
+        - deploy-production/rollback
+        - secret-reference
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Разрешённый scope
+      description: Paths, services, repository, environment.
+    validations:
+      required: true
+
+  - type: textarea
+    id: prohibited
+    attributes:
+      label: Запрещено / вне scope
+      description: Включая новые модули, если задача относится к UX Premium V1.
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Требуемые артефакты
+      placeholder: Diff, unit/E2E logs, screenshots, migration, release evidence.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: gate
+    attributes:
+      label: Completion contract
+      options:
+        - label: Задача не будет закрыта без green `Prosmet Main Production` и public exact-SHA проверки, если она затрагивает production.
+          required: true
+        - label: Секреты и персональные данные не будут помещены в issue, prompt или artifact.
+          required: true
