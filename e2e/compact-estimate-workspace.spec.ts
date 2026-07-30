@@ -42,6 +42,10 @@ test("a compact estimate card opens the focused desktop or mobile workspace", as
   await expect(workspace).toBeVisible();
   await expect(editor).toBeVisible();
   await expect(page.locator("body")).toHaveAttribute("data-prosmet-estimate-open", "true");
+
+  if (testInfo.project.name === "mobile-chromium") {
+    await editor.locator("details.prosmet-premium-mobile-meta > summary").click();
+  }
   await expect(editor.locator('input[aria-label="Объект"]:visible')).toHaveValue("Квартира Ивановых");
   await expect(editor.locator('input[aria-label="Заказчик"]:visible')).toHaveValue("Иванов Алексей");
 
