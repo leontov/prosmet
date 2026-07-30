@@ -59,6 +59,7 @@ export function ProsmetApplication() {
   const draftRef = useRef<EstimateDraft | null>(null);
   const dirty = useRef(false);
   const editVersion = useRef(0);
+  const activeEstimateId = draft?.id ?? null;
 
   useEffect(() => {
     draftRef.current = draft;
@@ -114,7 +115,7 @@ export function ProsmetApplication() {
   }, []);
 
   useEffect(() => {
-    if (!draft) return;
+    if (!activeEstimateId) return;
     const body = document.body;
     body.dataset.prosmetEstimateOpen = "true";
 
@@ -126,10 +127,11 @@ export function ProsmetApplication() {
         const rect = sidebar.getBoundingClientRect();
         return rect.width > 0 && rect.height > 0;
       });
-      body.style.setProperty(
-        "--prosmet-sidebar-width",
-        `${Math.round(visible?.getBoundingClientRect().width ?? 0)}px`
-      );
+      const width = Math.round(visible?.getBoundingClientRect().width ?? 0);
+      const next = `${width}px`;
+      if (body.style.getPropertyValue("--prosmet-sidebar-width") !== next) {
+        body.style.setProperty("--prosmet-sidebar-width", next);
+      }
     };
 
     updateSidebarWidth();
@@ -139,7 +141,7 @@ export function ProsmetApplication() {
       attributes: true,
       childList: true,
       subtree: true,
-      attributeFilter: ["class", "style"]
+      attributeFilter: ["class"]
     });
 
     return () => {
@@ -148,7 +150,7 @@ export function ProsmetApplication() {
       delete body.dataset.prosmetEstimateOpen;
       body.style.removeProperty("--prosmet-sidebar-width");
     };
-  }, [draft]);
+  }, [activeEstimateId]);
 
   const changeDraft = useCallback((updater: (current: EstimateDraft) => EstimateDraft) => {
     setDraft((current) => {
@@ -230,29 +232,26 @@ export function ProsmetApplication() {
     }
   }, [workspace.currentThreadId]);
 
-  const runExport = useCallback(
-    async (kind: "pdf" | "xlsx") => {
-      const current = draftRef.current;
-      if (!current) return;
-      setBusy(kind);
-      setError(null);
-      try {
-        if (kind === "pdf") await exportEstimatePdf(current);
-        else await exportEstimateXlsx(current);
-      } catch (reason) {
-        setError(
-          reason instanceof Error
-            ? reason.message
-            : kind === "pdf"
-              ? "PDF не сформирован"
-              : "Excel не сформирован"
-        );
-      } finally {
-        setBusy(null);
-      }
-    },
-    []
-  );
+  const runExport = useCallback(async (kind: "pdf" | "xlsx") => {
+    const current = draftRef.current;
+    if (!current) return;
+    setBusy(kind);
+    setError(null);
+    try {
+      if (kind === "pdf") await exportEstimatePdf(current);
+      else await exportEstimateXlsx(current);
+    } catch (reason) {
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : kind === "pdf"
+            ? "PDF не сформирован"
+            : "Excel не сформирован"
+      );
+    } finally {
+      setBusy(null);
+    }
+  }, []);
 
   const share = useCallback(async () => {
     const current = draftRef.current;
