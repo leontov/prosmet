@@ -7,15 +7,21 @@
 | Приоритет | Файл | Назначение |
 |---:|---|---|
 | 1 | `/AGENTS.md` | обязательные правила всех агентов |
-| 2 | `/docs/PRODUCT_SPEC_AND_ROADMAP.md` | полное ТЗ, продуктовая модель и roadmap |
-| 3 | `/docs/UX_PREMIUM_FOUNDATION_V1.md` | текущий release scope, design tokens, adaptive/HTTPS contract |
-| 4 | `/docs/A2A_DEVELOPER_MODE.md` | роли, task lifecycle, permission ladder и execution architecture |
-| 5 | `/docs/AGENT_ENGINEERING_PLAYBOOK.md` | операционный цикл observe→fix→release |
-| 6 | `/README.md` | краткая архитектура и release gate |
-| 7 | `/package.json` | фактические команды и source contracts |
-| 8 | `/.github/workflows/launch-3200.yml` | production gate и deployment truth |
-| 9 | `/scripts/*contract*.mjs` | machine-enforced invariants |
-| 10 | `/e2e`, unit tests, migrations | исполняемый acceptance contract |
+| 2 | `/docs/PROJECT_SOURCE_OF_TRUTH.md` | различает требования, реализацию, live status и legacy |
+| 3 | `/docs/PRODUCT_SPEC_AND_ROADMAP.md` | полное ТЗ, продуктовая модель и roadmap |
+| 4 | `/docs/UX_PREMIUM_FOUNDATION_V1.md` | текущий release scope, design tokens, adaptive/HTTPS contract |
+| 5 | `/docs/A2A_DEVELOPER_MODE.md` | роли, task lifecycle, permission ladder и execution architecture |
+| 6 | `/docs/AGENT_ENGINEERING_PLAYBOOK.md` | операционный цикл observe→fix→release |
+| 7 | `/docs/AGENT_TASK_TEMPLATE.md` | обязательный task/evidence/acceptance шаблон |
+| 8 | `/docs/AGENT_BOOTSTRAP_PROMPT.md` | единый стартовый prompt нового агента |
+| 9 | `/docs/WRITE_ACTIONS_RECOVERY.md` | восстановление connector/GitHub/Actions write capability |
+| 10 | `/README.md` | краткая архитектура и release gate |
+| 11 | `/package.json` | фактические команды и source contracts |
+| 12 | `/.github/workflows/launch-3200.yml` | production gate и deployment truth |
+| 13 | `/scripts/*contract*.mjs` | machine-enforced invariants |
+| 14 | `/e2e`, unit tests, migrations | исполняемый acceptance contract |
+
+Точки входа конкретных агентов (`CLAUDE.md`, `GEMINI.md`, `MIMO.md`, `.github/copilot-instructions.md`) не создают отдельную архитектуру. Они только направляют в `/AGENTS.md` и этот канонический набор.
 
 ## 2. Текущий фактический контур
 
@@ -103,16 +109,32 @@ Commit: d573f12e...
 
 При существенном изменении:
 
+- source-of-truth/topology/legacy → `PROJECT_SOURCE_OF_TRUTH.md`;
 - product scope → `PRODUCT_SPEC_AND_ROADMAP.md`;
 - UX/tokens/adaptive/HTTPS → `UX_PREMIUM_FOUNDATION_V1.md` или новая версия;
 - A2A roles/tasks/permissions → `A2A_DEVELOPER_MODE.md`;
 - agent operating rules → `AGENTS.md` и playbook;
+- connector/GitHub permission process → `WRITE_ACTIONS_RECOVERY.md`;
 - command/gate → `package.json`, workflow и source contract;
 - architectural decision → отдельный ADR с owner approval.
 
 Документ без machine-enforced contract не должен быть единственной защитой критического инварианта.
 
-## 7. Запрещённые источники статуса
+## 7. Write-actions и runtime permissions
+
+Не смешивать:
+
+- GitHub connector write-actions;
+- repository branch/ruleset policy;
+- workflow `GITHUB_TOKEN` permissions;
+- Actions read/rerun capability;
+- host `sudo`/capabilities;
+- DNS registrar access;
+- provider/SSH secrets.
+
+При 401/403/404/409/422 или отсутствии write tool использовать `docs/WRITE_ACTIONS_RECOVERY.md` и фиксировать точный контур отказа.
+
+## 8. Запрещённые источники статуса
 
 Не использовать как доказательство готовности:
 
@@ -126,7 +148,7 @@ Commit: d573f12e...
 - workflow run другого SHA;
 - mock-only проверку production интеграции.
 
-## 8. Обязательный вопрос перед изменением
+## 9. Обязательный вопрос перед изменением
 
 ```text
 Какой exact blocker мешает текущему main SHA пройти следующий обязательный gate?
