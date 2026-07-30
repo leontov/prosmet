@@ -3,6 +3,7 @@ import { MyRuntimeProvider } from "@/app/MyRuntimeProvider";
 import { RuntimeStatusProvider } from "@/components/app/runtime-status";
 import { LocalWorkspaceProvider } from "@/lib/local/context";
 import "./globals.css";
+import "./estimate-workspace.css";
 
 const browserCompatibilityScript = String.raw`
 (() => {
