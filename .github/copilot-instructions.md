@@ -2,6 +2,14 @@
 
 Перед любым изменением обязательно прочитай `/AGENTS.md`.
 
+Затем загрузи:
+
+1. `/docs/PROJECT_SOURCE_OF_TRUTH.md`;
+2. `/docs/AGENT_CONTEXT_INDEX.md`;
+3. `/docs/AGENT_ENGINEERING_PLAYBOOK.md`;
+4. релевантные product/UX/A2A contracts;
+5. `/docs/WRITE_ACTIONS_RECOVERY.md`, если GitHub write-actions недоступны.
+
 ## Неизменяемый контекст
 
 - Repository: `leontov/prosmet`.
@@ -62,11 +70,18 @@ npm run e2e
 
 Нельзя считать результатом commit, PR, local PASS или screenshot без public exact-SHA release.
 
-Подробности:
+## Полный набор инструкций
 
-- `/docs/PRODUCT_SPEC_AND_ROADMAP.md`
-- `/docs/UX_PREMIUM_FOUNDATION_V1.md`
-- `/docs/A2A_DEVELOPER_MODE.md`
+- `/AGENTS.md`
+- `/CLAUDE.md`
+- `/GEMINI.md`
+- `/MIMO.md`
+- `/docs/AGENT_BOOTSTRAP_PROMPT.md`
 - `/docs/AGENT_ENGINEERING_PLAYBOOK.md`
 - `/docs/AGENT_CONTEXT_INDEX.md`
 - `/docs/AGENT_TASK_TEMPLATE.md`
+- `/docs/PROJECT_SOURCE_OF_TRUTH.md`
+- `/docs/WRITE_ACTIONS_RECOVERY.md`
+- `/docs/PRODUCT_SPEC_AND_ROADMAP.md`
+- `/docs/UX_PREMIUM_FOUNDATION_V1.md`
+- `/docs/A2A_DEVELOPER_MODE.md`
