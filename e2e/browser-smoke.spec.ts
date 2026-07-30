@@ -65,7 +65,7 @@ test("the application hydrates and remains interactive", async ({ page }, testIn
     await expect(visibleInspector).toHaveCount(0);
     await page.getByRole("button", { name: "Рабочий контекст" }).click();
     await expect(visibleInspector).toHaveCount(1);
-    await page.getByRole("button", { name: "Закрыть контекст" }).click();
+    await visibleInspector.getByRole("button", { name: "Закрыть контекст" }).click();
     await expect(visibleInspector).toHaveCount(0);
   } else {
     await page.getByRole("button", { name: "Открыть меню" }).click();
@@ -74,7 +74,7 @@ test("the application hydrates and remains interactive", async ({ page }, testIn
     await expect(visibleSidebar).toHaveCount(0);
     await page.getByRole("button", { name: "Рабочий контекст" }).click();
     await expect(visibleInspector).toHaveCount(1);
-    await page.getByRole("button", { name: "Закрыть контекст" }).click();
+    await visibleInspector.getByRole("button", { name: "Закрыть контекст" }).click();
     await expect(visibleInspector).toHaveCount(0);
   }
 
