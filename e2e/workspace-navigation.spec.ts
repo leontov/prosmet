@@ -88,10 +88,12 @@ test("all workspace sections and thread history actions are functional", async (
   await overlay.getByRole("button", { name: "Готово", exact: true }).click();
   const preview = page.getByTestId("estimate-revision-preview");
   await expect(preview).toBeVisible({ timeout: 30_000 });
-  await preview.getByRole("button", { name: "Поделиться", exact: true }).click();
+  await overlay.getByRole("button", { name: "Поделиться", exact: true }).click();
   const share = page.getByRole("dialog", { name: "Передача сметы клиенту" });
   await share.getByRole("button", { name: /Скопировать итог/ }).click();
   await expect(share).toHaveCount(0);
+  await overlay.getByRole("button", { name: "Закрыть редактор", exact: true }).click();
+  await expect(overlay).toHaveCount(0);
 
   await navigate(page, "Объекты");
   const objectsView = page.getByTestId("objects-view");
@@ -120,9 +122,6 @@ test("all workspace sections and thread history actions are functional", async (
   }
 
   await estimatesView.getByRole("button", { name: "Открыть в чате" }).click();
-  // The chat restores the user's last visual state. A saved estimate may open
-  // as its print preview rather than being collapsed back into the compact
-  // card, but the canonical estimate experience must remain mounted and usable.
   const estimateExperience = page.getByTestId("estimate-document-experience");
   await expect(estimateExperience).toBeVisible();
   await expect(
