@@ -6,6 +6,7 @@ import "./globals.css";
 import "./estimate-workspace.css";
 import "./premium-foundation.css";
 import "./premium-product.css";
+import "./premium-product-fixes.css";
 
 const publicOrigin = process.env.NEXT_PUBLIC_APP_ORIGIN || "https://kolibriai.online";
 
