@@ -94,7 +94,7 @@ export function RightInspector({ onClose }: { onClose: () => void }) {
           type="button"
           onClick={onClose}
           className="flex size-8 items-center justify-center rounded-lg text-neutral-500 transition hover:bg-neutral-100 hover:text-neutral-900"
-          aria-label="Скрыть правую панель"
+          aria-label="Закрыть контекст"
         >
           <XIcon className="size-4" />
         </button>
@@ -179,44 +179,35 @@ export function RightInspector({ onClose }: { onClose: () => void }) {
               <StatusRow
                 icon={<RefreshCwIcon />}
                 title="Синхронизация"
-                detail={syncLabel(runtime.sync)}
-                status={syncTone(runtime.sync)}
-                action={() => void runtime.syncNow()}
+                detail={runtime.sync.label}
+                status={runtime.sync.status}
               />
             </InspectorSection>
           </div>
         )}
 
         {tab === "artifacts" && (
-          <div className="space-y-3">
+          <div className="space-y-4">
             {artifacts.loading ? (
-              <div className="flex items-center gap-2 rounded-xl border border-neutral-200 bg-white p-3 text-sm text-neutral-500">
-                <LoaderCircleIcon className="size-4 animate-spin" /> Загружаем локальный кэш…
+              <div className="flex items-center gap-2 text-sm text-neutral-500">
+                <LoaderCircleIcon className="size-4 animate-spin" /> Загрузка артефактов…
               </div>
             ) : (
               <>
-                <ArtifactSummary
-                  icon={<FileSpreadsheetIcon />}
+                <ArtifactList
                   title="Сметы"
-                  count={artifacts.estimates.length}
-                  items={artifacts.estimates.slice(0, 4).map((estimate) => estimate.title)}
+                  icon={<FileSpreadsheetIcon />}
+                  items={artifacts.estimates.map((item) => item.title)}
                 />
-                <ArtifactSummary
-                  icon={<FileTextIcon />}
+                <ArtifactList
                   title="Документы"
-                  count={artifacts.documents.length}
-                  items={artifacts.documents.slice(0, 4).map((document) => document.title)}
+                  icon={<FileTextIcon />}
+                  items={artifacts.documents.map((item) => item.title)}
                 />
-                <ArtifactSummary
+                <ArtifactList
+                  title="Цены"
                   icon={<DatabaseIcon />}
-                  title="Подтверждённые цены"
-                  count={artifacts.prices.filter((price) => price.status === "confirmed").length}
-                  items={artifacts.prices
-                    .slice(0, 4)
-                    .map(
-                      (price) =>
-                        `${price.name} · ${price.price.toLocaleString("ru-RU")} ${price.currency}`
-                    )}
+                  items={artifacts.prices.map((item) => item.name)}
                 />
               </>
             )}
@@ -225,26 +216,17 @@ export function RightInspector({ onClose }: { onClose: () => void }) {
 
         {tab === "activity" && (
           <div className="space-y-3">
-            <div className="rounded-xl border border-neutral-200 bg-white p-3">
-              <div className="flex items-center gap-2 text-sm font-medium">
-                {isRunning ? (
-                  <LoaderCircleIcon className="size-4 animate-spin text-blue-600" />
-                ) : (
-                  <CheckCircle2Icon className="size-4 text-emerald-600" />
-                )}
-                {isRunning ? "Просметчик работает" : "Нет активного запуска"}
-              </div>
-              <p className="mt-2 text-xs leading-5 text-neutral-500">
-                Здесь отображается безопасный рабочий статус: анализ исходных данных,
-                технология, цены, проверка и подготовка документов. Внутренние рассуждения
-                модели не показываются.
-              </p>
-            </div>
             <StatusRow
               icon={<ActivityIcon />}
-              title="Поток ответа"
-              detail={isRunning ? "AG-UI события поступают" : "Ожидает новый запрос"}
+              title={isRunning ? "Просметчик работает" : "Ожидание задачи"}
+              detail={isRunning ? "AG-UI поток активен" : "Чат готов к следующему запросу"}
               status={isRunning ? "loading" : "ok"}
+            />
+            <StatusRow
+              icon={<CheckCircle2Icon />}
+              title="Сообщения"
+              detail={`${messageCount} в текущем чате`}
+              status="ok"
             />
           </div>
         )}
@@ -267,10 +249,8 @@ function InspectorTabButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "h-8 flex-1 rounded-lg px-2 text-xs font-medium transition",
-        active
-          ? "bg-white text-neutral-900 shadow-sm ring-1 ring-neutral-200"
-          : "text-neutral-500 hover:bg-white/70 hover:text-neutral-900"
+        "h-7 rounded-lg px-2.5 text-xs font-medium transition",
+        active ? "bg-neutral-200 text-neutral-900" : "text-neutral-500 hover:bg-neutral-100"
       )}
     >
       {children}
@@ -281,114 +261,74 @@ function InspectorTabButton({
 function InspectorSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <div className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral-400">
+      <h3 className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral-400">
         {title}
-      </div>
+      </h3>
       <div className="space-y-2">{children}</div>
     </section>
   );
 }
 
+type StatusState = "ok" | "warning" | "error" | "loading";
+
 function StatusRow({
   icon,
   title,
   detail,
-  status,
-  action
+  status
 }: {
   icon: React.ReactNode;
   title: string;
   detail: string;
-  status: "ok" | "loading" | "warning" | "error";
-  action?: () => void;
+  status: StatusState;
 }) {
-  const marker =
-    status === "loading" ? (
-      <LoaderCircleIcon className="size-3.5 animate-spin text-blue-600" />
-    ) : status === "ok" ? (
-      <CheckCircle2Icon className="size-3.5 text-emerald-600" />
-    ) : status === "warning" ? (
-      <CircleAlertIcon className="size-3.5 text-amber-600" />
-    ) : (
-      <CircleAlertIcon className="size-3.5 text-red-600" />
-    );
-
   return (
-    <button
-      type="button"
-      onClick={action}
-      disabled={!action}
-      className="flex w-full items-start gap-3 rounded-xl border border-neutral-200 bg-white p-3 text-left disabled:cursor-default"
-    >
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-neutral-500 [&_svg]:size-4">
-        {icon}
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center justify-between gap-2 text-sm font-medium">
-          <span className="truncate">{title}</span>
-          {marker}
-        </span>
-        <span className="mt-1 block break-words text-xs leading-5 text-neutral-500">
-          {detail}
-        </span>
-      </span>
-    </button>
+    <div className="flex items-start gap-2.5 rounded-xl border border-neutral-200 bg-white p-3">
+      <span className="mt-0.5 text-neutral-500 [&_svg]:size-4">{icon}</span>
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-medium">{title}</div>
+        <div className="mt-0.5 truncate text-xs text-neutral-500">{detail}</div>
+      </div>
+      <span
+        className={cn(
+          "mt-1 size-2 shrink-0 rounded-full",
+          status === "ok" && "bg-emerald-500",
+          status === "warning" && "bg-amber-500",
+          status === "error" && "bg-red-500",
+          status === "loading" && "animate-pulse bg-neutral-400"
+        )}
+      />
+    </div>
   );
 }
 
-function ArtifactSummary({
-  icon,
+function ArtifactList({
   title,
-  count,
+  icon,
   items
 }: {
-  icon: React.ReactNode;
   title: string;
-  count: number;
+  icon: React.ReactNode;
   items: string[];
 }) {
   return (
-    <section className="rounded-xl border border-neutral-200 bg-white p-3">
-      <div className="flex items-center gap-2 text-sm font-medium">
-        <span className="text-neutral-500 [&_svg]:size-4">{icon}</span>
-        <span className="flex-1">{title}</span>
-        <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600">
-          {count}
-        </span>
-      </div>
-      <div className="mt-3 space-y-1.5">
-        {items.length ? (
-          items.map((item) => (
-            <div
-              key={item}
-              className="truncate rounded-lg bg-neutral-50 px-2.5 py-2 text-xs text-neutral-600"
-            >
+    <section>
+      <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold text-neutral-600">
+        <span className="[&_svg]:size-4">{icon}</span>
+        {title}
+        <span className="ml-auto text-neutral-400">{items.length}</span>
+      </h3>
+      {items.length ? (
+        <div className="space-y-1">
+          {items.slice(0, 8).map((item) => (
+            <div key={item} className="truncate rounded-lg bg-white px-2.5 py-2 text-xs text-neutral-600">
               {item}
             </div>
-          ))
-        ) : (
-          <p className="text-xs leading-5 text-neutral-400">Пока нет сохранённых данных.</p>
-        )}
-      </div>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-lg bg-white px-2.5 py-2 text-xs text-neutral-400">Пока пусто</div>
+      )}
     </section>
   );
-}
-
-function syncLabel(sync: ReturnType<typeof useRuntimeStatus>["sync"]) {
-  if (sync.state === "syncing") return `Синхронизация · в очереди ${sync.pending}`;
-  if (sync.state === "synced") {
-    return `Синхронизировано · отправлено ${sync.pushed}, получено ${sync.pulled}`;
-  }
-  if (sync.state === "offline") return `Офлайн · в очереди ${sync.pending}`;
-  if (sync.state === "error") return `${sync.message} · в очереди ${sync.pending}`;
-  return `Готово · в очереди ${sync.pending}`;
-}
-
-function syncTone(
-  sync: ReturnType<typeof useRuntimeStatus>["sync"]
-): "ok" | "loading" | "warning" | "error" {
-  if (sync.state === "syncing") return "loading";
-  if (sync.state === "error") return "error";
-  if (sync.state === "offline") return "warning";
-  return "ok";
 }
