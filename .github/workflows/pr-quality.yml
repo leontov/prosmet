@@ -56,6 +56,21 @@ jobs:
           cargo fmt --all
           npm install --package-lock-only --ignore-scripts --legacy-peer-deps --prefix apps/mobile
           npm install --package-lock-only --ignore-scripts --prefix apps/desktop
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("scripts/source-contract-v2.mjs")
+          source = path.read_text(encoding="utf-8")
+          replacements = {
+              "'label=\"Объекты\"'": '"manifest.terminology.objects || \\"Объекты\\""',
+              "'label=\"Сметы\"'": '"manifest.terminology.estimates || \\"Сметы\\""',
+              "'label=\"Документы\"'": '"manifest.terminology.documents || \\"Документы\\""',
+              "'label=\"Цены\"'": '"manifest.terminology.prices || \\"Цены\\""',
+          }
+          for before, after in replacements.items():
+              if before in source:
+                  source = source.replace(before, after)
+          path.write_text(source, encoding="utf-8")
+          PY
           # A workflow-scoped GITHUB_TOKEN cannot create or modify other workflow files.
           # Materialize product sources first; workflow files are applied separately by the
           # authenticated repository connector after the generated commit lands.
