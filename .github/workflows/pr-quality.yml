@@ -56,6 +56,10 @@ jobs:
           cargo fmt --all
           npm install --package-lock-only --ignore-scripts --legacy-peer-deps --prefix apps/mobile
           npm install --package-lock-only --ignore-scripts --prefix apps/desktop
+          # A workflow-scoped GITHUB_TOKEN cannot create or modify other workflow files.
+          # Materialize product sources first; workflow files are applied separately by the
+          # authenticated repository connector after the generated commit lands.
+          git restore --source=HEAD --staged --worktree .github/workflows
           git add -A
           if git diff --cached --quiet; then
             echo "Universal platform already materialized."
