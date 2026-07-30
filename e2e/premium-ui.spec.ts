@@ -103,7 +103,7 @@ test("premium estimate opens as a clean adaptive document workflow", async ({ pa
     const meta = overlay.locator(".prosmet-premium-mobile-meta");
     await expect(meta).toBeVisible();
     await meta.locator("summary").click();
-    await expect(overlay.getByLabel("Объект")).toHaveValue("Квартира Ивановых");
+    await expect(overlay.locator('input[aria-label="Объект"]:visible')).toHaveValue("Квартира Ивановых");
 
     const firstRow = overlay.locator('button[aria-label$="— открыть позицию"]').first();
     await firstRow.click();
