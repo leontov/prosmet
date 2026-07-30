@@ -195,7 +195,7 @@ test("premium assistant shell is responsive and exposes diagnostics only on dema
   await expect(inspector.getByText("PostgreSQL", { exact: true })).toBeVisible();
   await expect(inspector.getByText("IndexedDB", { exact: true })).toBeVisible();
   await expect(inspector.getByText(/Подключено/)).toBeVisible({ timeout: 30_000 });
-  await page.getByRole("button", { name: "Закрыть контекст" }).click();
+  await inspector.getByRole("button", { name: "Закрыть контекст" }).click();
   await expect(inspector).toHaveCount(0);
 
   const backend = await page.request.get("/api/backend/status");
