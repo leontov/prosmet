@@ -73,6 +73,40 @@ function providerTool(input: string): RulesRun {
   };
 }
 
+function developerFocus(value: string) {
+  if (/react native|expo|ios|android|мобильн/.test(value)) return "React Native и мобильный сценарий замерщика";
+  if (/смет|редактор|карточк|sheet|интерфейс|ui|ux/.test(value)) return "редактор сметы и рабочая область desktop/mobile";
+  if (/backend|бэкенд|postgres|api|синхрон/.test(value)) return "backend, PostgreSQL и синхронизация";
+  if (/deploy|депло|релиз|ci|runner|3200/.test(value)) return "CI/CD и проверяемый выпуск на port 3200";
+  return "продолжение разработки и поддержание Просметчика в рабочем состоянии";
+}
+
+function developerTool(input: string): RulesRun {
+  return {
+    text:
+      "Открыл режим разработчика Просметчика. A2A-координатор формирует проверяемые задачи для команды ИИ-разработчиков; чтение и планирование доступны сразу, а изменение кода, Git и production-деплой проходят только через явное подтверждение владельца и релизные проверки.",
+    tools: [
+      {
+        name: "developer_workspace",
+        args: {
+          focus: developerFocus(input),
+          protocol: "A2A 0.3.0",
+          permissionMode: "owner-approved"
+        }
+      }
+    ],
+    state: {
+      developerWorkspace: {
+        status: "ready",
+        protocol: "A2A 0.3.0",
+        permissionMode: "owner-approved",
+        executionPolicy: "plan-first-fail-closed"
+      }
+    },
+    steps: ["load-developer-workspace"]
+  };
+}
+
 function statusTool(): RulesRun {
   return {
     text:
@@ -93,6 +127,14 @@ function statusTool(): RulesRun {
 export function runServiceCommand(input: string): RulesRun | null {
   const value = normalized(input);
   if (!value) return null;
+
+  if (
+    /(?:режим|workspace|пространств).*(?:разработчик|development)|(?:команд|агент).*(?:ии|ai).*(?:разработ|код)|(?:a2a|а2а).*(?:агент|разработ|команд)|(?:разрабатывай|дорабатывай|поддерживай).*(?:приложен|проект)/.test(
+      value
+    )
+  ) {
+    return developerTool(value);
+  }
 
   if (
     /(?:настро|заполни|измени|открой).*(?:профил|организац|реквизит)|(?:профиль|организация|самозанят|индивидуальн.*предпринимател)/.test(
