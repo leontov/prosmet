@@ -13,14 +13,18 @@ const forbid = (source, token, scope) => {
 
 const required = [
   "app/page.tsx",
+  "app/layout.tsx",
   "app/MyRuntimeProvider.tsx",
   "app/api/agent/route.ts",
   "app/api/health/route.ts",
   "app/api/sync/route.ts",
-  "components/app/chat-workspace.tsx",
+  "components/app/premium-prosmet-application.tsx",
+  "components/app/premium-chat-workspace.tsx",
+  "components/app/premium-estimate-workspace-editor.tsx",
   "components/app/right-inspector.tsx",
   "components/app/workspace-library.tsx",
   "components/chat/prosmet-thread.tsx",
+  "components/chat/premium-prosmet-thread.tsx",
   "components/tools/estimate-experience.tsx",
   "components/tools/estimate-document-experience.tsx",
   "components/tools/document-editor.tsx",
@@ -37,9 +41,12 @@ const required = [
   "deployment/provision-postgres.sh",
   "deployment/direct-primary.sh",
   "playwright.config.ts",
+  "e2e/chat.spec.ts",
+  "e2e/premium-ui.spec.ts",
   "e2e/workspace-navigation.spec.ts",
   ".github/workflows/launch-3200.yml"
 ];
+
 for (const path of required) {
   try {
     await access(resolve(root, path));
@@ -49,8 +56,19 @@ for (const path of required) {
 }
 
 const page = await read("app/page.tsx");
-need(page, 'export const dynamic = "force-dynamic"', "page");
-need(page, "export const revalidate = 0", "page");
+for (const token of [
+  'export const dynamic = "force-dynamic"',
+  "export const revalidate = 0",
+  "PremiumProsmetApplication"
+]) need(page, token, "page");
+
+const layout = await read("app/layout.tsx");
+for (const token of [
+  'import "./premium-product.css"',
+  'import "./premium-product-fixes.css"',
+  "NEXT_PUBLIC_APP_ORIGIN",
+  "https://kolibriai.online"
+]) need(layout, token, "layout");
 
 const runtime = await read("app/MyRuntimeProvider.tsx");
 for (const token of [
@@ -59,15 +77,8 @@ for (const token of [
   "AssistantRuntimeProvider",
   "ProsmetAttachmentAdapter",
   "ThreadHistoryAdapter"
-]) {
-  need(runtime, token, "assistant-ui-runtime");
-}
-for (const token of [
-  "useLocalRuntime",
-  "localStorage",
-  "runtime.thread.subscribe",
-  "[workspace]"
-]) {
+]) need(runtime, token, "assistant-ui-runtime");
+for (const token of ["useLocalRuntime", "localStorage", "runtime.thread.subscribe", "[workspace]"]) {
   forbid(runtime, token, "assistant-ui-runtime");
 }
 
@@ -82,9 +93,7 @@ for (const token of [
   "restoreThread",
   "deleteThread",
   "togglePin"
-]) {
-  need(context, token, "stable-thread-hydration");
-}
+]) need(context, token, "stable-thread-hydration");
 
 const agent = await read("app/api/agent/route.ts");
 for (const token of [
@@ -95,9 +104,7 @@ for (const token of [
   "messageId: activityMessageId",
   "RUN_FINISHED",
   "text/event-stream"
-]) {
-  need(agent, token, "ag-ui");
-}
+]) need(agent, token, "ag-ui");
 
 const health = await read("app/api/health/route.ts");
 for (const token of [
@@ -106,9 +113,7 @@ for (const token of [
   "IndexedDB",
   "browserWasm: false",
   "PostgreSQL"
-]) {
-  need(health, token, "health");
-}
+]) need(health, token, "health");
 
 const idb = await read("lib/local/idb.ts");
 for (const token of [
@@ -133,12 +138,8 @@ for (const token of [
   "createSchema(request.result, transaction)",
   "missingStores",
   "withLocalTransaction"
-]) {
-  need(idb, token, "indexeddb");
-}
-for (const token of ["sql.js", "WebAssembly", "sql-wasm"]) {
-  forbid(idb, token, "indexeddb");
-}
+]) need(idb, token, "indexeddb");
+for (const token of ["sql.js", "WebAssembly", "sql-wasm"]) forbid(idb, token, "indexeddb");
 
 for (const path of ["lib/local/repository.ts", "lib/local/files.ts", "lib/local/sync.ts"]) {
   const source = await read(path);
@@ -160,9 +161,7 @@ for (const token of [
   "sourceWeights",
   "statusWeights",
   "percentile"
-]) {
-  need(priceDomain, token, "price-intelligence-domain");
-}
+]) need(priceDomain, token, "price-intelligence-domain");
 
 const localPrices = await read("lib/local/price-intelligence.ts");
 for (const token of [
@@ -175,53 +174,110 @@ for (const token of [
   "LOCAL_STORES.priceObservations",
   "LOCAL_STORES.priceHistory",
   "LOCAL_STORES.marketPriceBuckets",
-  "entityType: \"price\""
-]) {
-  need(localPrices, token, "price-intelligence-local");
-}
+  'entityType: "price"'
+]) need(localPrices, token, "price-intelligence-local");
 
 const lifecycle = await read("lib/local/estimate-lifecycle.ts");
 for (const token of [
   "deleteEstimateRecord",
   "restoreEstimateRecord",
-  "operation: \"delete\"",
+  'operation: "delete"',
   "ProsmetRepository.prototype.deleteEstimate",
   "ProsmetRepository.prototype.restoreEstimate"
-]) {
-  need(lifecycle, token, "estimate-lifecycle");
-}
+]) need(lifecycle, token, "estimate-lifecycle");
+
+const premiumShell = await read("components/app/premium-chat-workspace.tsx");
+for (const token of [
+  "PremiumChatWorkspace",
+  "RightInspector",
+  "WorkspaceLibrary",
+  "WorkspaceView",
+  'data-testid="app-sidebar"',
+  'data-testid="universal-chat-canvas"',
+  "Новый чат",
+  "Закреплённые",
+  "Недавние",
+  "Переименовать чат",
+  "workspace.togglePin",
+  "workspace.archiveThread",
+  "workspace.restoreThread",
+  "workspace.deleteThread",
+  "workspace.renameThread",
+  'label="Чаты"',
+  'label="Объекты"',
+  'label="Сметы"',
+  'label="Документы"',
+  'label="Цены"'
+]) need(premiumShell, token, "premium-functional-shell");
+for (const token of [
+  "IndexedDB-кэш готов",
+  "Backend ·",
+  "Проверяем backend",
+  "SQLite WASM",
+  "onClick={() => undefined}",
+  "Сметная контора"
+]) forbid(premiumShell, token, "premium-customer-shell");
+
+const premiumThread = await read("components/chat/premium-prosmet-thread.tsx");
+for (const token of [
+  "ComposerPrimitive.Input",
+  "ThreadPrimitive.Suggestions",
+  "ActionBarPrimitive.Copy",
+  "ActionBarPrimitive.Reload",
+  "Что нужно посчитать?",
+  "Опишите объект и работы"
+]) need(premiumThread, token, "premium-thread");
+for (const token of [
+  "ActionBarPrimitive.Speak",
+  "FeedbackPositive",
+  "FeedbackNegative",
+  "Прочитать вслух",
+  "Хороший ответ",
+  "Плохой ответ"
+]) forbid(premiumThread, token, "unsupported-capabilities");
+
+const premiumApplication = await read("components/app/premium-prosmet-application.tsx");
+for (const token of [
+  "PremiumChatWorkspace",
+  "PremiumEstimateWorkspaceEditor",
+  "saveEstimate(workspace.currentThreadId",
+  "validateForApproval",
+  'status: "approved"',
+  'recordEstimatePriceStatus(approved, "approved")',
+  'recordEstimatePriceStatus(sent, "sent_to_client")',
+  "exportEstimatePdf",
+  "exportEstimateXlsx"
+]) need(premiumApplication, token, "premium-application");
+
+const premiumEditor = await read("components/app/premium-estimate-workspace-editor.tsx");
+for (const token of [
+  'data-testid="estimate-workspace-layer"',
+  'data-testid="estimate-document-overlay"',
+  'data-testid="estimate-document-canvas"',
+  'data-testid="estimate-revision-preview"',
+  'aria-label="Редактирование позиции"',
+  "Сохранить версию",
+  "Утвердить",
+  "Передать клиенту",
+  "Добавить позицию",
+  "Добавить раздел",
+  "Дополнительно",
+  "formatDateRu",
+  "pluralPositions",
+  'inputMode="decimal"'
+]) need(premiumEditor, token, "premium-estimate-editor");
 
 const editorExperience = await read("components/tools/estimate-document-experience.tsx");
 for (const token of [
   "EstimateArtifactCard",
-  "EstimateDocumentOverlay",
-  "EstimateDocumentCanvas",
-  "EstimateLineRow",
-  "EstimateRowDetailsSheet",
-  "PriceInspector",
-  "EstimateRevisionPreview",
   'data-testid="estimate-artifact-card"',
-  'data-testid="estimate-document-overlay"',
-  'data-testid="estimate-document-canvas"',
-  'data-testid="price-inspector"',
   "Открыть смету",
-  "Готово",
-  "Добавить позицию",
-  "Добавить раздел",
-  "Расчёт итога",
-  "Основание расчёта",
   "recordPriceEdit",
   "resolveLocalPrice",
   "recordEstimatePriceStatus"
-]) {
-  need(editorExperience, token, "estimate-editor-v2");
-}
-for (const token of [
-  "Интерактивная смета",
-  "xl:grid-cols-[78px_86px",
-  "Смета для работы на объекте"
-]) {
-  forbid(editorExperience, token, "estimate-editor-v2");
+]) need(editorExperience, token, "estimate-artifact-card");
+for (const token of ["Интерактивная смета", "Смета для работы на объекте"]) {
+  forbid(editorExperience, token, "estimate-artifact-card");
 }
 
 const editorWrapper = await read("components/tools/estimate-experience.tsx");
@@ -235,9 +291,53 @@ for (const token of [
   "listEstimateEntries",
   "EstimateDraftSchema.safeParse",
   "LOCAL_STORES.estimates"
-]) {
-  need(catalog, token, "workspace-catalog");
+]) need(catalog, token, "workspace-catalog");
+
+const library = await read("components/app/workspace-library.tsx");
+for (const token of [
+  "data-testid={`${view}-view`}",
+  "profile-view",
+  "settings-view",
+  "listEstimateEntries",
+  "repository.listDocuments()",
+  "repository.listPrices()",
+  "exportEstimatePdf",
+  "exportEstimateXlsx",
+  "Открыть в чате",
+  "Сохранить профиль",
+  "Сохранить настройки"
+]) need(library, token, "workspace-library");
+
+const navigationE2e = await read("e2e/workspace-navigation.spec.ts");
+for (const token of [
+  "objects-view",
+  "estimates-view",
+  "documents-view",
+  "prices-view",
+  "Закрепить",
+  "Открепить",
+  "В архив",
+  "Восстановить",
+  "Переименовать чат",
+  "Удалить чат?",
+  "Новый чат",
+  'waitForEvent("download")'
+]) need(navigationE2e, token, "workspace-navigation-e2e");
+
+const premiumE2e = await read("e2e/premium-ui.spec.ts");
+for (const token of [
+  "premium shell keeps the customer surface quiet",
+  "premium estimate opens as a clean adaptive document workflow",
+  "premium-shell-",
+  "premium-estimate-",
+  "Сохранить версию"
+]) need(premiumE2e, token, "premium-e2e");
+
+const inspector = await read("components/app/right-inspector.tsx");
+for (const token of ["right-inspector", "PostgreSQL", "IndexedDB", "Синхронизация"]) {
+  need(inspector, token, "inspector");
 }
+forbid(inspector, "SQLite WASM", "inspector");
 
 const postgres = await read("lib/server/postgres.ts");
 for (const token of [
@@ -253,15 +353,8 @@ for (const token of [
   "prosmet_files",
   "prosmet_agent_runs",
   "withServerTransaction"
-]) {
-  need(postgres, token, "postgres");
-}
-for (const token of [
-  "PGlite",
-  "@electric-sql/pglite",
-  "PROSMET_PGLITE_DIR",
-  "embedded-postgres"
-]) {
+]) need(postgres, token, "postgres");
+for (const token of ["PGlite", "@electric-sql/pglite", "PROSMET_PGLITE_DIR", "embedded-postgres"]) {
   forbid(postgres, token, "postgres");
 }
 
@@ -278,16 +371,8 @@ for (const token of [
   "postgres-password",
   "DATABASE_URL",
   "Real rootless PostgreSQL"
-]) {
-  need(provision, token, "postgres-provision");
-}
-for (const token of [
-  "postgres-server.mjs",
-  "pglite",
-  "sudo ",
-  "systemctl",
-  "docker"
-]) {
+]) need(provision, token, "postgres-provision");
+for (const token of ["postgres-server.mjs", "pglite", "sudo ", "systemctl", "docker"]) {
   forbid(provision, token, "postgres-provision");
 }
 
@@ -300,9 +385,7 @@ for (const token of [
   "primary-agent.sse",
   "primary-sync.json",
   "release.json"
-]) {
-  need(deployment, token, "atomic-primary-deployment");
-}
+]) need(deployment, token, "atomic-primary-deployment");
 forbid(deployment, 'rm -rf "${RELEASE:?}"/*', "atomic-primary-deployment");
 
 const sync = await read("app/api/sync/route.ts");
@@ -314,77 +397,7 @@ for (const token of [
   "preserveDocumentRevision",
   "export async function POST",
   "export async function GET"
-]) {
-  need(sync, token, "sync");
-}
-
-const shell = await read("components/app/chat-workspace.tsx");
-for (const token of [
-  "RightInspector",
-  "WorkspaceLibrary",
-  "WorkspaceView",
-  "app-sidebar",
-  "IndexedDB-кэш готов",
-  "Закреплённые",
-  "История чатов",
-  "Переименовать чат",
-  "Показать архив",
-  "workspace.togglePin",
-  "workspace.archiveThread",
-  "workspace.restoreThread",
-  "workspace.deleteThread",
-  "workspace.renameThread",
-  'label="Объекты"',
-  'label="Сметы"',
-  'label="Документы"',
-  'label="Каталог цен"'
-]) {
-  need(shell, token, "functional-shell");
-}
-for (const token of ["SQLite WASM", "onClick={() => undefined}", "Сметная контора"]) {
-  forbid(shell, token, "functional-shell");
-}
-
-const library = await read("components/app/workspace-library.tsx");
-for (const token of [
-  "data-testid={`${view}-view`}",
-  "profile-view",
-  "settings-view",
-  "listEstimateEntries",
-  "repository.listDocuments()",
-  "repository.listPrices()",
-  "exportEstimatePdf",
-  "exportEstimateXlsx",
-  "Открыть в чате",
-  "Сохранить профиль",
-  "Сохранить настройки"
-]) {
-  need(library, token, "workspace-library");
-}
-
-const navigationE2e = await read("e2e/workspace-navigation.spec.ts");
-for (const token of [
-  "objects-view",
-  "estimates-view",
-  "documents-view",
-  "prices-view",
-  "Закрепить",
-  "Открепить",
-  "В архив",
-  "Восстановить",
-  "Переименовать чат",
-  "Удалить историю чата?",
-  "Новая задача",
-  "waitForEvent(\"download\")"
-]) {
-  need(navigationE2e, token, "workspace-navigation-e2e");
-}
-
-const inspector = await read("components/app/right-inspector.tsx");
-for (const token of ["right-inspector", "PostgreSQL", "IndexedDB", "Синхронизация"]) {
-  need(inspector, token, "inspector");
-}
-forbid(inspector, "SQLite WASM", "inspector");
+]) need(sync, token, "sync");
 
 const nextConfig = await read("next.config.ts");
 forbid(nextConfig, "'wasm-unsafe-eval'", "csp");
@@ -394,12 +407,7 @@ if (!nextConfig.includes("...(isDevelopment ? [\"'unsafe-eval'\"] : [])")) {
 need(nextConfig, "no-store, no-cache, must-revalidate", "cache-control");
 
 const playwright = await read("playwright.config.ts");
-for (const token of [
-  "PROSMET_BASE_URL",
-  "externalBaseURL",
-  "desktop-chromium",
-  "mobile-chromium"
-]) {
+for (const token of ["PROSMET_BASE_URL", "externalBaseURL", "desktop-chromium", "mobile-chromium"]) {
   need(playwright, token, "playwright");
 }
 
@@ -416,9 +424,7 @@ for (const token of [
   "deployment/direct-primary.sh",
   "PROSMET_BASE_URL: http://127.0.0.1:3200",
   "releaseSha"
-]) {
-  need(productionWorkflow, token, "main-production-workflow");
-}
+]) need(productionWorkflow, token, "main-production-workflow");
 forbid(productionWorkflow, "issues.update", "main-production-workflow");
 
 const pkg = JSON.parse(await read("package.json"));
