@@ -1,0 +1,121 @@
+name: Prosmet PR Quality
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prosmet-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify source, build and Chromium on Primary
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 120
+    env:
+      CI: "1"
+      NEXT_TELEMETRY_DISABLED: "1"
+      PROSMET_DEFAULT_PROVIDER: "rules"
+      PROSMET_E2E_PORT: "13120"
+    steps:
+      - name: Verify trusted runner
+        run: |
+          set -Eeuo pipefail
+          test "${{ runner.name }}" = "prosmet-primary"
+
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          clean: true
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.16.0"
+          cache: npm
+
+      - name: Prepare evidence
+        run: mkdir -p artifacts/logs artifacts/database artifacts/screenshots
+
+      - name: Install locked dependencies
+        run: |
+          set -o pipefail
+          npm ci --no-audit --no-fund 2>&1 | tee artifacts/logs/npm-ci.log
+
+      - name: Start persistent PostgreSQL
+        run: |
+          set -o pipefail
+          bash deployment/provision-postgres.sh 2>&1 | tee artifacts/logs/postgres-provision.log
+          source "$HOME/.prosmet/database.env"
+          echo "::add-mask::$DATABASE_URL"
+          echo "PROSMET_DATABASE_DRIVER=postgres" >> "$GITHUB_ENV"
+          echo "DATABASE_URL=$DATABASE_URL" >> "$GITHUB_ENV"
+
+      - name: Prepare provider secret store
+        run: |
+          set -Eeuo pipefail
+          SECRET_FILE="$HOME/.prosmet/provider-master-key"
+          mkdir -p "$HOME/.prosmet"
+          if [ ! -s "$SECRET_FILE" ]; then
+            umask 077
+            openssl rand -base64 48 > "$SECRET_FILE"
+          fi
+          chmod 600 "$SECRET_FILE"
+          PROSMET_PROVIDER_MASTER_KEY="$(tr -d '\r\n' < "$SECRET_FILE")"
+          echo "::add-mask::$PROSMET_PROVIDER_MASTER_KEY"
+          echo "PROSMET_PROVIDER_MASTER_KEY=$PROSMET_PROVIDER_MASTER_KEY" >> "$GITHUB_ENV"
+
+      - name: Migrate PostgreSQL
+        run: |
+          set -o pipefail
+          node deployment/migrate-postgres.mjs 2>&1 | tee artifacts/database/postgres-migration.json
+
+      - name: Source contracts
+        run: |
+          set -o pipefail
+          npm run source:contract 2>&1 | tee artifacts/logs/source-contract.log
+
+      - name: Typecheck
+        run: |
+          set -o pipefail
+          npm run typecheck 2>&1 | tee artifacts/logs/typecheck.log
+
+      - name: Unit tests
+        run: |
+          set -o pipefail
+          npm run test 2>&1 | tee artifacts/logs/unit-tests.log
+
+      - name: Production build
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee artifacts/logs/build.log
+
+      - name: Install Chromium
+        run: |
+          set -o pipefail
+          npx playwright install chromium 2>&1 | tee artifacts/logs/chromium-install.log
+
+      - name: Desktop and mobile Chromium
+        env:
+          DEBUG: pw:webserver
+        run: |
+          set -o pipefail
+          npm run e2e 2>&1 | tee artifacts/logs/e2e.log
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prosmet-pr-${{ github.event.pull_request.number }}-${{ github.run_id }}
+          path: |
+            artifacts
+            playwright-report
+            test-results
+          if-no-files-found: error
+          retention-days: 14
