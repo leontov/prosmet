@@ -1,0 +1,44 @@
+{
+  "version": "2026-07-30.v1",
+  "repository": "leontov/prosmet",
+  "canonicalOrigin": "https://kolibriai.online",
+  "productionBranch": "main",
+  "productionRunner": "prosmet-primary",
+  "internalApplication": "http://127.0.0.1:3200",
+  "readOrder": [
+    "/AGENTS.md",
+    "/.github/copilot-instructions.md",
+    "/docs/agents/README.md",
+    "/docs/agents/PROJECT_CONTEXT.md",
+    "/docs/agents/ARCHITECTURE.md",
+    "/docs/agents/EXECUTION_PROTOCOL.md",
+    "/docs/agents/UX_PRODUCT_RULES.md",
+    "/docs/agents/CODE_CONVENTIONS.md",
+    "/docs/agents/QUALITY_RELEASE_GATE.md",
+    "/docs/agents/A2A_ROLES.md",
+    "/docs/agents/SECURITY_PERMISSIONS.md",
+    "/docs/agents/OPERATIONS_RUNBOOK.md",
+    "/docs/agents/AGENT_BOOTSTRAP_PROMPT.md"
+  ],
+  "releaseCompletion": {
+    "workflow": "Prosmet Main Production",
+    "requiredStatus": "MAIN PRODUCTION PASS",
+    "exactShaRequired": true,
+    "publicHttpsSmokeRequired": true,
+    "desktopRequired": true,
+    "mobileRequired": true
+  },
+  "architecture": {
+    "chatRuntime": "assistant-ui-single-runtime",
+    "agentTransport": "AG-UI/SSE",
+    "agentToAgent": "A2A-owner-scoped",
+    "serverDatabase": "PostgreSQL",
+    "browserStorage": "IndexedDB+outbox",
+    "browserSqlWasmAllowed": false,
+    "deterministicMoneyEngineRequired": true
+  },
+  "currentReleaseConstraint": {
+    "name": "PROSMET UX PREMIUM FOUNDATION V1",
+    "newProductModulesAllowed": false
+  }
+}
