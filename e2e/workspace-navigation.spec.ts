@@ -62,7 +62,7 @@ function watchErrors(page: Page) {
 
 function relevantErrors(errors: string[]) {
   return errors.filter((message) =>
-    /Content Security Policy|hydration|Connection closed|ZodError|Maximum update depth|Too many re-renders|Page crashed|IndexedDB.*not found|TypeError|ReferenceError|validateDOMNesting/i.test(
+    /Content Security Policy|hydration|Connection closed|ZodError|Maximum update depth|Too many re-renders|Page crashed|IndexedDB.*not found|TypeError|ReferenceError|validateDOMNesting|Speech adapter|Feedback adapter/i.test(
       message
     )
   );
@@ -85,10 +85,10 @@ test("all workspace sections and thread history actions are functional", async (
   await card.getByRole("button", { name: /Открыть смету/ }).click();
   const overlay = page.getByTestId("estimate-document-overlay");
   await expect(overlay).toBeVisible();
-  await overlay.getByRole("button", { name: "Готово", exact: true }).click();
+  await overlay.getByRole("button", { name: "Сохранить версию", exact: true }).click();
   const preview = page.getByTestId("estimate-revision-preview");
   await expect(preview).toBeVisible({ timeout: 30_000 });
-  await overlay.getByRole("button", { name: "Поделиться", exact: true }).click();
+  await overlay.getByRole("button", { name: "Передать клиенту", exact: true }).click();
   const share = page.getByRole("dialog", { name: "Передача сметы клиенту" });
   await share.getByRole("button", { name: /Скопировать итог/ }).click();
   await expect(share).toHaveCount(0);
@@ -104,9 +104,7 @@ test("all workspace sections and thread history actions are functional", async (
   const estimatesView = page.getByTestId("estimates-view");
   await expect(estimatesView).toBeVisible();
   await expect(
-    estimatesView.getByText("Механизированная гипсовая штукатурка — 84 м²", {
-      exact: true
-    })
+    estimatesView.getByText("Механизированная гипсовая штукатурка — 84 м²", { exact: true })
   ).toBeVisible();
   await expect(estimatesView.getByRole("button", { name: "PDF", exact: true })).toBeEnabled();
   await expect(estimatesView.getByRole("button", { name: "XLSX", exact: true })).toBeEnabled();
@@ -142,10 +140,7 @@ test("all workspace sections and thread history actions are functional", async (
   const documentsView = page.getByTestId("documents-view");
   await expect(documentsView).toBeVisible();
   await expect(
-    documentsView.getByText(
-      "Коммерческое предложение на выполнение строительных работ — E2E",
-      { exact: true }
-    )
+    documentsView.getByText("Коммерческое предложение на выполнение строительных работ — E2E", { exact: true })
   ).toBeVisible();
   if (testInfo.project.name === "desktop-chromium") {
     const docDownload = page.waitForEvent("download");
@@ -153,12 +148,10 @@ test("all workspace sections and thread history actions are functional", async (
     expect((await docDownload).suggestedFilename()).toMatch(/\.doc$/i);
   }
 
-  await navigate(page, "Каталог цен");
+  await navigate(page, "Цены");
   const pricesView = page.getByTestId("prices-view");
   await expect(pricesView).toBeVisible();
-  await expect(
-    pricesView.getByText("Механизированная гипсовая штукатурка", { exact: true })
-  ).toBeVisible();
+  await expect(pricesView.getByText("Механизированная гипсовая штукатурка", { exact: true })).toBeVisible();
   await expect(pricesView.getByText("Подтверждена", { exact: true }).first()).toBeVisible();
 
   await page.getByRole("button", { name: "Настройки" }).click();
@@ -168,7 +161,11 @@ test("all workspace sections and thread history actions are functional", async (
   await settings.getByRole("button", { name: "Сохранить настройки" }).click();
   await expect(settings.getByRole("button", { name: "Сохранено" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Профиль", exact: true }).click();
+  const profileButton = page.getByRole("button", { name: /Профиль и организация/ });
+  if (!(await profileButton.isVisible())) {
+    await openSidebar(page);
+  }
+  await page.getByRole("button", { name: /Профиль и организация/ }).click();
   const profile = page.getByTestId("profile-view");
   await expect(profile).toBeVisible();
   await profile.getByLabel("Имя").fill("Владислав");
@@ -176,7 +173,7 @@ test("all workspace sections and thread history actions are functional", async (
   await profile.getByRole("button", { name: "Сохранить профиль" }).click();
   await expect(profile.getByRole("button", { name: "Сохранено" })).toBeVisible();
 
-  await navigate(page, "Сметы и чаты");
+  await navigate(page, "Чаты");
   await expect(page.getByTestId("estimate-document-experience")).toBeVisible();
 
   let sidebar = await openThreadMenu(page, threadTitle);
@@ -200,23 +197,23 @@ test("all workspace sections and thread history actions are functional", async (
   await sidebar.getByRole("button", { name: "В архив", exact: true }).click();
 
   sidebar = await openSidebar(page);
-  await sidebar.getByRole("button", { name: "Показать архив", exact: true }).click();
+  await sidebar.getByRole("button", { name: "Архив", exact: true }).click();
   await expect(sidebar.getByText(renamed, { exact: true })).toBeVisible();
   sidebar = await openThreadMenu(page, renamed);
   await sidebar.getByRole("button", { name: "Восстановить", exact: true }).click();
   sidebar = await openSidebar(page);
-  await sidebar.getByRole("button", { name: "Вернуться к истории", exact: true }).click();
+  await sidebar.getByRole("button", { name: "Назад", exact: true }).click();
   await expect(sidebar.getByText(renamed, { exact: true })).toBeVisible();
 
   sidebar = await openThreadMenu(page, renamed);
   await sidebar.getByRole("button", { name: "Удалить", exact: true }).click();
-  const deleteDialog = page.getByRole("dialog", { name: "Удалить историю чата?" });
+  const deleteDialog = page.getByRole("dialog", { name: "Удалить чат?" });
   await expect(deleteDialog).toBeVisible();
   await deleteDialog.getByRole("button", { name: "Удалить", exact: true }).click();
   sidebar = await openSidebar(page);
   await expect(sidebar.getByText(renamed, { exact: true })).toHaveCount(0);
 
-  await sidebar.getByRole("button", { name: "Новая задача", exact: true }).click();
+  await sidebar.getByRole("button", { name: "Новый чат", exact: true }).click();
   await expect(page.getByTestId("chat-empty-state")).toBeVisible();
   await expect(composer(page)).toBeEditable();
 

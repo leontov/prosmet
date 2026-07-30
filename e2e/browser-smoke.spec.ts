@@ -60,14 +60,22 @@ test("the application hydrates and remains interactive", async ({ page }, testIn
 
   if (testInfo.project.name === "desktop-chromium") {
     await expect(visibleSidebar).toHaveCount(1);
+    // Premium customer view is intentionally quiet: supporting diagnostics are
+    // available on demand rather than permanently consuming document width.
+    await expect(visibleInspector).toHaveCount(0);
+    await page.getByRole("button", { name: "Рабочий контекст" }).click();
     await expect(visibleInspector).toHaveCount(1);
+    await visibleInspector.getByRole("button", { name: "Закрыть контекст" }).click();
+    await expect(visibleInspector).toHaveCount(0);
   } else {
     await page.getByRole("button", { name: "Открыть меню" }).click();
     await expect(visibleSidebar).toHaveCount(1);
-    await page.getByRole("button", { name: "Закрыть меню" }).last().click();
+    await page.getByRole("button", { name: "Скрыть боковую панель" }).click();
     await expect(visibleSidebar).toHaveCount(0);
     await page.getByRole("button", { name: "Рабочий контекст" }).click();
     await expect(visibleInspector).toHaveCount(1);
+    await visibleInspector.getByRole("button", { name: "Закрыть контекст" }).click();
+    await expect(visibleInspector).toHaveCount(0);
   }
 
   const backend = await page.request.get("/api/backend/status");

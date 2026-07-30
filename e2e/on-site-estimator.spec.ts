@@ -82,13 +82,14 @@ test("a measurer edits the printable estimate and hands it to a client", async (
 
   const overlay = page.getByTestId("estimate-document-overlay");
   await expect(overlay).toBeVisible();
-  await expect(overlay.getByLabel("Объект")).toHaveValue("Квартира Ивановых, Казань");
-  await expect(overlay.getByLabel("Заказчик")).toHaveValue("Иванов Алексей");
+  if (testInfo.project.name === "mobile-chromium") {
+    await overlay.locator("details.prosmet-premium-mobile-meta > summary").click();
+  }
+  await expect(overlay.locator('input[aria-label="Объект"]:visible')).toHaveValue("Квартира Ивановых, Казань");
+  await expect(overlay.locator('input[aria-label="Заказчик"]:visible')).toHaveValue("Иванов Алексей");
 
   if (testInfo.project.name === "mobile-chromium") {
-    await overlay
-      .getByRole("button", { name: /Укрытие и защита поверхностей/ })
-      .click();
+    await overlay.locator('button[aria-label$="— открыть позицию"]').first().click();
     const rowEditor = page.getByRole("dialog", { name: "Редактирование позиции" });
     await expect(rowEditor).toBeVisible();
     const mobilePrice = rowEditor.getByLabel("Цена");
@@ -104,7 +105,7 @@ test("a measurer edits the printable estimate and hands it to a client", async (
     await expect(workPrice).toHaveValue("650");
   }
 
-  await overlay.getByRole("button", { name: "Готово", exact: true }).click();
+  await overlay.getByRole("button", { name: "Сохранить версию", exact: true }).click();
   const preview = page.getByTestId("estimate-revision-preview");
   await expect(preview).toBeVisible({ timeout: 30_000 });
 
@@ -117,7 +118,7 @@ test("a measurer edits the printable estimate and hands it to a client", async (
   expect(page.url()).toBe(applicationUrl);
   await expect(preview).toBeVisible();
 
-  await overlay.getByRole("button", { name: "Поделиться", exact: true }).click();
+  await overlay.getByRole("button", { name: "Передать клиенту", exact: true }).click();
   const share = page.getByRole("dialog", { name: "Передача сметы клиенту" });
   await expect(share).toBeVisible();
   await expect(share.getByRole("button", { name: /WhatsApp/ })).toBeVisible();

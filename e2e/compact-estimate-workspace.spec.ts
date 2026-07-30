@@ -42,26 +42,27 @@ test("a compact estimate card opens the focused desktop or mobile workspace", as
   await expect(workspace).toBeVisible();
   await expect(editor).toBeVisible();
   await expect(page.locator("body")).toHaveAttribute("data-prosmet-estimate-open", "true");
-  await expect(editor.getByLabel("Объект")).toHaveValue("Квартира Ивановых");
-  await expect(editor.getByLabel("Заказчик")).toHaveValue("Иванов Алексей");
+
+  if (testInfo.project.name === "mobile-chromium") {
+    await editor.locator("details.prosmet-premium-mobile-meta > summary").click();
+  }
+  await expect(editor.locator('input[aria-label="Объект"]:visible')).toHaveValue("Квартира Ивановых");
+  await expect(editor.locator('input[aria-label="Заказчик"]:visible')).toHaveValue("Иванов Алексей");
 
   if (testInfo.project.name === "desktop-chromium") {
     const sidebar = page.locator('[data-testid="app-sidebar"]:visible');
-    const chat = page.locator("main");
     await expect(sidebar).toHaveCount(1);
-    await expect(chat).toBeVisible();
-    await expect(composer(page)).toBeVisible();
+    await expect(composer(page)).not.toBeVisible();
 
-    const [sidebarBox, editorBox, chatBox] = await Promise.all([
+    const [sidebarBox, editorBox] = await Promise.all([
       sidebar.boundingBox(),
-      editor.boundingBox(),
-      chat.boundingBox()
+      editor.boundingBox()
     ]);
     expect(sidebarBox).not.toBeNull();
     expect(editorBox).not.toBeNull();
-    expect(chatBox).not.toBeNull();
     expect(editorBox!.x).toBeGreaterThanOrEqual(sidebarBox!.x + sidebarBox!.width - 3);
-    expect(editorBox!.x + editorBox!.width).toBeLessThanOrEqual(chatBox!.x + 3);
+    expect(editorBox!.x + editorBox!.width).toBeGreaterThanOrEqual(page.viewportSize()!.width - 3);
+    expect(editorBox!.width).toBeGreaterThan(900);
 
     const price = editor.getByLabel("Цена позиции 1");
     await price.fill("650");
@@ -70,9 +71,11 @@ test("a compact estimate card opens the focused desktop or mobile workspace", as
   } else {
     const sheetBox = await editor.boundingBox();
     expect(sheetBox).not.toBeNull();
-    expect(sheetBox!.y).toBeGreaterThan(0);
+    expect(sheetBox!.x).toBeLessThanOrEqual(1);
+    expect(sheetBox!.y).toBeLessThanOrEqual(1);
+    expect(Math.abs(sheetBox!.width - page.viewportSize()!.width)).toBeLessThanOrEqual(2);
 
-    await editor.getByRole("button", { name: /Укрытие и защита поверхностей/ }).click();
+    await editor.locator('button[aria-label$="— открыть позицию"]').first().click();
     const rowSheet = page.getByRole("dialog", { name: "Редактирование позиции" });
     await expect(rowSheet).toBeVisible();
     const rowBox = await rowSheet.locator("section").boundingBox();

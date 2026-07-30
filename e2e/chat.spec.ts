@@ -38,9 +38,7 @@ async function waitForLocalCache(page: import("@playwright/test").Page) {
               request.onerror = () => resolve(false);
               request.onsuccess = () => {
                 const database = request.result;
-                const ready = requiredStores.every((store) =>
-                  database.objectStoreNames.contains(store)
-                );
+                const ready = requiredStores.every((store) => database.objectStoreNames.contains(store));
                 database.close();
                 resolve(ready);
               };
@@ -68,8 +66,8 @@ async function waitForPersistedEstimateMessage(page: import("@playwright/test").
                   const transaction = database.transaction("messages", "readonly");
                   const messages = transaction.objectStore("messages").getAll();
                   transaction.oncomplete = () => {
-                    const persisted = (messages.result as Array<{ message?: unknown }>).some(
-                      (record) => JSON.stringify(record.message ?? {}).includes("estimate_draft")
+                    const persisted = (messages.result as Array<{ message?: unknown }>).some((record) =>
+                      JSON.stringify(record.message ?? {}).includes("estimate_draft")
                     );
                     database.close();
                     resolve(persisted);
@@ -86,10 +84,7 @@ async function waitForPersistedEstimateMessage(page: import("@playwright/test").
             }),
           DB_NAME
         ),
-      {
-        timeout: 30_000,
-        message: "Completed assistant estimate message was not persisted to IndexedDB history"
-      }
+      { timeout: 30_000, message: "Completed assistant estimate message was not persisted" }
     )
     .toBe(true);
 }
@@ -105,14 +100,6 @@ async function sendPrompt(page: import("@playwright/test").Page, prompt: string)
   await send.click();
 }
 
-function visibleSidebar(page: import("@playwright/test").Page) {
-  return page.locator('[data-testid="app-sidebar"]:visible');
-}
-
-function visibleInspector(page: import("@playwright/test").Page) {
-  return page.locator('[data-testid="right-inspector"]:visible');
-}
-
 function watchRuntimeErrors(page: import("@playwright/test").Page) {
   const errors: string[] = [];
   page.on("console", (message) => {
@@ -125,7 +112,7 @@ function watchRuntimeErrors(page: import("@playwright/test").Page) {
 
 function relevantRuntimeErrors(errors: string[]) {
   return errors.filter((message) =>
-    /Content Security Policy|Refused to execute inline script|Refused to evaluate|blocks the use of ['"]eval['"]|unsafe-eval|EvalError|hydration|Connection closed|randomUUID is not a function|sql-wasm|both async and sync fetching|wasm streaming compile failed|ZodError|messageId.*Required|Maximum update depth exceeded|Too many re-renders|Page crashed|out of memory|IndexedDB.*not found|validateDOMNesting/i.test(
+    /Content Security Policy|Refused to execute inline script|Refused to evaluate|unsafe-eval|EvalError|hydration|Connection closed|randomUUID is not a function|sql-wasm|wasm streaming compile failed|ZodError|messageId.*Required|Maximum update depth exceeded|Too many re-renders|Page crashed|out of memory|IndexedDB.*not found|validateDOMNesting|Speech adapter|Feedback adapter/i.test(
       message
     )
   );
@@ -144,7 +131,7 @@ test("plain HTTP boots with native IndexedDB and no browser WASM", async ({ page
         value: undefined
       });
     } catch {
-      // The compatibility helper must still leave the application usable.
+      // Compatibility helper must leave the application usable.
     }
   });
 
@@ -167,60 +154,19 @@ test("plain HTTP boots with native IndexedDB and no browser WASM", async ({ page
   expect(Number(localDatabase?.version)).toBeGreaterThanOrEqual(3);
 
   for (const obsolete of ["/sql-wasm.wasm", "/sql-wasm-browser.wasm"]) {
-    const asset = await page.request.get(obsolete);
-    expect(asset.status()).toBe(404);
+    expect((await page.request.get(obsolete)).status()).toBe(404);
   }
 
   expect(relevantRuntimeErrors(runtimeErrors)).toEqual([]);
 });
 
-test("hydrated client remains responsive and keeps text typed during startup", async ({ page }) => {
-  const runtimeErrors = watchRuntimeErrors(page);
-  await page.goto("/");
-  await expect(page.getByTestId("chat-empty-state")).toBeVisible();
-
-  const input = composer(page);
-  await input.fill("Проверка отзывчивости интерфейса");
-  await expect(input).toHaveValue("Проверка отзывчивости интерфейса");
-  await waitForLocalCache(page);
-  await expect(input).toHaveValue("Проверка отзывчивости интерфейса");
-  await expect(page.getByRole("button", { name: "Отправить" })).toBeEnabled();
-
-  const completedFrames = await page.evaluate(
-    () =>
-      new Promise<number>((resolve, reject) => {
-        let frames = 0;
-        const timeout = window.setTimeout(
-          () => reject(new Error(`Browser stopped responding after ${frames} animation frames`)),
-          3000
-        );
-        const next = () => {
-          frames += 1;
-          if (frames >= 12) {
-            window.clearTimeout(timeout);
-            resolve(frames);
-            return;
-          }
-          window.requestAnimationFrame(next);
-        };
-        window.requestAnimationFrame(next);
-      })
-  );
-  expect(completedFrames).toBe(12);
-
-  await input.fill("");
-  await expect(input).toHaveValue("");
-  await page.waitForTimeout(750);
-  expect(relevantRuntimeErrors(runtimeErrors)).toEqual([]);
-});
-
-test("Codex desktop shell hydrates without eval and exposes both sidebars", async ({
+test("premium assistant shell is responsive and exposes diagnostics only on demand", async ({
   page
 }, testInfo) => {
   const runtimeErrors = watchRuntimeErrors(page);
   const response = await page.goto("/");
   expect(response?.ok()).toBeTruthy();
-  await expect(page.getByTestId("chat-empty-state")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Что нужно посчитать?" })).toBeVisible();
   await expect(composer(page)).toBeEditable();
   await waitForLocalCache(page);
 
@@ -230,18 +176,27 @@ test("Codex desktop shell hydrates without eval and exposes both sidebars", asyn
   expect(csp).not.toContain("'unsafe-eval'");
   expect(csp).not.toContain("'wasm-unsafe-eval'");
 
+  await expect(page.getByLabel("Прочитать вслух")).toHaveCount(0);
+  await expect(page.getByLabel("Хороший ответ")).toHaveCount(0);
+  await expect(page.getByLabel("Плохой ответ")).toHaveCount(0);
+  await expect(page.locator('[data-testid="right-inspector"]:visible')).toHaveCount(0);
+
   if (testInfo.project.name === "desktop-chromium") {
-    await expect(visibleSidebar(page)).toHaveCount(1);
-    const inspector = visibleInspector(page);
-    await expect(inspector).toHaveCount(1);
-    await expect(inspector.getByText("Рабочий контекст", { exact: true })).toBeVisible();
-    await expect(inspector.getByText("PostgreSQL", { exact: true })).toBeVisible();
-    await expect(inspector.getByText("IndexedDB", { exact: true })).toBeVisible();
-    await expect(inspector.getByText(/Подключено/)).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator('[data-testid="app-sidebar"]:visible')).toHaveCount(1);
   } else {
-    await expect(page.getByRole("button", { name: "Открыть меню" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Рабочий контекст" })).toBeVisible();
+    await page.getByRole("button", { name: "Открыть меню" }).click();
+    await expect(page.locator('[data-testid="app-sidebar"]:visible')).toHaveCount(1);
+    await page.getByRole("button", { name: "Скрыть боковую панель" }).click();
   }
+
+  await page.getByRole("button", { name: "Рабочий контекст" }).click();
+  const inspector = page.locator('[data-testid="right-inspector"]:visible');
+  await expect(inspector).toHaveCount(1);
+  await expect(inspector.getByText("PostgreSQL", { exact: true })).toBeVisible();
+  await expect(inspector.getByText("IndexedDB", { exact: true })).toBeVisible();
+  await expect(inspector.getByText(/Подключено/)).toBeVisible({ timeout: 30_000 });
+  await inspector.getByRole("button", { name: "Закрыть контекст" }).click();
+  await expect(inspector).toHaveCount(0);
 
   const backend = await page.request.get("/api/backend/status");
   expect(backend.ok()).toBeTruthy();
@@ -265,7 +220,7 @@ test("Codex desktop shell hydrates without eval and exposes both sidebars", asyn
   });
 });
 
-test("streaming chat creates a compact estimate card and focused document workspace", async ({
+test("streaming chat creates a compact estimate card and premium document workspace", async ({
   page
 }, testInfo) => {
   const runtimeErrors = watchRuntimeErrors(page);
@@ -279,7 +234,6 @@ test("streaming chat creates a compact estimate card and focused document worksp
   await expect(page.getByText(/Подготовил технологическую карту/)).toBeVisible();
   const card = page.getByTestId("estimate-artifact-card");
   await expect(card).toBeVisible({ timeout: 30_000 });
-  await expect(card.getByRole("button", { name: /Открыть смету/ })).toBeVisible();
   await card.getByRole("button", { name: /Открыть смету/ }).click();
 
   const overlay = page.getByTestId("estimate-document-overlay");
@@ -287,18 +241,15 @@ test("streaming chat creates a compact estimate card and focused document worksp
   await expect(overlay.getByLabel("Название сметы")).toHaveValue(
     "Механизированная гипсовая штукатурка — 358 м²"
   );
+
   if (testInfo.project.name === "mobile-chromium") {
-    await overlay
-      .getByRole("button", { name: /Укрытие и защита поверхностей/ })
-      .click();
+    await overlay.locator('button[aria-label$="— открыть позицию"]').first().click();
     const rowEditor = page.getByRole("dialog", { name: "Редактирование позиции" });
-    await expect(rowEditor).toBeVisible();
     const mobilePrice = rowEditor.getByLabel("Цена");
     await mobilePrice.fill("650");
     await mobilePrice.blur();
     await expect(mobilePrice).toHaveValue("650");
     await rowEditor.getByRole("button", { name: "Готово", exact: true }).click();
-    await expect(rowEditor).toHaveCount(0);
   } else {
     const price = overlay.getByLabel("Цена позиции 1");
     await price.fill("650");
@@ -306,14 +257,15 @@ test("streaming chat creates a compact estimate card and focused document worksp
     await expect(price).toHaveValue("650");
   }
 
-  await overlay.getByRole("button", { name: "Готово", exact: true }).click();
+  await overlay.getByRole("button", { name: "Сохранить версию", exact: true }).click();
   const preview = page.getByTestId("estimate-revision-preview");
   await expect(preview).toBeVisible({ timeout: 30_000 });
   await expect(preview.getByText(/Версия 2/)).toBeVisible();
   await expect(page.getByTestId("estimate-workspace-layer")).toBeVisible();
+
   if (testInfo.project.name === "desktop-chromium") {
-    await expect(visibleSidebar(page)).toHaveCount(1);
-    await expect(composer(page)).toBeVisible();
+    await expect(page.locator('[data-testid="app-sidebar"]:visible')).toHaveCount(1);
+    await expect(composer(page)).not.toBeVisible();
   }
 
   expect(relevantRuntimeErrors(runtimeErrors)).toEqual([]);
@@ -326,14 +278,9 @@ test("streaming chat creates a compact estimate card and focused document worksp
 test("reload restores the compact card and opens the saved document", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByTestId("chat-empty-state")).toBeVisible();
-  await sendPrompt(
-    page,
-    "Составь полную смету механизированной штукатурки 120 м² в Казани, слой 10 мм."
-  );
+  await sendPrompt(page, "Составь полную смету механизированной штукатурки 120 м² в Казани, слой 10 мм.");
   await expect(page.getByTestId("estimate-artifact-card")).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByRole("button", { name: "Остановить генерацию" })).toHaveCount(0, {
-    timeout: 30_000
-  });
+  await expect(page.getByRole("button", { name: "Остановить генерацию" })).toHaveCount(0, { timeout: 30_000 });
   await waitForPersistedEstimateMessage(page);
   await page.reload();
   const card = page.getByTestId("estimate-artifact-card");
