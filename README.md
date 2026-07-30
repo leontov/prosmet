@@ -2,6 +2,19 @@
 
 Профессиональная chat-first система для строительных смет и документов.
 
+## Инструкции для ИИ-агентов
+
+Любая агентная разработка начинается с [`AGENTS.md`](./AGENTS.md). Канонический комплект:
+
+- [`docs/AGENT_CONTEXT_INDEX.md`](./docs/AGENT_CONTEXT_INDEX.md) — порядок источников истины и защита от устаревшего контекста;
+- [`docs/AGENT_ENGINEERING_PLAYBOOK.md`](./docs/AGENT_ENGINEERING_PLAYBOOK.md) — цикл observe → fix → release;
+- [`docs/AGENT_TASK_TEMPLATE.md`](./docs/AGENT_TASK_TEMPLATE.md) — task/evidence schema;
+- [`docs/PRODUCT_SPEC_AND_ROADMAP.md`](./docs/PRODUCT_SPEC_AND_ROADMAP.md) — полное ТЗ и roadmap;
+- [`docs/UX_PREMIUM_FOUNDATION_V1.md`](./docs/UX_PREMIUM_FOUNDATION_V1.md) — текущий UX/HTTPS release contract;
+- [`docs/A2A_DEVELOPER_MODE.md`](./docs/A2A_DEVELOPER_MODE.md) — A2A roles, permissions и execution architecture.
+
+Instruction contract входит в `npm run source:contract`. Работа агента считается завершённой только после `MAIN PRODUCTION PASS` exact SHA из `main` на `https://kolibriai.online`.
+
 ## Архитектурный контракт
 
 - интерфейс в стиле ChatGPT/Codex;
@@ -16,7 +29,7 @@
 - локальный кэш и offline outbox работают на нативном IndexedDB без SQL.js, SQLite-WASM и browser `eval`;
 - PostgreSQL является серверным источником истины и хранит tenant-scoped сметы, ревизии, документы, цены, синхронизацию и agent runs;
 - Relay синхронизирует IndexedDB ↔ PostgreSQL с idempotency, cursor и сохранением ревизий;
-- один и тот же проверенный commit из `main` разворачивается runner `prosmet-primary` на `78.17.4.108:3200`.
+- один и тот же проверенный commit из `main` разворачивается runner `prosmet-primary` на внутреннем порту `3200` и публикуется через `https://kolibriai.online`.
 
 ## Estimate Editor V2
 
@@ -59,7 +72,7 @@ npm ci
 → persistent PostgreSQL
 → DATABASE_URL probe
 → idempotent PostgreSQL migration
-→ source contracts
+→ source contracts, включая agent instructions contract
 → TypeScript strict
 → unit tests
 → production build
@@ -69,9 +82,11 @@ npm ci
 → outbox → PostgreSQL → pull
 → Price Intelligence history
 → PDF/XLSX validation
-→ immutable deployment
-→ exact live SHA
+→ immutable deployment на 3200
+→ exact internal SHA
+→ HTTPS edge kolibriai.online
+→ exact public SHA
 → live desktop/mobile smoke
 ```
 
-Красный gate не публикуется на `3200`. Проход считается завершённым только после `MAIN PRODUCTION PASS` для точного SHA из `main`.
+Красный gate не принимается как релиз. Проход считается завершённым только после `MAIN PRODUCTION PASS` для точного SHA из `main`.
