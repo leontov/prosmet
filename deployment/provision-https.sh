@@ -70,22 +70,37 @@ if [[ ! -x "${SOURCE_BINARY}" ]]; then
     "${SOURCE_BASE}/${CHECKSUMS}" \
     --output "${CACHE_ROOT}/${CHECKSUMS}"
 
-  EXPECTED_SHA="$(node --input-type=module - "${CACHE_ROOT}/${CHECKSUMS}" "${ARCHIVE}" <<'NODE'
+  CHECKSUM_RECORD="$(node --input-type=module - "${CACHE_ROOT}/${CHECKSUMS}" "${ARCHIVE}" <<'NODE'
 import { readFile } from "node:fs/promises";
 const [checksumFile, archiveName] = process.argv.slice(2);
 const lines = (await readFile(checksumFile, "utf8")).split(/\r?\n/);
 const line = lines.find((entry) => entry.includes(archiveName));
-const digest = line?.match(/\b[0-9a-fA-F]{64}\b/)?.[0]?.toLowerCase();
+const digest = line?.match(/\b[0-9a-fA-F]{128}\b|\b[0-9a-fA-F]{64}\b/)?.[0]?.toLowerCase();
 if (!digest) {
   process.stderr.write(`Caddy checksum entry is missing or malformed for ${archiveName}\n`);
   process.exit(1);
 }
-process.stdout.write(digest);
+const algorithm = digest.length === 128 ? "sha512" : "sha256";
+process.stdout.write(`${algorithm}:${digest}`);
 NODE
 )"
-  ACTUAL_SHA="$(sha256sum "${CACHE_ROOT}/${ARCHIVE}" | awk '{print tolower($1)}')"
+  CHECKSUM_ALGORITHM="${CHECKSUM_RECORD%%:*}"
+  EXPECTED_SHA="${CHECKSUM_RECORD#*:}"
+  case "${CHECKSUM_ALGORITHM}" in
+    sha512)
+      ACTUAL_SHA="$(sha512sum "${CACHE_ROOT}/${ARCHIVE}" | awk '{print tolower($1)}')"
+      ;;
+    sha256)
+      ACTUAL_SHA="$(sha256sum "${CACHE_ROOT}/${ARCHIVE}" | awk '{print tolower($1)}')"
+      ;;
+    *)
+      echo "Unsupported Caddy checksum algorithm: ${CHECKSUM_ALGORITHM}" >&2
+      exit 1
+      ;;
+  esac
   if [[ "${ACTUAL_SHA}" != "${EXPECTED_SHA}" ]]; then
     echo "Caddy archive checksum mismatch for ${ARCHIVE}" >&2
+    echo "algorithm=${CHECKSUM_ALGORITHM}" >&2
     echo "expected=${EXPECTED_SHA}" >&2
     echo "actual=${ACTUAL_SHA}" >&2
     exit 1
