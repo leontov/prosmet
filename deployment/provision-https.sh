@@ -4,6 +4,7 @@ set -Eeuo pipefail
 DOMAIN="${1:-${PROSMET_PUBLIC_DOMAIN:-kolibriai.online}}"
 UPSTREAM_PORT="${2:-3200}"
 EXPECTED_IP="${PROSMET_PUBLIC_IP:-78.17.4.108}"
+EXPECTED_RELEASE_SHA="${PROSMET_RELEASE_SHA:-${GITHUB_SHA:-}}"
 CADDY_VERSION="${PROSMET_CADDY_VERSION:-2.11.4}"
 ROOT="${HOME}/.prosmet"
 CADDY_ROOT="${ROOT}/caddy"
@@ -24,6 +25,8 @@ CONFIG_DIR="${CADDY_ROOT}/config"
 CONTAINER_NAME="prosmet-caddy"
 DOCKER_DATA_VOLUME="prosmet-caddy-data"
 DOCKER_CONFIG_VOLUME="prosmet-caddy-config"
+CURRENT_UID="$(id -u)"
+CURRENT_USER="$(id -un 2>/dev/null || printf 'uid-%s' "${CURRENT_UID}")"
 RUN_MODE=""
 RUNTIME_BINARY=""
 RUNTIME_ID=""
@@ -45,9 +48,32 @@ write_status() {
   local detail="${2:-}"
   local resolved="${3:-}"
   local runtime_mode="${4:-${RUN_MODE:-unknown}}"
-  node --input-type=module - "${STATUS_FILE}" "${state}" "${detail}" "${resolved}" "${DOMAIN}" "${EXPECTED_IP}" "${UPSTREAM_PORT}" "${CADDY_VERSION}" "${runtime_mode}" <<'NODE'
+  node --input-type=module - \
+    "${STATUS_FILE}" \
+    "${state}" \
+    "${detail}" \
+    "${resolved}" \
+    "${DOMAIN}" \
+    "${EXPECTED_IP}" \
+    "${UPSTREAM_PORT}" \
+    "${CADDY_VERSION}" \
+    "${runtime_mode}" \
+    "${CURRENT_UID}" \
+    "${CURRENT_USER}" <<'NODE'
 import { writeFile } from "node:fs/promises";
-const [file, state, detail, resolved, domain, expectedIp, upstreamPort, caddyVersion, runtimeMode] = process.argv.slice(2);
+const [
+  file,
+  state,
+  detail,
+  resolved,
+  domain,
+  expectedIp,
+  upstreamPort,
+  caddyVersion,
+  runtimeMode,
+  uid,
+  user
+] = process.argv.slice(2);
 await writeFile(
   file,
   JSON.stringify(
@@ -61,6 +87,7 @@ await writeFile(
       upstream: `http://127.0.0.1:${upstreamPort}`,
       caddyVersion,
       runtimeMode,
+      runnerIdentity: { uid: Number(uid), user },
       checkedAt: new Date().toISOString()
     },
     null,
@@ -122,42 +149,6 @@ fi
 
 install -m 0755 "${SOURCE_BINARY}" "${USER_BINARY}"
 
-has_bind_capability() {
-  local binary="${1:?binary is required}"
-  command -v getcap >/dev/null 2>&1 || return 1
-  getcap "${binary}" 2>/dev/null | grep -q 'cap_net_bind_service'
-}
-
-LOW_PORT_START="$(cat /proc/sys/net/ipv4/ip_unprivileged_port_start 2>/dev/null || echo 1024)"
-if [[ -x "${SYSTEM_BINARY}" ]] && has_bind_capability "${SYSTEM_BINARY}"; then
-  RUN_MODE="host-capability"
-  RUNTIME_BINARY="${SYSTEM_BINARY}"
-elif has_bind_capability "${USER_BINARY}"; then
-  RUN_MODE="host-capability"
-  RUNTIME_BINARY="${USER_BINARY}"
-elif command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
-  if ! command -v setcap >/dev/null 2>&1; then
-    sudo -n apt-get update -qq
-    sudo -n apt-get install -y --no-install-recommends libcap2-bin
-  fi
-  sudo -n install -m 0755 "${SOURCE_BINARY}" "${SYSTEM_BINARY}"
-  sudo -n setcap 'cap_net_bind_service=+ep' "${SYSTEM_BINARY}"
-  RUN_MODE="host-capability"
-  RUNTIME_BINARY="${SYSTEM_BINARY}"
-elif [[ "${LOW_PORT_START}" =~ ^[0-9]+$ ]] && (( LOW_PORT_START <= 80 )); then
-  RUN_MODE="host-rootless"
-  RUNTIME_BINARY="${USER_BINARY}"
-elif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
-  RUN_MODE="docker-host-network"
-  RUNTIME_BINARY="${USER_BINARY}"
-else
-  detail="Ports 80/443 require either cap_net_bind_service, ip_unprivileged_port_start<=80, passwordless sudo, or access to the Docker daemon."
-  write_status "blocked" "${detail}" "" "unavailable"
-  echo "${detail}" >&2
-  echo "Detected ip_unprivileged_port_start=${LOW_PORT_START}" >&2
-  exit 1
-fi
-
 RESOLVED_ADDRESSES="$({
   node --input-type=module - "${DOMAIN}" <<'NODE'
 import { resolve4 } from "node:dns/promises";
@@ -178,6 +169,115 @@ if [[ ",${RESOLVED_ADDRESSES}," != *",${EXPECTED_IP},"* ]]; then
   echo "${detail}" >&2
   echo "Resolved now: ${RESOLVED_ADDRESSES:-none}" >&2
   exit 78
+fi
+
+public_edge_is_current() {
+  local health_file="${CADDY_ROOT}/existing-public-health.json"
+  local redirect_file="${CADDY_ROOT}/http-redirect-headers.txt"
+  local headers_file="${CADDY_ROOT}/https-headers.txt"
+
+  curl --fail --silent --show-error --max-time 15 \
+    "https://${DOMAIN}/api/health" > "${health_file}" 2>"${CADDY_ROOT}/existing-public-health-error.log" \
+    || return 1
+
+  if [[ -n "${EXPECTED_RELEASE_SHA}" ]] && \
+     ! grep -q "\"releaseSha\":\"${EXPECTED_RELEASE_SHA}\"" "${health_file}"; then
+    return 1
+  fi
+
+  curl --silent --show-error --head --max-time 10 \
+    "http://${DOMAIN}/" > "${redirect_file}" 2>/dev/null || return 1
+  grep -Eqi '^HTTP/[^ ]+ (301|302|307|308)' "${redirect_file}" || return 1
+  grep -Eqi "^location: https://${DOMAIN}/" "${redirect_file}" || return 1
+
+  curl --fail --silent --show-error --head --max-time 10 \
+    "https://${DOMAIN}/" > "${headers_file}" 2>/dev/null || return 1
+  grep -Eqi '^strict-transport-security:.*max-age=31536000' "${headers_file}" || return 1
+  return 0
+}
+
+if public_edge_is_current; then
+  RUN_MODE="existing-public-exact-sha"
+  write_status "ready" "Existing public HTTPS edge already serves the exact release." "${RESOLVED_ADDRESSES}"
+  echo "Prosmet HTTPS edge already serves ${EXPECTED_RELEASE_SHA:-the current healthy release} at https://${DOMAIN}"
+  exit 0
+fi
+
+has_bind_capability() {
+  local binary="${1:?binary is required}"
+  command -v getcap >/dev/null 2>&1 || return 1
+  getcap "${binary}" 2>/dev/null | grep -q 'cap_net_bind_service'
+}
+
+try_direct_setcap() {
+  command -v setcap >/dev/null 2>&1 || return 1
+  setcap 'cap_net_bind_service=+ep' "${USER_BINARY}" >/dev/null 2>&1 || return 1
+  has_bind_capability "${USER_BINARY}"
+}
+
+try_sudo_capability() {
+  command -v sudo >/dev/null 2>&1 || return 1
+  if ! command -v setcap >/dev/null 2>&1; then
+    sudo -n apt-get update -qq >/dev/null 2>&1 || return 1
+    sudo -n apt-get install -y --no-install-recommends libcap2-bin >/dev/null 2>&1 || return 1
+  fi
+  sudo -n install -m 0755 "${SOURCE_BINARY}" "${SYSTEM_BINARY}" >/dev/null 2>&1 || return 1
+  sudo -n setcap 'cap_net_bind_service=+ep' "${SYSTEM_BINARY}" >/dev/null 2>&1 || return 1
+  has_bind_capability "${SYSTEM_BINARY}"
+}
+
+try_doas_capability() {
+  command -v doas >/dev/null 2>&1 || return 1
+  command -v setcap >/dev/null 2>&1 || return 1
+  doas -n install -m 0755 "${SOURCE_BINARY}" "${SYSTEM_BINARY}" >/dev/null 2>&1 || return 1
+  doas -n setcap 'cap_net_bind_service=+ep' "${SYSTEM_BINARY}" >/dev/null 2>&1 || return 1
+  has_bind_capability "${SYSTEM_BINARY}"
+}
+
+authbind_is_ready() {
+  command -v authbind >/dev/null 2>&1 || return 1
+  [[ -x /etc/authbind/byport/80 && -x /etc/authbind/byport/443 ]]
+}
+
+LOW_PORT_START="$(cat /proc/sys/net/ipv4/ip_unprivileged_port_start 2>/dev/null || echo 1024)"
+if [[ "${CURRENT_UID}" == "0" ]]; then
+  RUN_MODE="host-root"
+  RUNTIME_BINARY="${USER_BINARY}"
+elif [[ -x "${SYSTEM_BINARY}" ]] && has_bind_capability "${SYSTEM_BINARY}"; then
+  RUN_MODE="host-capability"
+  RUNTIME_BINARY="${SYSTEM_BINARY}"
+elif has_bind_capability "${USER_BINARY}"; then
+  RUN_MODE="host-capability"
+  RUNTIME_BINARY="${USER_BINARY}"
+elif try_direct_setcap; then
+  RUN_MODE="host-capability"
+  RUNTIME_BINARY="${USER_BINARY}"
+elif try_sudo_capability; then
+  RUN_MODE="host-capability"
+  RUNTIME_BINARY="${SYSTEM_BINARY}"
+elif try_doas_capability; then
+  RUN_MODE="host-capability"
+  RUNTIME_BINARY="${SYSTEM_BINARY}"
+elif [[ "${LOW_PORT_START}" =~ ^[0-9]+$ ]] && (( LOW_PORT_START <= 80 )); then
+  RUN_MODE="host-rootless"
+  RUNTIME_BINARY="${USER_BINARY}"
+elif authbind_is_ready; then
+  RUN_MODE="host-authbind"
+  RUNTIME_BINARY="${USER_BINARY}"
+elif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+  RUN_MODE="docker-host-network"
+  RUNTIME_BINARY="${USER_BINARY}"
+else
+  SUDO_STATUS="unavailable"
+  command -v sudo >/dev/null 2>&1 && SUDO_STATUS="present-no-authorized-install-setcap"
+  DOCKER_STATUS="unavailable"
+  command -v docker >/dev/null 2>&1 && DOCKER_STATUS="present-no-daemon-access"
+  AUTHBIND_STATUS="unavailable"
+  command -v authbind >/dev/null 2>&1 && AUTHBIND_STATUS="present-not-configured-for-80-443"
+  detail="Ports 80/443 are not bindable by runner user ${CURRENT_USER} (uid=${CURRENT_UID}); low_port_start=${LOW_PORT_START}; sudo=${SUDO_STATUS}; docker=${DOCKER_STATUS}; authbind=${AUTHBIND_STATUS}."
+  write_status "blocked" "${detail}" "${RESOLVED_ADDRESSES}" "unavailable"
+  echo "${detail}" >&2
+  exit 1
 fi
 
 ACME_EMAIL_LINE=""
@@ -256,26 +356,38 @@ done
 : > "${LOG_FILE}"
 chmod 600 "${LOG_FILE}"
 
-if [[ "${RUN_MODE}" == "docker-host-network" ]]; then
-  RUNTIME_ID="$(docker run --detach \
-    --name "${CONTAINER_NAME}" \
-    --restart unless-stopped \
-    --network host \
-    --label prosmet.owner=prosmet \
-    --volume "${CONFIG_FILE}:/etc/caddy/Caddyfile:ro" \
-    --volume "${DOCKER_DATA_VOLUME}:/data" \
-    --volume "${DOCKER_CONFIG_VOLUME}:/config" \
-    "caddy:${CADDY_VERSION}" \
-    caddy run --config /etc/caddy/Caddyfile --adapter caddyfile)"
-else
-  nohup env \
-    RUNNER_TRACKING_ID= \
-    XDG_DATA_HOME="${DATA_DIR}" \
-    XDG_CONFIG_HOME="${CONFIG_DIR}" \
-    "${RUNTIME_BINARY}" run --config "${CONFIG_FILE}" --adapter caddyfile \
-    > "${LOG_FILE}" 2>&1 < /dev/null &
-  RUNTIME_ID=$!
-fi
+case "${RUN_MODE}" in
+  docker-host-network)
+    RUNTIME_ID="$(docker run --detach \
+      --name "${CONTAINER_NAME}" \
+      --restart unless-stopped \
+      --network host \
+      --label prosmet.owner=prosmet \
+      --volume "${CONFIG_FILE}:/etc/caddy/Caddyfile:ro" \
+      --volume "${DOCKER_DATA_VOLUME}:/data" \
+      --volume "${DOCKER_CONFIG_VOLUME}:/config" \
+      "caddy:${CADDY_VERSION}" \
+      caddy run --config /etc/caddy/Caddyfile --adapter caddyfile)"
+    ;;
+  host-authbind)
+    nohup env \
+      RUNNER_TRACKING_ID= \
+      XDG_DATA_HOME="${DATA_DIR}" \
+      XDG_CONFIG_HOME="${CONFIG_DIR}" \
+      authbind --deep "${RUNTIME_BINARY}" run --config "${CONFIG_FILE}" --adapter caddyfile \
+      > "${LOG_FILE}" 2>&1 < /dev/null &
+    RUNTIME_ID=$!
+    ;;
+  *)
+    nohup env \
+      RUNNER_TRACKING_ID= \
+      XDG_DATA_HOME="${DATA_DIR}" \
+      XDG_CONFIG_HOME="${CONFIG_DIR}" \
+      "${RUNTIME_BINARY}" run --config "${CONFIG_FILE}" --adapter caddyfile \
+      > "${LOG_FILE}" 2>&1 < /dev/null &
+    RUNTIME_ID=$!
+    ;;
+esac
 printf '%s\n' "${RUNTIME_ID}" > "${PID_FILE}"
 printf '%s\n' "${RUN_MODE}" > "${MODE_FILE}"
 
@@ -300,7 +412,8 @@ for attempt in $(seq 1 90); do
     --resolve "${DOMAIN}:443:127.0.0.1" \
     "https://${DOMAIN}/api/health" \
     > "${CADDY_ROOT}/public-health.json" 2>"${CADDY_ROOT}/public-health-error.log"; then
-    if grep -q '"ok":true' "${CADDY_ROOT}/public-health.json"; then
+    if grep -q '"ok":true' "${CADDY_ROOT}/public-health.json" && \
+       { [[ -z "${EXPECTED_RELEASE_SHA}" ]] || grep -q "\"releaseSha\":\"${EXPECTED_RELEASE_SHA}\"" "${CADDY_ROOT}/public-health.json"; }; then
       break
     fi
   fi
@@ -322,7 +435,7 @@ if [[ "${RUN_MODE}" == "docker-host-network" ]]; then
   docker logs "${CONTAINER_NAME}" > "${LOG_FILE}" 2>&1 || true
 fi
 
-curl --fail --silent --show-error --head \
+curl --silent --show-error --head \
   --resolve "${DOMAIN}:80:127.0.0.1" \
   "http://${DOMAIN}/" \
   > "${CADDY_ROOT}/http-redirect-headers.txt"
