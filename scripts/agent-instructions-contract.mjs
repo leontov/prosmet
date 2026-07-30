@@ -14,8 +14,11 @@ const forbid = (source, token, scope) => {
 
 const requiredFiles = [
   "AGENTS.md",
+  "CLAUDE.md",
+  "GEMINI.md",
   ".github/copilot-instructions.md",
   ".github/pull_request_template.md",
+  "docs/AGENT_BOOTSTRAP_PROMPT.md",
   "docs/AGENT_ENGINEERING_PLAYBOOK.md",
   "docs/AGENT_CONTEXT_INDEX.md",
   "docs/AGENT_TASK_TEMPLATE.md",
@@ -91,10 +94,28 @@ for (const token of [
   need(taskTemplate, token, "agent-task-template");
 }
 
+const bootstrap = await read("docs/AGENT_BOOTSTRAP_PROMPT.md");
+for (const token of [
+  "Не начинай новый bootstrap",
+  "PROSMET UX PREMIUM FOUNDATION V1",
+  "MAIN PRODUCTION PASS",
+  "точный SHA"
+]) {
+  need(bootstrap, token, "agent-bootstrap");
+}
+
 const copilot = await read(".github/copilot-instructions.md");
 need(copilot, "Перед любым изменением обязательно прочитай `/AGENTS.md`", "copilot");
 need(copilot, "Не добавляй новые большие продуктовые модули", "copilot");
 need(copilot, "public exact-SHA release", "copilot");
+
+const claude = await read("CLAUDE.md");
+need(claude, "AGENTS.md", "claude-entrypoint");
+need(claude, "MAIN PRODUCTION PASS", "claude-entrypoint");
+
+const gemini = await read("GEMINI.md");
+need(gemini, "AGENTS.md", "gemini-entrypoint");
+need(gemini, "MAIN PRODUCTION PASS", "gemini-entrypoint");
 
 const pr = await read(".github/pull_request_template.md");
 need(pr, "Verified blocker", "pull-request-template");
