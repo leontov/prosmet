@@ -1,5 +1,4 @@
 import {
-  A2A_PROTOCOL_VERSION,
   prosmetDeveloperAgentCard,
   publicDeveloperRegistry
 } from "@/lib/server/a2a/registry";
@@ -98,7 +97,6 @@ export async function GET(request: Request) {
   return new Response(
     JSON.stringify({
       ok: true,
-      protocolVersion: A2A_PROTOCOL_VERSION,
       agentCard: prosmetDeveloperAgentCard(origin),
       ...publicDeveloperRegistry(),
       taskCount: tasks.length,
