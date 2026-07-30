@@ -1,0 +1,42 @@
+{
+  "expo": {
+    "name": "Просметчик",
+    "slug": "prosmet",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "prosmet",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-sqlite"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "online.kolibriai.prosmet",
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": false
+        }
+      }
+    },
+    "android": {
+      "package": "online.kolibriai.prosmet",
+      "adaptiveIcon": {
+        "backgroundColor": "#f7f7f5"
+      }
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static"
+    },
+    "experiments": {
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "apiUrl": "https://kolibriai.online"
+    }
+  }
+}

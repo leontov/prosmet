@@ -36,6 +36,7 @@ import { ProsmetThread } from "@/components/chat/prosmet-thread";
 import { useLocalWorkspace } from "@/lib/local/context";
 import type { LocalThread } from "@/lib/local/repository";
 import { cn } from "@/lib/utils";
+import { useClientManifest } from "@/lib/client/use-client-manifest";
 
 const suggestions = Suggestions([
   {
@@ -75,6 +76,7 @@ const viewLabels: Record<Exclude<WorkspaceView, "chat">, string> = {
 
 export function PremiumChatWorkspace() {
   const workspace = useLocalWorkspace();
+  const { manifest, hasModule } = useClientManifest();
   const [view, setView] = useState<WorkspaceView>("chat");
   const [leftOpen, setLeftOpen] = useState(true);
   const [leftMobileOpen, setLeftMobileOpen] = useState(false);
@@ -225,7 +227,7 @@ export function PremiumChatWorkspace() {
           aria-label="Открыть Просметчик"
         >
           <span className="prosmet-premium-brandmark">П</span>
-          <span>Просметчик</span>
+          <span>{manifest.productName}</span>
         </button>
         <PremiumIconButton
           label="Скрыть боковую панель"
@@ -246,36 +248,11 @@ export function PremiumChatWorkspace() {
       </div>
 
       <nav className="prosmet-premium-nav" aria-label="Рабочие разделы">
-        <PremiumNavItem
-          icon={<MessageSquareTextIcon />}
-          label="Чаты"
-          active={view === "chat"}
-          onClick={() => navigate("chat")}
-        />
-        <PremiumNavItem
-          icon={<FolderKanbanIcon />}
-          label="Объекты"
-          active={view === "objects"}
-          onClick={() => navigate("objects")}
-        />
-        <PremiumNavItem
-          icon={<FileSpreadsheetIcon />}
-          label="Сметы"
-          active={view === "estimates"}
-          onClick={() => navigate("estimates")}
-        />
-        <PremiumNavItem
-          icon={<FileTextIcon />}
-          label="Документы"
-          active={view === "documents"}
-          onClick={() => navigate("documents")}
-        />
-        <PremiumNavItem
-          icon={<TagIcon />}
-          label="Цены"
-          active={view === "prices"}
-          onClick={() => navigate("prices")}
-        />
+        {hasModule("chat") ? <PremiumNavItem icon={<MessageSquareTextIcon />} label="Чаты" active={view === "chat"} onClick={() => navigate("chat")} /> : null}
+        {hasModule("objects") ? <PremiumNavItem icon={<FolderKanbanIcon />} label={manifest.terminology.objects || "Объекты"} active={view === "objects"} onClick={() => navigate("objects")} /> : null}
+        {hasModule("estimates") ? <PremiumNavItem icon={<FileSpreadsheetIcon />} label={manifest.terminology.estimates || "Сметы"} active={view === "estimates"} onClick={() => navigate("estimates")} /> : null}
+        {hasModule("documents") ? <PremiumNavItem icon={<FileTextIcon />} label={manifest.terminology.documents || "Документы"} active={view === "documents"} onClick={() => navigate("documents")} /> : null}
+        {hasModule("prices") ? <PremiumNavItem icon={<TagIcon />} label={manifest.terminology.prices || "Цены"} active={view === "prices"} onClick={() => navigate("prices")} /> : null}
       </nav>
 
       <div className="prosmet-premium-history-head">
@@ -326,7 +303,7 @@ export function PremiumChatWorkspace() {
         >
           <span className="prosmet-premium-avatar">П</span>
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-medium">Просметчик</span>
+            <span className="block truncate text-sm font-medium">{manifest.organizationName || manifest.productName}</span>
             <span className="block truncate text-[11px] text-neutral-500">Профиль и организация</span>
           </span>
           <Settings2Icon className="size-4 text-neutral-400" />

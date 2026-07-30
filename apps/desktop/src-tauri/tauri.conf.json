@@ -1,0 +1,24 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Просметчик",
+  "version": "1.0.0",
+  "identifier": "online.kolibriai.prosmet.desktop",
+  "build": {
+    "beforeBuildCommand": "npm run build:web",
+    "beforeDevCommand": "npm run build:web",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src https://kolibriai.online; img-src 'self' data: https:"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Business",
+    "shortDescription": "Универсальный AI-ассистент и профессиональная сметная система",
+    "longDescription": "Просметчик объединяет чат, сметы, документы, каталог цен и подключаемых агентов в лаконичном рабочем пространстве."
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Minimal local capability set. Remote production pages receive no Tauri IPC permissions.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

@@ -1,0 +1,22 @@
+[package]
+name = "prosmet-engine"
+version = "1.0.0"
+edition = "2024"
+license = "Proprietary"
+description = "Authoritative deterministic calculation engine for Prosmet"
+
+[lib]
+name = "prosmet_engine"
+path = "src/lib.rs"
+
+[[bin]]
+name = "prosmet-engine-cli"
+path = "src/main.rs"
+
+[dependencies]
+hex = "0.4"
+rust_decimal = "1.37"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "2"

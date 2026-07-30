@@ -1,0 +1,6 @@
+[workspace]
+members = [
+  "crates/prosmet-engine",
+  "apps/desktop/src-tauri"
+]
+resolver = "2"
