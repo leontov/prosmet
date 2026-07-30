@@ -38,9 +38,14 @@ jobs:
           set -Eeuo pipefail
           git fetch origin main feature/universal-platform-v1
           git checkout -B feature/universal-platform-v1 origin/feature/universal-platform-v1
+          BRANCH_HEAD="$(git rev-parse HEAD)"
+          echo "BRANCH_HEAD=$BRANCH_HEAD" >> "$GITHUB_ENV"
           git config user.name "prosmet-release-bot"
           git config user.email "prosmet-release-bot@users.noreply.github.com"
           git merge --no-ff -X ours origin/main -m "chore(universal): sync verified main [universal-bot]"
+          # Preserve the branch-owned workflow definitions so the workflow token does
+          # not attempt to create or alter workflow files when it pushes the merge.
+          git restore --source="$BRANCH_HEAD" --staged --worktree .github/workflows
 
       - name: Materialize the universal core, native clients and desktop shell
         run: |
@@ -51,6 +56,23 @@ jobs:
           cargo fmt --all
           npm install --package-lock-only --ignore-scripts --legacy-peer-deps --prefix apps/mobile
           npm install --package-lock-only --ignore-scripts --prefix apps/desktop
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("scripts/source-contract-v2.mjs")
+          source = path.read_text(encoding="utf-8")
+          replacements = {
+              "'label=\"Объекты\"'": '"manifest.terminology.objects || \\"Объекты\\""',
+              "'label=\"Сметы\"'": '"manifest.terminology.estimates || \\"Сметы\\""',
+              "'label=\"Документы\"'": '"manifest.terminology.documents || \\"Документы\\""',
+              "'label=\"Цены\"'": '"manifest.terminology.prices || \\"Цены\\""',
+          }
+          for before, after in replacements.items():
+              if before in source:
+                  source = source.replace(before, after)
+          path.write_text(source, encoding="utf-8")
+          PY
+          git restore --source="$BRANCH_HEAD" --staged --worktree .github/workflows
+          git clean -fd -- .github/workflows
 
       - name: Commit and push the complete branch
         run: |
