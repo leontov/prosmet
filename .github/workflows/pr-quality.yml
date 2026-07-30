@@ -60,6 +60,7 @@ jobs:
           # Materialize product sources first; workflow files are applied separately by the
           # authenticated repository connector after the generated commit lands.
           git restore --source=HEAD --staged --worktree .github/workflows
+          git clean -fd -- .github/workflows
           git add -A
           if git diff --cached --quiet; then
             echo "Universal platform already materialized."
