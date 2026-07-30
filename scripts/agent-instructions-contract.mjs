@@ -56,7 +56,7 @@ for (const token of [
   need(agents, token, "agents-root");
 }
 for (const token of [
-  "считать готовым по коммиту",
+  "не считается готовым по коммиту",
   "deploy feature branch",
   "browser SQLite",
   "silent fallback"
