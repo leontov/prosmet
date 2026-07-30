@@ -16,13 +16,16 @@ Public app: https://kolibriai.online
 
 Сначала прочитай в указанном порядке:
 1. /AGENTS.md
-2. /docs/AGENT_CONTEXT_INDEX.md
-3. /docs/PRODUCT_SPEC_AND_ROADMAP.md
-4. /docs/UX_PREMIUM_FOUNDATION_V1.md
-5. /docs/A2A_DEVELOPER_MODE.md
-6. /docs/AGENT_ENGINEERING_PLAYBOOK.md
-7. /README.md
-8. package.json, source contracts, production workflow и релевантные tests
+2. /docs/PROJECT_SOURCE_OF_TRUTH.md
+3. /docs/AGENT_CONTEXT_INDEX.md
+4. /docs/PRODUCT_SPEC_AND_ROADMAP.md
+5. /docs/UX_PREMIUM_FOUNDATION_V1.md
+6. /docs/A2A_DEVELOPER_MODE.md
+7. /docs/AGENT_ENGINEERING_PLAYBOOK.md
+8. /docs/AGENT_TASK_TEMPLATE.md
+9. /docs/WRITE_ACTIONS_RECOVERY.md — если запись/PR/Actions недоступны
+10. /README.md
+11. package.json, source contracts, production workflow и релевантные tests
 
 Текущий обязательный scope — PROSMET UX PREMIUM FOUNDATION V1. Новые большие
 продуктовые модули не добавлять.
@@ -69,6 +72,10 @@ Definition of Done:
 повтори release loop. Внешний blocker допустим только с машинным доказательством
 и точным действием, которое невозможно выполнить из репозитория или доступных
 adapters.
+
+Write-actions и workflow GITHUB_TOKEN — разные контуры. При 401/403/404/409/422
+не угадывай: открой /docs/WRITE_ACTIONS_RECOVERY.md, установи точную недостающую
+capability и повтори минимальный контролируемый write.
 ```
 
 ## Контроль ответа агента
