@@ -41,7 +41,7 @@ for (const token of [
   'data-testid="workspace-overlay"',
   "Новый чат",
   "Недавние",
-  "PremiumProsmetThread"
+  "ProsmetThread"
 ]) need(shell, token, "premium-shell");
 for (const token of ["IndexedDB-кэш готов", "Backend ·", "Проверяем backend"]) {
   forbid(shell, token, "customer-shell-no-service-noise");
