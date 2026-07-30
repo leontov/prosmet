@@ -4,6 +4,16 @@ export type SiteIntake = {
   address?: string;
 };
 
+const FIELD_LABELS = [
+  "объект",
+  "помещение",
+  "название объекта",
+  "заказчик",
+  "клиент",
+  "адрес",
+  "место работ"
+];
+
 function clean(value: string | undefined) {
   return value
     ?.replace(/^[\s:—–-]+|[\s,.;]+$/g, "")
@@ -18,19 +28,24 @@ function displayName(value: string | undefined) {
     : undefined;
 }
 
-function lineValue(input: string, labels: string[]) {
-  const escaped = labels.map((label) => label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+function escapePattern(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function fieldValue(input: string, labels: string[]) {
+  const requested = labels.map(escapePattern);
+  const boundaries = FIELD_LABELS.map(escapePattern);
   const pattern = new RegExp(
-    `(?:^|\\n)\\s*(?:${escaped.join("|")})\\s*[:—–-]\\s*([^\\n;]+)`,
+    `(?:^|[\\n;]|[.!?]\\s+)\\s*(?:${requested.join("|")})\\s*[:—–-]\\s*(.+?)(?=(?:\\s*[.!?]?\\s*(?:${boundaries.join("|")})\\s*[:—–-])|[\\n;]|$)`,
     "iu"
   );
   return clean(input.match(pattern)?.[1]);
 }
 
 export function extractSiteIntake(input: string): SiteIntake {
-  const address = lineValue(input, ["адрес", "место работ"]);
-  const objectName = lineValue(input, ["объект", "помещение", "название объекта"]);
-  const customer = lineValue(input, ["заказчик", "клиент"]);
+  const address = fieldValue(input, ["адрес", "место работ"]);
+  const objectName = fieldValue(input, ["объект", "помещение", "название объекта"]);
+  const customer = fieldValue(input, ["заказчик", "клиент"]);
 
   return {
     objectName: displayName(objectName || address),
