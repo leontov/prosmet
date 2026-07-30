@@ -3,6 +3,8 @@ set -Eeuo pipefail
 
 COMMIT_SHA="${1:?commit sha is required}"
 PORT="${2:-3200}"
+PUBLIC_DOMAIN="${PROSMET_PUBLIC_DOMAIN:-kolibriai.online}"
+PUBLIC_ORIGIN="${PROSMET_PUBLIC_ORIGIN:-https://${PUBLIC_DOMAIN}}"
 ROOT="${HOME}/.prosmet"
 RELEASES_ROOT="${ROOT}/releases"
 RELEASE="${RELEASES_ROOT}/${COMMIT_SHA}"
@@ -100,6 +102,10 @@ nohup env \
   NODE_ENV=production \
   PORT="${PORT}" \
   HOSTNAME=0.0.0.0 \
+  APP_URL="${PUBLIC_ORIGIN}" \
+  NEXT_PUBLIC_APP_ORIGIN="${PUBLIC_ORIGIN}" \
+  PROSMET_PUBLIC_DOMAIN="${PUBLIC_DOMAIN}" \
+  PROSMET_PUBLIC_ORIGIN="${PUBLIC_ORIGIN}" \
   PROSMET_RELEASE_SHA="${COMMIT_SHA}" \
   PROSMET_DATABASE_DRIVER=postgres \
   DATABASE_URL="${DATABASE_URL}" \
@@ -190,7 +196,9 @@ cat > "${RELEASE_STATUS}" <<JSON
   "pid": ${APP_PID},
   "port": ${PORT},
   "releaseDirectory": "${RELEASE}",
-  "url": "http://78.17.4.108:${PORT}/",
+  "url": "${PUBLIC_ORIGIN}/",
+  "internalUrl": "${BASE_URL}/",
+  "publicDomain": "${PUBLIC_DOMAIN}",
   "deployedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 JSON
@@ -201,4 +209,4 @@ find "${RELEASES_ROOT}" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' \
   | awk 'NR > 5 { sub(/^[^ ]+ /, ""); print }' \
   | xargs -r rm -rf --
 
-echo "Prosmet ${COMMIT_SHA} is healthy at ${BASE_URL} with PostgreSQL"
+echo "Prosmet ${COMMIT_SHA} is healthy at ${BASE_URL}; public origin is ${PUBLIC_ORIGIN}"
