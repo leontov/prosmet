@@ -6,6 +6,11 @@
   display: none !important;
 }
 
+body[data-prosmet-estimate-open="true"] .prosmet-v2-main {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 :where(
   button,
   a,
