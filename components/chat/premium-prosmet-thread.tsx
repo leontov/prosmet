@@ -15,6 +15,7 @@ import {
 } from "@assistant-ui/react";
 import {
   ArrowDownIcon,
+  ArrowRightIcon,
   ArrowUpIcon,
   CheckIcon,
   ChevronLeftIcon,
@@ -50,7 +51,7 @@ function IconButton({
       type="button"
       aria-label={label}
       title={label}
-      className={cn("prosmet-premium-message-action", className)}
+      className={cn("prosmet-v2-message-action", className)}
       {...props}
     >
       {children}
@@ -62,35 +63,22 @@ export const PremiumProsmetThread: FC = () => {
   const empty = useAuiState(isNewChat);
 
   return (
-    <ThreadPrimitive.Root
-      className="aui-root flex h-full min-h-0 flex-col bg-white"
-      style={{
-        ["--thread-max-width" as string]: "840px",
-        ["--composer-bg" as string]: "#ffffff",
-        ["--composer-radius" as string]: "24px",
-        ["--composer-padding" as string]: "8px"
-      }}
-    >
-      <ThreadPrimitive.Viewport
-        turnAnchor="top"
-        className="prosmet-scrollbar relative flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto"
-      >
-        <div className={cn("mx-auto flex w-full max-w-(--thread-max-width) flex-1 flex-col px-4 sm:px-6", empty ? "justify-center pb-6 pt-12" : "pt-6")}>
+    <ThreadPrimitive.Root className="prosmet-v2-thread-root">
+      <ThreadPrimitive.Viewport turnAnchor="top" className="prosmet-v2-thread-viewport prosmet-scrollbar">
+        <div className={cn("prosmet-v2-thread-inner", empty && "is-empty")}>
           <AuiIf condition={isNewChat}><PremiumWelcome /></AuiIf>
 
-          <div className="mb-10 flex flex-col gap-y-6 empty:hidden">
+          <div className="prosmet-v2-message-list empty:hidden">
             <ThreadPrimitive.Messages>{() => <ThreadMessage />}</ThreadPrimitive.Messages>
           </div>
 
-          <ThreadPrimitive.ViewportFooter className={cn("z-20 mt-auto flex flex-col gap-3 bg-white/95 pb-[max(14px,env(safe-area-inset-bottom))] pt-2 backdrop-blur-xl", !empty && "sticky bottom-0")}>
+          <ThreadPrimitive.ViewportFooter className={cn("prosmet-v2-composer-dock", empty && "is-empty")}>
             <ScrollToBottom />
             <PremiumComposer />
             <AuiIf condition={(state) => isNewChat(state) && state.composer.isEmpty}>
               <PremiumSuggestions />
             </AuiIf>
-            <p className="px-4 text-center text-[10px] leading-4 text-neutral-400">
-              Проверяйте исходные данные, цены и обязательные условия документов.
-            </p>
+            <p className="prosmet-v2-composer-note">ИИ подготовит черновик. Финальные объёмы, цены и условия утверждает пользователь.</p>
           </ThreadPrimitive.ViewportFooter>
         </div>
       </ThreadPrimitive.Viewport>
@@ -99,21 +87,27 @@ export const PremiumProsmetThread: FC = () => {
 };
 
 const PremiumWelcome: FC = () => (
-  <div className="prosmet-premium-welcome" data-testid="chat-empty-state">
-    <span className="prosmet-premium-welcome-mark"><SparklesIcon className="size-5" /></span>
-    <h1>Что нужно посчитать?</h1>
-    <p>Опишите объект обычными словами. Просметчик подготовит технологию, смету и документы.</p>
-  </div>
+  <section className="prosmet-v2-welcome" data-testid="chat-empty-state">
+    <span className="prosmet-v2-welcome-mark"><SparklesIcon /></span>
+    <div className="prosmet-v2-welcome-copy">
+      <h1>Что нужно посчитать?</h1>
+      <p>Опишите объект своими словами. Из одного диалога появятся технология, смета и готовые документы.</p>
+    </div>
+  </section>
 );
 
 const PremiumSuggestions: FC = () => (
-  <div className="prosmet-premium-suggestions" data-testid="starter-suggestions">
+  <div className="prosmet-v2-suggestions" data-testid="starter-suggestions">
     <ThreadPrimitive.Suggestions>
       {() => (
         <SuggestionPrimitive.Trigger send asChild>
-          <button type="button" className="prosmet-premium-suggestion">
-            <SuggestionPrimitive.Title className="block font-medium text-neutral-900" />
-            <SuggestionPrimitive.Description className="mt-1 block text-xs leading-5 text-neutral-500" />
+          <button type="button" className="prosmet-v2-suggestion">
+            <span className="prosmet-v2-suggestion-index" aria-hidden="true" />
+            <span className="prosmet-v2-suggestion-copy">
+              <SuggestionPrimitive.Title className="prosmet-v2-suggestion-title" />
+              <SuggestionPrimitive.Description className="prosmet-v2-suggestion-description" />
+            </span>
+            <span className="prosmet-v2-suggestion-arrow"><ArrowRightIcon /></span>
           </button>
         </SuggestionPrimitive.Trigger>
       )}
@@ -123,7 +117,7 @@ const PremiumSuggestions: FC = () => (
 
 const ScrollToBottom: FC = () => (
   <ThreadPrimitive.ScrollToBottom asChild>
-    <IconButton label="Прокрутить вниз" className="absolute -top-11 left-1/2 z-20 -translate-x-1/2 rounded-full border border-neutral-200 bg-white shadow-md disabled:invisible">
+    <IconButton label="Прокрутить вниз" className="prosmet-v2-scroll-bottom">
       <ArrowDownIcon />
     </IconButton>
   </ThreadPrimitive.ScrollToBottom>
@@ -137,17 +131,17 @@ const ThreadMessage: FC = () => {
 };
 
 const AssistantMessage: FC = () => (
-  <MessagePrimitive.Root data-role="assistant" className="prosmet-premium-assistant-message [content-visibility:auto]">
-    <div className="text-[15px] leading-7 text-neutral-900">
+  <MessagePrimitive.Root data-role="assistant" className="prosmet-v2-assistant-message [content-visibility:auto]">
+    <div className="prosmet-v2-assistant-content">
       <MessagePrimitive.GroupedParts
         groupBy={groupPartByType({ reasoning: ["group-reasoning"], "tool-call": ["group-tool"], "standalone-tool-call": [] })}
       >
         {({ part, children }) => {
           switch (part.type) {
             case "group-tool":
-              return <div className="space-y-3">{children}</div>;
+              return <div className="prosmet-v2-tool-stack">{children}</div>;
             case "group-reasoning":
-              return <div className="prosmet-premium-progress-pill"><span /> Выполняю проверку</div>;
+              return <div className="prosmet-v2-progress"><span /> Проверяю исходные данные</div>;
             case "text":
               return <MarkdownText />;
             case "tool-call":
@@ -157,7 +151,7 @@ const AssistantMessage: FC = () => (
             case "reasoning":
               return null;
             case "indicator":
-              return <span className="animate-pulse" aria-label="Просметчик работает">●</span>;
+              return <span className="prosmet-v2-typing" aria-label="Просметчик работает"><i /><i /><i /></span>;
             default:
               return null;
           }
@@ -165,7 +159,7 @@ const AssistantMessage: FC = () => (
       </MessagePrimitive.GroupedParts>
       <MessageError />
     </div>
-    <div className="mt-2 flex min-h-8 items-center gap-1">
+    <div className="prosmet-v2-assistant-footer">
       <BranchPicker />
       <AssistantActions />
     </div>
@@ -173,95 +167,89 @@ const AssistantMessage: FC = () => (
 );
 
 const ToolFallback: FC<{ name: string }> = ({ name }) => (
-  <div className="my-3 rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-600">
-    <div className="font-medium text-neutral-900">{name}</div>
-    <div className="mt-1 text-xs">Просметчик готовит результат…</div>
+  <div className="prosmet-v2-tool-fallback">
+    <span><SparklesIcon /></span>
+    <div><strong>{name}</strong><small>Формирую результат…</small></div>
   </div>
 );
 
 const AssistantActions: FC = () => (
-  <ActionBarPrimitive.Root hideWhenRunning autohide="not-last" className="flex items-center gap-0.5 text-neutral-500">
+  <ActionBarPrimitive.Root hideWhenRunning autohide="not-last" className="prosmet-v2-assistant-actions">
     <ActionBarPrimitive.Copy asChild>
       <IconButton label="Копировать">
         <AuiIf condition={(state) => state.message.isCopied}><CheckIcon /></AuiIf>
         <AuiIf condition={(state) => !state.message.isCopied}><CopyIcon /></AuiIf>
       </IconButton>
     </ActionBarPrimitive.Copy>
-    <ActionBarPrimitive.Reload asChild>
-      <IconButton label="Повторить ответ"><RefreshCwIcon /></IconButton>
-    </ActionBarPrimitive.Reload>
-    <ActionBarPrimitive.ExportMarkdown asChild>
-      <IconButton label="Экспорт Markdown"><DownloadIcon /></IconButton>
-    </ActionBarPrimitive.ExportMarkdown>
+    <ActionBarPrimitive.Reload asChild><IconButton label="Повторить ответ"><RefreshCwIcon /></IconButton></ActionBarPrimitive.Reload>
+    <ActionBarPrimitive.ExportMarkdown asChild><IconButton label="Экспорт Markdown"><DownloadIcon /></IconButton></ActionBarPrimitive.ExportMarkdown>
   </ActionBarPrimitive.Root>
 );
 
 const UserMessage: FC = () => (
-  <MessagePrimitive.Root data-role="user" className="prosmet-premium-user-message">
-    <div className="col-span-full col-start-1"><UserMessageAttachments /></div>
-    <div className="relative col-start-2 min-w-0">
-      <div className="prosmet-premium-user-bubble"><MessagePrimitive.Parts /></div>
-      <div className="absolute left-0 top-1/2 -translate-x-full -translate-y-1/2 pr-2">
-        <ActionBarPrimitive.Root hideWhenRunning autohide="not-last">
-          <ActionBarPrimitive.Edit asChild><IconButton label="Редактировать запрос"><PencilIcon /></IconButton></ActionBarPrimitive.Edit>
-        </ActionBarPrimitive.Root>
-      </div>
+  <MessagePrimitive.Root data-role="user" className="prosmet-v2-user-message">
+    <div className="col-span-full"><UserMessageAttachments /></div>
+    <div className="prosmet-v2-user-bubble-wrap">
+      <div className="prosmet-v2-user-bubble"><MessagePrimitive.Parts /></div>
+      <ActionBarPrimitive.Root hideWhenRunning autohide="not-last" className="prosmet-v2-user-actions">
+        <ActionBarPrimitive.Edit asChild><IconButton label="Редактировать запрос"><PencilIcon /></IconButton></ActionBarPrimitive.Edit>
+      </ActionBarPrimitive.Root>
     </div>
-    <BranchPicker className="col-span-full col-start-1 justify-end" />
+    <BranchPicker className="col-span-full justify-end" />
   </MessagePrimitive.Root>
 );
 
 const EditComposer: FC = () => (
-  <MessagePrimitive.Root className="flex flex-col">
-    <ComposerPrimitive.Root className="ml-auto flex w-full max-w-[88%] flex-col rounded-2xl border border-neutral-200 bg-white p-2 shadow-sm">
-      <ComposerPrimitive.Input className="min-h-16 w-full resize-none bg-transparent px-3 py-2 text-[15px] leading-6 outline-none" autoFocus />
-      <div className="flex items-center justify-end gap-2 px-1 pb-1">
-        <ComposerPrimitive.Cancel asChild><button type="button" className="h-8 rounded-full px-3 text-sm text-neutral-600 hover:bg-neutral-100">Отмена</button></ComposerPrimitive.Cancel>
-        <ComposerPrimitive.Send asChild><button type="button" className="h-8 rounded-full bg-neutral-900 px-4 text-sm font-medium text-white hover:bg-black">Обновить</button></ComposerPrimitive.Send>
+  <MessagePrimitive.Root className="prosmet-v2-edit-message">
+    <ComposerPrimitive.Root className="prosmet-v2-edit-composer">
+      <ComposerPrimitive.Input className="prosmet-v2-edit-input" autoFocus />
+      <div className="prosmet-v2-edit-actions">
+        <ComposerPrimitive.Cancel asChild><button type="button">Отмена</button></ComposerPrimitive.Cancel>
+        <ComposerPrimitive.Send asChild><button type="button" className="is-primary">Обновить</button></ComposerPrimitive.Send>
       </div>
     </ComposerPrimitive.Root>
   </MessagePrimitive.Root>
 );
 
 const BranchPicker: FC<{ className?: string }> = ({ className }) => (
-  <BranchPickerPrimitive.Root hideWhenSingleBranch className={cn("inline-flex items-center text-xs text-neutral-500", className)}>
+  <BranchPickerPrimitive.Root hideWhenSingleBranch className={cn("prosmet-v2-branch-picker", className)}>
     <BranchPickerPrimitive.Previous asChild><IconButton label="Предыдущий вариант"><ChevronLeftIcon /></IconButton></BranchPickerPrimitive.Previous>
-    <span className="min-w-9 text-center font-medium"><BranchPickerPrimitive.Number /> / <BranchPickerPrimitive.Count /></span>
+    <span><BranchPickerPrimitive.Number /> / <BranchPickerPrimitive.Count /></span>
     <BranchPickerPrimitive.Next asChild><IconButton label="Следующий вариант"><ChevronRightIcon /></IconButton></BranchPickerPrimitive.Next>
   </BranchPickerPrimitive.Root>
 );
 
 const PremiumComposer: FC = () => (
-  <ComposerPrimitive.Root className="relative flex w-full flex-col">
+  <ComposerPrimitive.Root className="prosmet-v2-composer-root">
     <ComposerPrimitive.AttachmentDropzone asChild>
-      <div className="prosmet-premium-composer">
+      <div className="prosmet-v2-composer">
         <ComposerAttachments />
         <ComposerPrimitive.Input
           placeholder="Опишите объект и работы"
           aria-label="Сообщение Просметчику"
-          className="max-h-40 min-h-11 w-full resize-none bg-transparent px-3 py-2 text-base leading-6 outline-none placeholder:text-neutral-400"
+          className="prosmet-v2-composer-input"
           rows={1}
           autoFocus
           enterKeyHint="send"
         />
-        <div className="flex items-center justify-between px-1 pb-0.5">
-          <div className="flex items-center gap-1">
+        <div className="prosmet-v2-composer-actions">
+          <div className="prosmet-v2-composer-tools">
             <ComposerAddAttachment />
             <AuiIf condition={(state) => state.thread.capabilities.dictation}>
               <AuiIf condition={(state) => state.composer.dictation == null}>
-                <ComposerPrimitive.Dictate asChild><IconButton label="Голосовой ввод" className="rounded-full"><MicIcon /></IconButton></ComposerPrimitive.Dictate>
+                <ComposerPrimitive.Dictate asChild><IconButton label="Голосовой ввод"><MicIcon /></IconButton></ComposerPrimitive.Dictate>
               </AuiIf>
               <AuiIf condition={(state) => state.composer.dictation != null}>
-                <ComposerPrimitive.StopDictation asChild><IconButton label="Остановить диктовку" className="rounded-full text-red-600"><SquareIcon /></IconButton></ComposerPrimitive.StopDictation>
+                <ComposerPrimitive.StopDictation asChild><IconButton label="Остановить диктовку" className="text-red-600"><SquareIcon /></IconButton></ComposerPrimitive.StopDictation>
               </AuiIf>
             </AuiIf>
           </div>
           <div>
             <AuiIf condition={(state) => !state.thread.isRunning}>
-              <ComposerPrimitive.Send asChild><button type="button" aria-label="Отправить" className="prosmet-premium-send"><ArrowUpIcon className="size-4" /></button></ComposerPrimitive.Send>
+              <ComposerPrimitive.Send asChild><button type="button" aria-label="Отправить" className="prosmet-v2-send"><ArrowUpIcon /></button></ComposerPrimitive.Send>
             </AuiIf>
             <AuiIf condition={(state) => state.thread.isRunning}>
-              <ComposerPrimitive.Cancel asChild><button type="button" aria-label="Остановить генерацию" className="prosmet-premium-send"><SquareIcon className="size-3.5 fill-current" /></button></ComposerPrimitive.Cancel>
+              <ComposerPrimitive.Cancel asChild><button type="button" aria-label="Остановить генерацию" className="prosmet-v2-send"><SquareIcon className="fill-current" /></button></ComposerPrimitive.Cancel>
             </AuiIf>
           </div>
         </div>
@@ -272,8 +260,6 @@ const PremiumComposer: FC = () => (
 
 const MessageError: FC = () => (
   <MessagePrimitive.Error>
-    <ErrorPrimitive.Root className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700">
-      <ErrorPrimitive.Message />
-    </ErrorPrimitive.Root>
+    <ErrorPrimitive.Root className="prosmet-v2-message-error"><ErrorPrimitive.Message /></ErrorPrimitive.Root>
   </MessagePrimitive.Error>
 );
