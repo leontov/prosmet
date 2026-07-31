@@ -4,7 +4,11 @@ import { relative, resolve } from "node:path";
 const root = process.cwd();
 const contractPath = "scripts/greenfield-contract.mjs";
 const required = [
+  ".env.example",
   ".github/workflows/greenfield-deploy.yml",
+  "deployment/ensure-public-edge.sh",
+  "docs/AGENT_INTEGRATION.md",
+  "scripts/prosmet-admin.mjs",
   "apps/web/server.mjs",
   "apps/web/server/agent-schema.mjs",
   "apps/web/server/agent-config.mjs",
@@ -75,7 +79,7 @@ async function walk(directory) {
     if (["node_modules", ".git", "dist", "target"].includes(entry.name)) continue;
     const path = resolve(directory, entry.name);
     if (entry.isDirectory()) files.push(...await walk(path));
-    else if (/\.(ts|tsx|css|md|mjs)$/.test(entry.name)) files.push(path);
+    else if (/\.(ts|tsx|css|md|mjs|sh)$/.test(entry.name)) files.push(path);
   }
   return files;
 }
@@ -110,7 +114,10 @@ const library = await read("apps/web/src/features/library/LibraryView.tsx");
 const account = await read("apps/web/src/features/account/AccountView.tsx");
 const settings = await read("apps/web/src/features/settings/SettingsView.tsx");
 const harness = await read("apps/web/e2e/harness.mjs");
+const adminScript = await read("scripts/prosmet-admin.mjs");
+const agentDocs = await read("docs/AGENT_INTEGRATION.md");
 const deployment = await read(".github/workflows/greenfield-deploy.yml");
+const publicEdge = await read("deployment/ensure-public-edge.sh");
 
 if (!mainEntry.includes("ReferenceApp")) failures.push("mobile-web:reference-app-not-mounted");
 if (!mainEntry.includes("mobile-chat-reference.css")) failures.push("mobile-web:reference-css-not-mounted");
@@ -214,11 +221,25 @@ if (!webRuntime.includes("agentId: selectedAgentId()")) failures.push("agents:we
 if (!nativeRuntime.includes("/api/agent")) failures.push("agents:native-runtime-route-missing");
 if (!harness.includes("fixture-agent.mjs") || !harness.includes("PROSMET_AGENT_PROVIDERS_JSON")) failures.push("agents:e2e-real-router-harness-missing");
 
+for (const token of ["status", "show-token", "bootstrap", "rotate-token", "PROSMET_AGENT_CONFIG_KEY"]) {
+  if (!adminScript.includes(token)) failures.push(`admin-script-token-missing:${token}`);
+}
+for (const token of ["OpenAI-compatible", "Ollama", "Codex App Server", "AG-UI", "A2A", "AES-256-GCM"]) {
+  if (!agentDocs.includes(token)) failures.push(`agent-docs-token-missing:${token}`);
+}
+
+for (const token of ["admin 127.0.0.1:2019", "reverse_proxy 127.0.0.1:${UPSTREAM_PORT}", "RUNNER_TRACKING_ID", "public-health-route-not-ready"]) {
+  if (!publicEdge.includes(token)) failures.push(`public-edge-token-missing:${token}`);
+}
+
 if (!deployment.includes("env -u RUNNER_TRACKING_ID")) failures.push("deployment:runner-tracking-id-not-removed");
 if (!deployment.includes("post_cleanup_persistence:")) failures.push("deployment:post-cleanup-persistence-job-missing");
 if (!deployment.includes("external_acceptance:")) failures.push("deployment:external-acceptance-job-missing");
 if (!deployment.includes("runs-on: ubuntu-latest")) failures.push("deployment:external-github-hosted-runner-missing");
 if (!deployment.includes("survivedRunnerCleanup")) failures.push("deployment:final-persistence-evidence-missing");
+if (!deployment.includes("canonicalEdgeReloaded")) failures.push("deployment:canonical-edge-acceptance-missing");
+if (!deployment.includes("allResolvedIpv4Checked")) failures.push("deployment:all-resolved-ipv4-check-missing");
+if (!deployment.includes("ensure-public-edge.sh")) failures.push("deployment:canonical-edge-repair-missing");
 if (!deployment.includes('cp -a apps/web/server "$RELEASE_DIR/server"')) failures.push("deployment:agent-server-modules-not-installed");
 if (!deployment.includes("agent-admin.env")) failures.push("deployment:persistent-agent-admin-secrets-missing");
 if (!deployment.includes("PROSMET_AGENT_CONFIG_KEY")) failures.push("deployment:agent-config-key-not-propagated");
@@ -247,5 +268,6 @@ console.log(JSON.stringify({
   editor: "opens only from a real validated estimate artifact",
   accountAndSettings: "live server state without invented users, devices or providers",
   productionProcess: "detached from runner cleanup",
+  canonicalEdge: "reconciled before and after cleanup and verified on every resolved IPv4",
   productionAcceptance: "post-cleanup plus external GitHub-hosted browser verification"
 }, null, 2));
