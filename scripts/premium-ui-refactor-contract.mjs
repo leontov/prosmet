@@ -95,7 +95,14 @@ for (const token of [
 for (const token of ["PROSMET PREMIUM PRODUCT UI V1", ".prosmet-premium-app-shell", ".prosmet-premium-estimate-paper"]) forbid(styles, token, "legacy-css-removed");
 
 const e2e = await read("e2e/premium-ui.spec.ts");
-for (const token of ["distinct desktop and mobile product", "height).toBeGreaterThanOrEqual(88)", "height).toBeGreaterThanOrEqual(100)", "fontSize)).toBeGreaterThanOrEqual(16)", "prosmet-v2-mobile-nav"]) need(e2e, token, "premium-v2-e2e");
+for (const token of [
+  "distinct desktop and mobile product",
+  "height).toBeGreaterThanOrEqual(88)",
+  "height).toBeGreaterThanOrEqual(100)",
+  "cardTitleSize).toBeGreaterThanOrEqual(16)",
+  "rowTitleSize).toBeGreaterThanOrEqual(16)",
+  "prosmet-v2-mobile-nav"
+]) need(e2e, token, "premium-v2-e2e");
 
 if (failures.length) {
   console.error(JSON.stringify({ status: "FAIL", failures }, null, 2));
