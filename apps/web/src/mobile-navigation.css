@@ -1,0 +1,194 @@
+@media (max-width: 767px) {
+  .mobile-shell {
+    grid-template-rows: 58px minmax(0, 1fr);
+  }
+
+  .mobile-topbar {
+    position: relative;
+    z-index: 40;
+    background: #fff;
+  }
+
+  .mobile-menu-button {
+    width: 44px;
+    height: 44px;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 13px;
+    background: transparent;
+    color: var(--text);
+  }
+
+  .mobile-menu-button:hover,
+  .mobile-menu-button[aria-expanded="true"] {
+    background: var(--surface-soft);
+  }
+
+  .mobile-menu-button svg {
+    width: 21px;
+    height: 21px;
+  }
+
+  .mobile-navigation-layer {
+    position: fixed;
+    inset: 0;
+    z-index: 1200;
+    display: flex;
+    justify-content: flex-end;
+  }
+
+  .mobile-navigation-backdrop {
+    position: absolute;
+    inset: 0;
+    border: 0;
+    background: rgba(20, 20, 23, .28);
+    backdrop-filter: blur(3px);
+  }
+
+  .mobile-navigation-drawer {
+    position: relative;
+    width: min(344px, calc(100% - 22px));
+    height: 100%;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    background: #fff;
+    box-shadow: -24px 0 70px rgba(20, 20, 23, .18);
+    padding: max(12px, env(safe-area-inset-top, 0px)) 12px max(14px, env(safe-area-inset-bottom, 0px));
+    animation: mobile-navigation-enter .18s ease-out;
+  }
+
+  .mobile-navigation-header {
+    min-height: 58px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border-bottom: 1px solid var(--border);
+    padding: 0 4px 10px 8px;
+  }
+
+  .mobile-navigation-header strong,
+  .mobile-navigation-header span {
+    display: block;
+  }
+
+  .mobile-navigation-header strong {
+    font-size: 18px;
+    letter-spacing: -.025em;
+  }
+
+  .mobile-navigation-header span {
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .mobile-navigation-header > button {
+    width: 44px;
+    height: 44px;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 13px;
+    background: var(--surface-soft);
+    color: var(--muted);
+  }
+
+  .mobile-navigation-header > button svg {
+    width: 20px;
+    height: 20px;
+  }
+
+  .mobile-navigation-list {
+    min-height: 0;
+    overflow-y: auto;
+    display: grid;
+    align-content: start;
+    gap: 3px;
+    padding: 12px 0;
+  }
+
+  .mobile-navigation-list > button {
+    width: 100%;
+    min-height: 66px;
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr) 22px;
+    align-items: center;
+    gap: 11px;
+    border: 0;
+    border-radius: 15px;
+    background: transparent;
+    padding: 8px 10px;
+    color: var(--text);
+    text-align: left;
+  }
+
+  .mobile-navigation-list > button:hover,
+  .mobile-navigation-list > button.active {
+    background: var(--surface-soft);
+  }
+
+  .mobile-navigation-icon {
+    width: 42px;
+    height: 42px;
+    display: grid;
+    place-items: center;
+    border-radius: 13px;
+    background: #fff;
+    color: var(--muted);
+    box-shadow: inset 0 0 0 1px var(--border);
+  }
+
+  .mobile-navigation-list > button.active .mobile-navigation-icon {
+    background: var(--primary);
+    color: #fff;
+    box-shadow: none;
+  }
+
+  .mobile-navigation-icon svg {
+    width: 19px;
+    height: 19px;
+  }
+
+  .mobile-navigation-copy strong,
+  .mobile-navigation-copy small {
+    display: block;
+  }
+
+  .mobile-navigation-copy strong {
+    font-size: 15px;
+    line-height: 1.3;
+  }
+
+  .mobile-navigation-copy small {
+    margin-top: 4px;
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.35;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-navigation-list > button > svg {
+    width: 18px;
+    height: 18px;
+    color: var(--faint);
+  }
+
+  .mobile-library,
+  .mobile-account,
+  .mobile-settings {
+    padding-bottom: max(32px, env(safe-area-inset-bottom, 0px));
+  }
+
+  @keyframes mobile-navigation-enter {
+    from { transform: translateX(18px); opacity: .65; }
+    to { transform: translateX(0); opacity: 1; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .mobile-navigation-drawer { animation: none; }
+  }
+}

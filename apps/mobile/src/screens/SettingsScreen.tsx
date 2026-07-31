@@ -22,7 +22,7 @@ function Provider({ name, detail, active = false }: { name: string; detail: stri
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.canvas },
-  content: { paddingHorizontal: 16, paddingTop: 28, paddingBottom: 110 },
+  content: { paddingHorizontal: 16, paddingTop: 28, paddingBottom: 36 },
   title: { color: theme.text, fontSize: 32, fontWeight: "700", letterSpacing: -1.2 },
   subtitle: { marginTop: 8, color: theme.muted, fontSize: 16, lineHeight: 24 },
   section: { marginTop: 26, borderTopWidth: 1, borderTopColor: theme.border },

@@ -2,17 +2,20 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { AppView, Estimate } from "@prosmet/contracts";
 import {
   BotIcon,
+  ChevronRightIcon,
   CircleUserRoundIcon,
   FileSpreadsheetIcon,
   FileTextIcon,
   FolderKanbanIcon,
+  MenuIcon,
   MessageSquareTextIcon,
   PanelRightIcon,
   PlusIcon,
   SearchIcon,
   Settings2Icon,
   SparklesIcon,
-  TagIcon
+  TagIcon,
+  XIcon
 } from "lucide-react";
 import { RuntimeProvider } from "../runtime/RuntimeProvider";
 import { ChatSurface } from "../features/chat/ChatSurface";
@@ -171,32 +174,66 @@ function DesktopShell({ view, onView, estimate, onOpenEstimate }: ShellProps) {
   );
 }
 
+const mobileNavigation = [
+  { id: "chat" as const, label: "Чат", description: "Новый диалог и расчёт", icon: <MessageSquareTextIcon /> },
+  { id: "projects" as const, label: "Объекты", description: "Проекты и рабочие контексты", icon: <FolderKanbanIcon /> },
+  { id: "estimates" as const, label: "Сметы", description: "Версии и утверждённые расчёты", icon: <FileSpreadsheetIcon /> },
+  { id: "documents" as const, label: "Документы", description: "КП, договоры, акты и счета", icon: <FileTextIcon /> },
+  { id: "catalog" as const, label: "Каталог цен", description: "Личные и региональные цены", icon: <TagIcon /> },
+  { id: "account" as const, label: "Профиль", description: "Кабинет и организация", icon: <CircleUserRoundIcon /> },
+  { id: "settings" as const, label: "Настройки", description: "Агенты, данные и безопасность", icon: <Settings2Icon /> }
+];
+
 function MobileShell({ view, onView, estimate, onOpenEstimate }: ShellProps) {
-  const primary = [
-    { id: "chat" as const, label: "Чат", icon: <MessageSquareTextIcon /> },
-    { id: "projects" as const, label: "Объекты", icon: <FolderKanbanIcon /> },
-    { id: "estimates" as const, label: "Сметы", icon: <FileSpreadsheetIcon /> },
-    { id: "account" as const, label: "Профиль", icon: <CircleUserRoundIcon /> }
-  ];
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  const navigate = (nextView: AppView) => {
+    onView(nextView);
+    setMenuOpen(false);
+  };
 
   return (
     <div className="mobile-shell" data-testid="mobile-shell">
       <header className="mobile-topbar">
-        <button type="button" className="mobile-brand" onClick={() => onView("chat")}><span><SparklesIcon /></span><strong>Просметчик</strong></button>
-        <button type="button" className="mobile-settings-button" aria-label="Настройки" onClick={() => onView("settings")}><Settings2Icon /></button>
+        <button type="button" className="mobile-brand" onClick={() => navigate("chat")}>
+          <span><SparklesIcon /></span>
+          <strong>Просметчик</strong>
+        </button>
+        <button
+          type="button"
+          className="mobile-menu-button"
+          aria-label="Открыть навигацию"
+          aria-expanded={menuOpen}
+          onClick={() => setMenuOpen(true)}
+        >
+          <MenuIcon />
+        </button>
       </header>
 
       <main className="mobile-main">
         <Workspace view={view} mobile estimate={estimate} onOpenEstimate={onOpenEstimate} />
       </main>
 
-      <nav className="mobile-bottom-nav" aria-label="Мобильная навигация">
-        {primary.map((item) => (
-          <button key={item.id} type="button" className={view === item.id ? "active" : ""} onClick={() => onView(item.id)}>
-            {item.icon}<span>{item.label}</span>
-          </button>
-        ))}
-      </nav>
+      {menuOpen ? (
+        <div className="mobile-navigation-layer">
+          <button type="button" className="mobile-navigation-backdrop" aria-label="Закрыть навигацию" onClick={() => setMenuOpen(false)} />
+          <section className="mobile-navigation-drawer" role="dialog" aria-modal="true" aria-label="Навигация">
+            <header className="mobile-navigation-header">
+              <div><strong>Разделы</strong><span>{viewMeta[view].title}</span></div>
+              <button type="button" aria-label="Закрыть" onClick={() => setMenuOpen(false)}><XIcon /></button>
+            </header>
+            <nav className="mobile-navigation-list" aria-label="Мобильная навигация">
+              {mobileNavigation.map((item) => (
+                <button key={item.id} type="button" className={view === item.id ? "active" : ""} onClick={() => navigate(item.id)}>
+                  <span className="mobile-navigation-icon">{item.icon}</span>
+                  <span className="mobile-navigation-copy"><strong>{item.label}</strong><small>{item.description}</small></span>
+                  <ChevronRightIcon />
+                </button>
+              ))}
+            </nav>
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }

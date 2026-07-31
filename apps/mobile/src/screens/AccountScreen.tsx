@@ -20,7 +20,7 @@ function Row({ label, value }: { label: string; value: string }) { return <View 
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.canvas },
-  content: { paddingHorizontal: 16, paddingTop: 28, paddingBottom: 110 },
+  content: { paddingHorizontal: 16, paddingTop: 28, paddingBottom: 36 },
   title: { color: theme.text, fontSize: 32, fontWeight: "700", letterSpacing: -1.2 },
   subtitle: { marginTop: 8, color: theme.muted, fontSize: 16, lineHeight: 24 },
   profile: { marginTop: 28, flexDirection: "row", alignItems: "center", gap: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border, paddingBottom: 22 },
