@@ -3,6 +3,9 @@ name: Prosmet Greenfield Production
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
   workflow_dispatch:
 
 permissions:
@@ -14,18 +17,38 @@ concurrency:
 
 jobs:
   deploy:
+    if: >-
+      github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        github.event.pull_request.head.ref == 'ops/greenfield-production-release'
+      )
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 55
     env:
       CI: "1"
-      RELEASE_DIR: $HOME/.prosmet-greenfield/releases/${{ github.sha }}
+      RELEASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
+      RELEASE_DIR: $HOME/.prosmet-greenfield/releases/${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
     steps:
-      - name: Verify trusted runner
-        run: test "${{ runner.name }}" = "prosmet-primary"
+      - name: Verify trusted runner and release source
+        run: |
+          set -Eeuo pipefail
+          test "${{ runner.name }}" = "prosmet-primary"
+          test -n "$RELEASE_SHA"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            test "${{ github.event.pull_request.head.ref }}" = "ops/greenfield-production-release"
+            test "${{ github.event.pull_request.head.repo.full_name }}" = "${{ github.repository }}"
+          fi
 
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
           fetch-depth: 0
+
+      - name: Verify checkout is the exact release SHA
+        run: test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
 
       - uses: actions/setup-node@v4
         with:
@@ -35,6 +58,7 @@ jobs:
 
       - name: Install and verify exact main SHA
         run: |
+          set -Eeuo pipefail
           npm install --workspaces --include-workspace-root --legacy-peer-deps --no-audit --no-fund
           npm run verify
           npm run desktop:metadata
@@ -48,7 +72,10 @@ jobs:
           rm -rf "$RELEASE_DIR/dist"
           cp -a apps/web/dist "$RELEASE_DIR/dist"
           cp apps/web/server.mjs "$RELEASE_DIR/server.mjs"
-          printf '%s\n' "${GITHUB_SHA}" > "$RELEASE_DIR/SHA"
+          printf '%s\n' "$RELEASE_SHA" > "$RELEASE_DIR/SHA"
+          cat > "$RELEASE_DIR/release.json" <<EOF
+          {"releaseSha":"$RELEASE_SHA","repository":"${{ github.repository }}","event":"${{ github.event_name }}","runId":"${{ github.run_id }}"}
+          EOF
 
       - name: Switch process on port 3200
         run: |
@@ -61,7 +88,7 @@ jobs:
           sleep 1
           mkdir -p "$HOME/.prosmet-greenfield"
           cd "$RELEASE_DIR"
-          PORT=3200 PROSMET_RELEASE_SHA="${GITHUB_SHA}" nohup node server.mjs > "$HOME/.prosmet-greenfield/production.log" 2>&1 &
+          PORT=3200 PROSMET_RELEASE_SHA="$RELEASE_SHA" nohup node server.mjs > "$HOME/.prosmet-greenfield/production.log" 2>&1 &
           echo $! > "$HOME/.prosmet-greenfield/production.pid"
 
       - name: Verify local release
@@ -69,8 +96,8 @@ jobs:
           set -Eeuo pipefail
           for attempt in $(seq 1 40); do
             HEALTH="$(curl -fsS http://127.0.0.1:3200/api/health || true)"
-            if printf '%s' "$HEALTH" | grep -q "${GITHUB_SHA}"; then
-              printf '%s\n' "$HEALTH"
+            if printf '%s' "$HEALTH" | grep -q "$RELEASE_SHA" && printf '%s' "$HEALTH" | grep -q '"ui":"greenfield"'; then
+              printf '%s\n' "$HEALTH" > local-health.json
               exit 0
             fi
             sleep 1
@@ -83,13 +110,16 @@ jobs:
           set -Eeuo pipefail
           for attempt in $(seq 1 40); do
             HEALTH="$(curl -fsS https://kolibriai.online/api/health || true)"
-            if printf '%s' "$HEALTH" | grep -q "${GITHUB_SHA}"; then
+            if printf '%s' "$HEALTH" | grep -q "$RELEASE_SHA" && printf '%s' "$HEALTH" | grep -q '"ui":"greenfield"'; then
               printf '%s\n' "$HEALTH" > public-health.json
               curl -fsSI https://kolibriai.online/ > public-headers.txt
+              curl -fsSI http://kolibriai.online/ > public-redirect.txt || true
               exit 0
             fi
             sleep 2
           done
+          printf 'Expected release SHA: %s\n' "$RELEASE_SHA"
+          curl -sS https://kolibriai.online/api/health || true
           exit 1
 
       - name: Live desktop and mobile acceptance
@@ -97,14 +127,23 @@ jobs:
           PROSMET_BASE_URL: https://kolibriai.online
         run: npm run e2e
 
+      - name: Write release acceptance summary
+        run: |
+          cat > production-acceptance.json <<EOF
+          {"status":"PASS","releaseSha":"$RELEASE_SHA","ui":"greenfield","origin":"https://kolibriai.online","desktopChromium":true,"mobileChromium":true,"runId":"${{ github.run_id }}"}
+          EOF
+
       - name: Upload production evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: prosmet-greenfield-production-${{ github.run_id }}
           path: |
+            local-health.json
             public-health.json
             public-headers.txt
+            public-redirect.txt
+            production-acceptance.json
             apps/web/playwright-report
             apps/web/test-results
             apps/web/artifacts-*.png
