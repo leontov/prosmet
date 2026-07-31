@@ -1,0 +1,31 @@
+{
+  "name": "@prosmet/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "start": "node server.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "e2e": "playwright test"
+  },
+  "dependencies": {
+    "@assistant-ui/react": "latest",
+    "@prosmet/contracts": "0.1.0",
+    "lucide-react": "latest",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@playwright/test": "latest",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "@vitejs/plugin-react": "latest",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
+    "vite": "^8.1.0",
+    "vitest": "latest"
+  }
+}

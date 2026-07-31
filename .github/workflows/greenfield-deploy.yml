@@ -1,0 +1,108 @@
+name: Prosmet Greenfield Production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prosmet-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, prosmet-primary]
+    timeout-minutes: 55
+    env:
+      CI: "1"
+      RELEASE_DIR: $HOME/.prosmet-greenfield/releases/${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install and verify exact main SHA
+        run: |
+          npm install --workspaces --include-workspace-root --legacy-peer-deps --no-audit --no-fund
+          npm run verify
+          npm run desktop:metadata
+          npx playwright install chromium
+          npm run e2e
+
+      - name: Install immutable release
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$RELEASE_DIR"
+          rm -rf "$RELEASE_DIR/dist"
+          cp -a apps/web/dist "$RELEASE_DIR/dist"
+          cp apps/web/server.mjs "$RELEASE_DIR/server.mjs"
+          printf '%s\n' "${GITHUB_SHA}" > "$RELEASE_DIR/SHA"
+
+      - name: Switch process on port 3200
+        run: |
+          set -Eeuo pipefail
+          if command -v fuser >/dev/null 2>&1; then fuser -k 3200/tcp || true; fi
+          if command -v lsof >/dev/null 2>&1; then
+            PIDS="$(lsof -tiTCP:3200 -sTCP:LISTEN || true)"
+            if [ -n "$PIDS" ]; then kill $PIDS || true; fi
+          fi
+          sleep 1
+          cd "$RELEASE_DIR"
+          PORT=3200 PROSMET_RELEASE_SHA="${GITHUB_SHA}" nohup node server.mjs > "$HOME/.prosmet-greenfield/production.log" 2>&1 &
+          echo $! > "$HOME/.prosmet-greenfield/production.pid"
+
+      - name: Verify local release
+        run: |
+          set -Eeuo pipefail
+          for attempt in $(seq 1 40); do
+            HEALTH="$(curl -fsS http://127.0.0.1:3200/api/health || true)"
+            if printf '%s' "$HEALTH" | grep -q "${GITHUB_SHA}"; then
+              printf '%s\n' "$HEALTH"
+              exit 0
+            fi
+            sleep 1
+          done
+          cat "$HOME/.prosmet-greenfield/production.log" || true
+          exit 1
+
+      - name: Verify public HTTPS and exact SHA
+        run: |
+          set -Eeuo pipefail
+          for attempt in $(seq 1 40); do
+            HEALTH="$(curl -fsS https://kolibriai.online/api/health || true)"
+            if printf '%s' "$HEALTH" | grep -q "${GITHUB_SHA}"; then
+              printf '%s\n' "$HEALTH" > public-health.json
+              curl -fsSI https://kolibriai.online/ > public-headers.txt
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1
+
+      - name: Live desktop and mobile acceptance
+        env:
+          PROSMET_BASE_URL: https://kolibriai.online
+        run: npm run e2e
+
+      - name: Upload production evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prosmet-greenfield-production-${{ github.run_id }}
+          path: |
+            public-health.json
+            public-headers.txt
+            apps/web/playwright-report
+            apps/web/test-results
+            apps/web/artifacts-*.png
+          if-no-files-found: warn
+          retention-days: 30

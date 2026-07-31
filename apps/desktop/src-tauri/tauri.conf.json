@@ -1,24 +1,32 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Просметчик",
-  "version": "1.0.0",
-  "identifier": "online.kolibriai.prosmet.desktop",
+  "version": "0.1.0",
+  "identifier": "online.kolibriai.prosmet",
   "build": {
-    "beforeBuildCommand": "npm run build:web",
-    "beforeDevCommand": "npm run build:web",
-    "frontendDist": "../dist"
+    "beforeDevCommand": "npm run dev -w @prosmet/web",
+    "devUrl": "http://localhost:5173",
+    "beforeBuildCommand": "npm run build -w @prosmet/web",
+    "frontendDist": "../../web/dist"
   },
   "app": {
-    "windows": [],
+    "windows": [
+      {
+        "title": "Просметчик",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 980,
+        "minHeight": 680,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src https://kolibriai.online; img-src 'self' data: https:"
+      "csp": "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self' https://kolibriai.online; object-src 'none'"
     }
   },
   "bundle": {
     "active": true,
-    "targets": "all",
-    "category": "Business",
-    "shortDescription": "Универсальный AI-ассистент и профессиональная сметная система",
-    "longDescription": "Просметчик объединяет чат, сметы, документы, каталог цен и подключаемых агентов в лаконичном рабочем пространстве."
+    "targets": "all"
   }
 }

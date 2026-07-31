@@ -1,42 +1,20 @@
 {
   "expo": {
     "name": "Просметчик",
-    "slug": "prosmet",
-    "version": "1.0.0",
+    "slug": "prosmet-greenfield",
+    "version": "0.1.0",
     "orientation": "portrait",
-    "scheme": "prosmet",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "light",
     "newArchEnabled": true,
-    "plugins": [
-      "expo-router",
-      "expo-secure-store",
-      "expo-sqlite"
-    ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "online.kolibriai.prosmet",
-      "infoPlist": {
-        "NSAppTransportSecurity": {
-          "NSAllowsArbitraryLoads": false
-        }
-      }
+      "bundleIdentifier": "online.kolibriai.prosmet"
     },
     "android": {
       "package": "online.kolibriai.prosmet",
       "adaptiveIcon": {
-        "backgroundColor": "#f7f7f5"
+        "backgroundColor": "#171719"
       }
-    },
-    "web": {
-      "bundler": "metro",
-      "output": "static"
-    },
-    "experiments": {
-      "typedRoutes": true
-    },
-    "extra": {
-      "router": {},
-      "apiUrl": "https://kolibriai.online"
     }
   }
 }

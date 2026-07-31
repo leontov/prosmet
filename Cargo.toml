@@ -1,6 +1,6 @@
 [workspace]
+resolver = "2"
 members = [
-  "crates/prosmet-engine",
+  "crates/estimate-engine",
   "apps/desktop/src-tauri"
 ]
-resolver = "2"

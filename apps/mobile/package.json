@@ -1,26 +1,18 @@
 {
   "name": "@prosmet/mobile",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "private": true,
-  "main": "expo-router/entry",
+  "main": "node_modules/expo/AppEntry.js",
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "web": "expo start --web",
-    "typecheck": "tsc --noEmit",
-    "doctor": "npx expo-doctor",
-    "export:web": "expo export --platform web"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@assistant-ui/react-native": "latest",
-    "expo": "^57.0.0",
-    "expo-file-system": "latest",
-    "expo-print": "latest",
-    "expo-router": "latest",
-    "expo-secure-store": "latest",
-    "expo-sharing": "latest",
-    "expo-sqlite": "latest",
+    "@prosmet/contracts": "0.1.0",
+    "expo": "~57.0.0",
     "expo-status-bar": "latest",
     "react": "19.2.3",
     "react-native": "0.86.0",
@@ -28,6 +20,6 @@
   },
   "devDependencies": {
     "@types/react": "latest",
-    "typescript": "^5.9.3"
+    "typescript": "npm:@typescript/typescript6@^6.0.2"
   }
 }
