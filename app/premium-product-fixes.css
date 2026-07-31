@@ -2,6 +2,19 @@
   display: none !important;
 }
 
+:where(
+  button,
+  a,
+  input,
+  textarea,
+  select,
+  [role="button"],
+  [tabindex]:not([tabindex="-1"])
+):focus-visible {
+  outline: 2px solid #18181b;
+  outline-offset: 3px;
+}
+
 @media (hover: none) {
   .prosmet-v2-thread-menu { opacity: 1; }
 }
