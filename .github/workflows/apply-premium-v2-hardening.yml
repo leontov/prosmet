@@ -1,4 +1,5 @@
 name: Apply Premium V2 hardening
+# trigger: registered on default branch
 
 on:
   push:
