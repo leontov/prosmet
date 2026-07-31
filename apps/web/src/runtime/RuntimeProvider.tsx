@@ -4,16 +4,19 @@ import {
   useLocalRuntime,
   type ChatModelAdapter
 } from "@assistant-ui/react";
-import type { AgentResponse, Estimate } from "@prosmet/contracts";
-import { demoEstimate } from "../data/demo";
+import type { AgentResponse, ApiErrorBody, Estimate } from "@prosmet/contracts";
 
 type Props = {
   children: ReactNode;
   onEstimateReady: (estimate: Estimate) => void;
 };
 
-function cloneDemoEstimate(): Estimate {
-  return structuredClone(demoEstimate);
+function errorMessage(status: number, body: unknown) {
+  const apiError = body as Partial<ApiErrorBody>;
+  if (apiError?.error?.message) return apiError.error.message;
+  if (status === 401) return "Откройте настройки и войдите как супер-администратор.";
+  if (status === 409) return "Сначала подключите и активируйте агента в настройках.";
+  return `Агент недоступен: HTTP ${status}`;
 }
 
 export function RuntimeProvider({ children, onEstimateReady }: Props) {
@@ -28,8 +31,14 @@ export function RuntimeProvider({ children, onEstimateReady }: Props) {
           credentials: "same-origin"
         });
 
-        if (!response.ok) throw new Error(`Agent request failed: ${response.status}`);
-        const result = await response.json() as AgentResponse;
+        const body = await response.json().catch(() => null);
+        if (!response.ok) {
+          return {
+            content: [{ type: "text", text: errorMessage(response.status, body) }]
+          };
+        }
+
+        const result = body as AgentResponse;
         if (result.artifact === "estimate" && result.estimate) {
           queueMicrotask(() => onEstimateReady(result.estimate as Estimate));
         }
@@ -39,11 +48,12 @@ export function RuntimeProvider({ children, onEstimateReady }: Props) {
         };
       } catch (error) {
         if (abortSignal.aborted) throw error;
-        queueMicrotask(() => onEstimateReady(cloneDemoEstimate()));
         return {
           content: [{
             type: "text",
-            text: "Подготовил локальный черновик сметы. Проверьте объёмы и цены, затем сохраните отдельную версию."
+            text: error instanceof Error
+              ? `Не удалось выполнить запрос к агенту: ${error.message}`
+              : "Не удалось выполнить запрос к агенту."
           }]
         };
       }

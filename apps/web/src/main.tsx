@@ -4,6 +4,8 @@ import { App } from "./app/App";
 import "./styles.css";
 import "./mobile-overrides.css";
 import "./mobile-navigation.css";
+import "./agent-integrations.css";
+import "./workspace-real.css";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Root element is missing");

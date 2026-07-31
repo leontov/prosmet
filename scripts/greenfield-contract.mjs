@@ -6,16 +6,27 @@ const contractPath = "scripts/greenfield-contract.mjs";
 const required = [
   ".github/workflows/greenfield-deploy.yml",
   "deployment/ensure-public-edge.sh",
+  "apps/web/server.mjs",
   "apps/web/src/app/App.tsx",
   "apps/web/src/mobile-navigation.css",
+  "apps/web/src/agent-integrations.css",
+  "apps/web/src/workspace-real.css",
+  "apps/web/src/features/agents/agent-api.ts",
   "apps/web/src/features/chat/ChatSurface.tsx",
   "apps/web/src/features/estimate/EstimateEditor.tsx",
+  "apps/web/src/features/library/LibraryView.tsx",
   "apps/web/src/features/account/AccountView.tsx",
   "apps/web/src/features/settings/SettingsView.tsx",
+  "apps/web/e2e/fixture-agent.mjs",
   "apps/mobile/App.tsx",
   "apps/mobile/src/MobileNavigation.tsx",
+  "apps/mobile/src/agent-session.ts",
+  "apps/mobile/src/runtime/RuntimeProvider.tsx",
   "apps/mobile/src/screens/ChatScreen.tsx",
   "apps/mobile/src/screens/EstimateScreen.tsx",
+  "apps/mobile/src/screens/AccountScreen.tsx",
+  "apps/mobile/src/screens/SettingsScreen.tsx",
+  "packages/contracts/src/index.ts",
   "crates/estimate-engine/src/lib.rs",
   "docs/DESIGN_SYSTEM.md"
 ];
@@ -28,7 +39,9 @@ const forbiddenPaths = [
   "components/app/premium-estimate-workspace-editor.tsx",
   "app/estimate-workspace.css",
   "app/premium-foundation.css",
-  "apps/mobile/src/BottomNav.tsx"
+  "apps/mobile/src/BottomNav.tsx",
+  "apps/web/src/data/demo.ts",
+  "apps/mobile/src/data.ts"
 ];
 
 const forbiddenTokens = [
@@ -68,15 +81,95 @@ for (const path of await walk(root)) {
   }
 }
 
-const webApp = await readFile(resolve(root, "apps/web/src/app/App.tsx"), "utf8");
-const nativeApp = await readFile(resolve(root, "apps/mobile/App.tsx"), "utf8");
-const deployment = await readFile(resolve(root, ".github/workflows/greenfield-deploy.yml"), "utf8");
-const edgeRecovery = await readFile(resolve(root, "deployment/ensure-public-edge.sh"), "utf8");
+const read = (path) => readFile(resolve(root, path), "utf8");
+const webApp = await read("apps/web/src/app/App.tsx");
+const webRuntime = await read("apps/web/src/runtime/RuntimeProvider.tsx");
+const server = await read("apps/web/server.mjs");
+const webSettings = await read("apps/web/src/features/settings/SettingsView.tsx");
+const webAccount = await read("apps/web/src/features/account/AccountView.tsx");
+const webLibrary = await read("apps/web/src/features/library/LibraryView.tsx");
+const webEstimate = await read("apps/web/src/features/estimate/EstimateEditor.tsx");
+const webChat = await read("apps/web/src/features/chat/ChatSurface.tsx");
+const nativeApp = await read("apps/mobile/App.tsx");
+const nativeRuntime = await read("apps/mobile/src/runtime/RuntimeProvider.tsx");
+const nativeSettings = await read("apps/mobile/src/screens/SettingsScreen.tsx");
+const nativeAccount = await read("apps/mobile/src/screens/AccountScreen.tsx");
+const nativeChat = await read("apps/mobile/src/screens/ChatScreen.tsx");
+const mobileSession = await read("apps/mobile/src/agent-session.ts");
+const playwright = await read("apps/web/playwright.config.ts");
+const e2e = await read("apps/web/e2e/app.spec.ts");
+const deployment = await read(".github/workflows/greenfield-deploy.yml");
+const edgeRecovery = await read("deployment/ensure-public-edge.sh");
 
 if (webApp.includes("mobile-bottom-nav")) failures.push("mobile-web:persistent-bottom-navigation");
 if (nativeApp.includes("BottomNav")) failures.push("mobile-native:persistent-bottom-navigation");
 if (!webApp.includes("aria-label=\"Открыть навигацию\"")) failures.push("mobile-web:on-demand-navigation-missing");
 if (!nativeApp.includes("MobileNavigation")) failures.push("mobile-native:on-demand-navigation-missing");
+
+for (const [name, source] of [
+  ["web-app", webApp],
+  ["web-runtime", webRuntime],
+  ["server", server],
+  ["native-app", nativeApp],
+  ["native-runtime", nativeRuntime],
+  ["native-settings", nativeSettings],
+  ["native-account", nativeAccount]
+]) {
+  for (const token of ["demoEstimate", "sampleEstimate", "mobile-demo", "estimate-demo"]) {
+    if (source.includes(token)) failures.push(`${name}:demo-fallback:${token}`);
+  }
+}
+
+for (const token of ["Владислав Кочуров", "Founder", "Дом в Альметьевске", "MacBook Air", "12 мин"]) {
+  if ([webApp, webAccount, webLibrary, nativeApp, nativeAccount].some((source) => source.includes(token))) {
+    failures.push(`hardcoded-product-data:${token}`);
+  }
+}
+
+for (const provider of ["openai-compatible", "ollama", "codex-app-server", "http-agent"]) {
+  if (!server.includes(`\"${provider}\"`)) failures.push(`server:provider-adapter-missing:${provider}`);
+  if (!webSettings.includes(provider)) failures.push(`web-settings:provider-option-missing:${provider}`);
+  if (!nativeSettings.includes(provider)) failures.push(`native-settings:provider-option-missing:${provider}`);
+}
+
+for (const token of [
+  "createCipheriv(\"aes-256-gcm\"",
+  "/api/admin/session",
+  "/api/account",
+  "/api/agents",
+  "/api/agent",
+  "initialize",
+  "initialized",
+  "thread/start",
+  "turn/start",
+  "item/agentMessage/delta",
+  "turn/completed"
+]) {
+  if (!server.includes(token)) failures.push(`server:agent-contract-missing:${token}`);
+}
+
+if (!server.includes("approvalPolicy: \"never\"")) failures.push("server:codex-noninteractive-approval-policy-missing");
+if (!server.includes("sandboxPolicy: { type: \"readOnly\" }")) failures.push("server:codex-readonly-sandbox-missing");
+if (!server.includes("secretCipher")) failures.push("server:encrypted-secret-storage-missing");
+if (!server.includes("timingSafeEqual")) failures.push("server:constant-time-admin-auth-missing");
+if (server.includes("asksEstimate")) failures.push("server:legacy-fake-responder-present");
+
+for (const token of ["createAgent", "updateAgent", "deleteAgent", "activateAgent", "testAgent", "loginAdmin"]) {
+  if (!webSettings.includes(token)) failures.push(`web-settings:working-action-missing:${token}`);
+}
+for (const token of ["mobileApiFetch", "setMobileAdminToken", "setMobileApiBaseUrl", "/api/agents"]) {
+  if (!nativeSettings.includes(token) && !mobileSession.includes(token)) failures.push(`native-settings:working-action-missing:${token}`);
+}
+if (!mobileSession.includes("expo-secure-store")) failures.push("native:secure-store-missing");
+if (!webRuntime.includes("/api/agent") || webRuntime.includes("demoEstimate")) failures.push("web-runtime:real-agent-only-contract-failed");
+if (!nativeRuntime.includes("mobileApiFetch(\"/api/agent\"") || nativeRuntime.includes("demoEstimate")) failures.push("native-runtime:real-agent-only-contract-failed");
+
+if (webChat.includes("composer-attach") || nativeChat.includes("styles.attach")) failures.push("chat:inert-attachment-control-present");
+if (!webEstimate.includes("downloadExcel") || !webEstimate.includes("printEstimate") || !webEstimate.includes("navigator.share")) failures.push("estimate:working-export-or-share-missing");
+if (webEstimate.includes('aria-label="Скачать PDF"><') || webEstimate.includes('aria-label="Скачать Excel"><')) failures.push("estimate:inert-export-control-present");
+
+if (!playwright.includes("fixture-agent.mjs")) failures.push("testing:external-http-agent-fixture-not-started");
+if (!e2e.includes("Fixture HTTP Agent") || !e2e.includes("/api/agents") || (!e2e.includes("estimate-e2e-agent") && !e2e.includes("Механизированная штукатурка 358 м²"))) failures.push("testing:real-agent-end-to-end-missing");
 
 if (!deployment.includes("env -u RUNNER_TRACKING_ID")) failures.push("deployment:runner-tracking-id-not-removed");
 if (!deployment.includes("post_cleanup_persistence:")) failures.push("deployment:post-cleanup-persistence-job-missing");
@@ -86,9 +179,7 @@ if (!deployment.includes("survivedRunnerCleanup")) failures.push("deployment:fin
 if (!deployment.includes("ensure-public-edge.sh")) failures.push("deployment:canonical-edge-recovery-not-invoked");
 if (!deployment.includes("canonicalEdgeReloaded")) failures.push("deployment:edge-reconciliation-evidence-missing");
 if (!deployment.includes("allResolvedIpv4Checked")) failures.push("deployment:dns-address-consistency-gate-missing");
-if (deployment.includes('PORT=3200 PROSMET_RELEASE_SHA="$RELEASE_SHA" nohup node server.mjs')) {
-  failures.push("deployment:ephemeral-runner-tracked-node-launch");
-}
+if (deployment.includes('PORT=3200 PROSMET_RELEASE_SHA="$RELEASE_SHA" nohup node server.mjs')) failures.push("deployment:ephemeral-runner-tracked-node-launch");
 
 if (!edgeRecovery.includes("@health path /api/health")) failures.push("edge:explicit-health-route-missing");
 if (!edgeRecovery.includes("http://127.0.0.1:2019/load")) failures.push("edge:caddy-admin-reload-missing");
@@ -103,13 +194,16 @@ if (failures.length) {
 
 console.log(JSON.stringify({
   status: "PASS",
-  contract: "prosmet-greenfield-v3",
+  contract: "prosmet-agent-integrations-v1",
   legacyUi: "absent",
+  demoFallbacks: "absent",
   desktop: "new Codex/GPT-like shell",
   mobile: "independent native UX without persistent bottom navigation",
   mobileNavigation: "on-demand drawer",
-  editor: "new estimate workspace",
-  accountAndSettings: "new surfaces",
+  editor: "working local workspace with print, Excel and system sharing",
+  accountAndSettings: "persisted server profile and real agent control plane",
+  agentAdapters: ["OpenAI-compatible", "Ollama", "Codex App Server", "HTTP agent"],
+  secrets: "AES-256-GCM server storage and mobile SecureStore",
   productionProcess: "detached from runner cleanup",
   publicEdge: "canonical Caddy route is reconciled before and after cleanup",
   productionAcceptance: "post-cleanup, every IPv4 address, and external GitHub-hosted browser verification"

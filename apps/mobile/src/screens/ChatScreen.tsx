@@ -68,7 +68,6 @@ export function ChatScreen({ hasEstimate, onOpenEstimate }: Props) {
 
         <View style={styles.footer}>
           <ComposerPrimitive.Root style={styles.composer}>
-            <Text style={styles.attach}>＋</Text>
             <ComposerPrimitive.Input
               style={styles.input}
               placeholder="Сообщение Просметчику"
@@ -135,8 +134,7 @@ const styles = StyleSheet.create({
   artifactAction: { color: theme.text, fontSize: 12, fontWeight: "700" },
   footer: { paddingHorizontal: 12, paddingBottom: 14, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border, backgroundColor: theme.canvas },
   composer: { minHeight: 60, flexDirection: "row", alignItems: "flex-end", gap: 4, borderWidth: 1, borderColor: theme.borderStrong, borderRadius: 22, backgroundColor: theme.canvas, padding: 7 },
-  attach: { width: 42, height: 42, color: theme.muted, textAlign: "center", textAlignVertical: "center", fontSize: 22 },
-  input: { minHeight: 44, maxHeight: 140, flex: 1, color: theme.text, fontSize: 17, lineHeight: 23, paddingHorizontal: 5, paddingVertical: 10 },
+  input: { minHeight: 44, maxHeight: 140, flex: 1, color: theme.text, fontSize: 17, lineHeight: 23, paddingHorizontal: 9, paddingVertical: 10 },
   send: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: theme.text },
   sendText: { color: "white", fontSize: 21, fontWeight: "700" }
 });

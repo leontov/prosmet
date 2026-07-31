@@ -2,6 +2,7 @@ import { defineConfig, devices, type PlaywrightTestConfig } from "@playwright/te
 
 const external = process.env.PROSMET_BASE_URL;
 const port = 4173;
+const fixturePort = 4174;
 
 const config: PlaywrightTestConfig = {
   testDir: "./e2e",
@@ -35,12 +36,20 @@ const config: PlaywrightTestConfig = {
     }
   ],
   ...(external ? {} : {
-    webServer: {
-      command: `PORT=${port} PROSMET_RELEASE_SHA=e2e node server.mjs`,
-      url: `http://127.0.0.1:${port}/api/health`,
-      reuseExistingServer: true,
-      timeout: 30_000
-    }
+    webServer: [
+      {
+        command: `FIXTURE_AGENT_PORT=${fixturePort} node e2e/fixture-agent.mjs`,
+        url: `http://127.0.0.1:${fixturePort}/health`,
+        reuseExistingServer: false,
+        timeout: 30_000
+      },
+      {
+        command: `rm -rf test-results/e2e-config && mkdir -p test-results/e2e-config && PORT=${port} PROSMET_RELEASE_SHA=e2e PROSMET_ADMIN_TOKEN=e2e-admin PROSMET_PUBLIC_AGENT_ACCESS=true PROSMET_CONFIG_DIR=$PWD/test-results/e2e-config node server.mjs`,
+        url: `http://127.0.0.1:${port}/api/health`,
+        reuseExistingServer: false,
+        timeout: 30_000
+      }
+    ]
   })
 };
 

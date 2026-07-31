@@ -6,7 +6,6 @@ import {
   FileSpreadsheetIcon,
   FileTextIcon,
   MailIcon,
-  MoreHorizontalIcon,
   PlusIcon,
   SaveIcon,
   SendIcon,
@@ -23,6 +22,8 @@ type Props = {
   onChange: (estimate: Estimate) => void;
   onClose: () => void;
 };
+
+type Calculation = ReturnType<typeof calculateEstimate>;
 
 export function EstimateEditor({ mobile, estimate, onChange, onClose }: Props) {
   const calculation = useMemo(() => calculateEstimate(estimate), [estimate]);
@@ -62,43 +63,42 @@ export function EstimateEditor({ mobile, estimate, onChange, onClose }: Props) {
 
   const updateItem = (sectionId: string, itemId: string, patch: Partial<EstimateItem>) => onChange(updateEstimateItem(estimate, sectionId, itemId, patch));
 
+  const editorProps: EditorProps = {
+    estimate,
+    calculation,
+    onChange,
+    updateItem,
+    removeItem,
+    addItem,
+    onClose,
+    onSave: saveVersion,
+    onApprove: approve,
+    onDeliver: deliver,
+    onPrint: () => printEstimate(estimate, calculation),
+    onExcel: () => downloadExcel(estimate, calculation)
+  };
+
   return (
     <div className="estimate-overlay" role="dialog" aria-modal="true" aria-label="Редактор сметы">
-      {mobile ? (
-        <MobileEditor
+      {mobile ? <MobileEditor {...editorProps} /> : <DesktopEditor {...editorProps} />}
+      {shareOpen ? (
+        <ShareDialog
           estimate={estimate}
-          calculation={calculation}
-          onChange={onChange}
-          updateItem={updateItem}
-          removeItem={removeItem}
-          addItem={addItem}
-          onClose={onClose}
-          onSave={saveVersion}
-          onApprove={approve}
-          onDeliver={deliver}
+          total={calculation.total}
+          onClose={() => setShareOpen(false)}
+          onSent={() => {
+            onChange({ ...estimate, status: "sent", updatedAt: new Date().toISOString() });
+            setShareOpen(false);
+          }}
         />
-      ) : (
-        <DesktopEditor
-          estimate={estimate}
-          calculation={calculation}
-          onChange={onChange}
-          updateItem={updateItem}
-          removeItem={removeItem}
-          addItem={addItem}
-          onClose={onClose}
-          onSave={saveVersion}
-          onApprove={approve}
-          onDeliver={deliver}
-        />
-      )}
-      {shareOpen ? <ShareDialog estimate={estimate} total={calculation.total} onClose={() => setShareOpen(false)} onSent={() => { onChange({ ...estimate, status: "sent", updatedAt: new Date().toISOString() }); setShareOpen(false); }} /> : null}
+      ) : null}
     </div>
   );
 }
 
 type EditorProps = {
   estimate: Estimate;
-  calculation: ReturnType<typeof calculateEstimate>;
+  calculation: Calculation;
   onChange: (estimate: Estimate) => void;
   updateItem: (sectionId: string, itemId: string, patch: Partial<EstimateItem>) => void;
   removeItem: (sectionId: string, itemId: string) => void;
@@ -107,18 +107,20 @@ type EditorProps = {
   onSave: () => void;
   onApprove: () => void;
   onDeliver: () => void;
+  onPrint: () => void;
+  onExcel: () => void;
 };
 
 function DesktopEditor(props: EditorProps) {
-  const { estimate, calculation, onChange, updateItem, removeItem, addItem, onClose, onSave, onApprove, onDeliver } = props;
+  const { estimate, calculation, onChange, updateItem, removeItem, addItem, onClose, onSave, onApprove, onDeliver, onPrint, onExcel } = props;
   return (
     <div className="desktop-estimate-editor" data-testid="desktop-estimate-editor">
       <header className="estimate-topbar">
         <button type="button" className="icon-button" onClick={onClose} aria-label="Закрыть смету"><ArrowLeftIcon /></button>
         <div className="estimate-topbar-title"><strong>{estimate.title}</strong><span>Версия {estimate.revision} · {statusLabel(estimate.status)} · сохранено локально</span></div>
         <div className="estimate-topbar-actions">
-          <button type="button" className="icon-button" aria-label="Скачать PDF"><FileTextIcon /></button>
-          <button type="button" className="icon-button" aria-label="Скачать Excel"><FileSpreadsheetIcon /></button>
+          <button type="button" className="icon-button" aria-label="Печать или PDF" onClick={onPrint}><FileTextIcon /></button>
+          <button type="button" className="icon-button" aria-label="Скачать Excel" onClick={onExcel}><FileSpreadsheetIcon /></button>
           <button type="button" className="secondary-button" onClick={onDeliver}><Share2Icon /> Передать</button>
           <button type="button" className="primary-button" onClick={onSave}><SaveIcon /> Сохранить версию</button>
         </div>
@@ -130,16 +132,15 @@ function DesktopEditor(props: EditorProps) {
             <header className="document-header">
               <div>
                 <span>Смета</span>
-                <input id="estimate-title" name="estimate-title" value={estimate.title} onChange={(event) => onChange({ ...estimate, title: event.target.value })} />
-                <p>{estimate.project} · {estimate.region}</p>
+                <input id="estimate-title" name="estimate-title" value={estimate.title} onChange={(event) => onChange({ ...estimate, title: event.target.value, updatedAt: new Date().toISOString() })} />
+                <p>{[estimate.project, estimate.region].filter(Boolean).join(" · ")}</p>
               </div>
-              <button type="button" className="more-button" aria-label="Дополнительно"><MoreHorizontalIcon /></button>
             </header>
 
             <div className="document-meta-grid">
-              <MetaInput id="project" label="Объект" value={estimate.project} onChange={(value) => onChange({ ...estimate, project: value })} />
-              <MetaInput id="customer" label="Заказчик" value={estimate.customer} onChange={(value) => onChange({ ...estimate, customer: value })} />
-              <MetaInput id="region" label="Регион" value={estimate.region} onChange={(value) => onChange({ ...estimate, region: value })} />
+              <MetaInput id="project" label="Объект" value={estimate.project} onChange={(value) => onChange({ ...estimate, project: value, updatedAt: new Date().toISOString() })} />
+              <MetaInput id="customer" label="Заказчик" value={estimate.customer} onChange={(value) => onChange({ ...estimate, customer: value, updatedAt: new Date().toISOString() })} />
+              <MetaInput id="region" label="Регион" value={estimate.region} onChange={(value) => onChange({ ...estimate, region: value, updatedAt: new Date().toISOString() })} />
               <div className="meta-static"><small>Обновлено</small><strong>{new Date(estimate.updatedAt).toLocaleDateString("ru-RU")}</strong></div>
             </div>
 
@@ -163,14 +164,6 @@ function DesktopEditor(props: EditorProps) {
                 </section>
               ))}
             </div>
-
-            <details className="document-details">
-              <summary>Технология и основания расчёта <span>Открыть</span></summary>
-              <div>
-                <p>Подготовка основания, грунтование, установка маяков и уголков, нанесение смеси, выравнивание и контроль качества.</p>
-                <p>Цены приведены для Республики Татарстан и доступны для редактирования перед утверждением.</p>
-              </div>
-            </details>
           </article>
         </main>
 
@@ -180,9 +173,9 @@ function DesktopEditor(props: EditorProps) {
           <strong className="summary-total">{formatMoney(calculation.total)}</strong>
           <div className="summary-lines">
             <SummaryLine label="Прямые затраты" value={calculation.direct} />
-            <PercentInput label="Накладные" value={estimate.overheadPercent} amount={calculation.overhead} onChange={(value) => onChange({ ...estimate, overheadPercent: value })} />
-            <PercentInput label="Прибыль" value={estimate.profitPercent} amount={calculation.profit} onChange={(value) => onChange({ ...estimate, profitPercent: value })} />
-            <PercentInput label="НДС" value={estimate.vatPercent} amount={calculation.vat} onChange={(value) => onChange({ ...estimate, vatPercent: value })} />
+            <PercentInput label="Накладные" value={estimate.overheadPercent} amount={calculation.overhead} onChange={(value) => onChange({ ...estimate, overheadPercent: value, updatedAt: new Date().toISOString() })} />
+            <PercentInput label="Прибыль" value={estimate.profitPercent} amount={calculation.profit} onChange={(value) => onChange({ ...estimate, profitPercent: value, updatedAt: new Date().toISOString() })} />
+            <PercentInput label="НДС" value={estimate.vatPercent} amount={calculation.vat} onChange={(value) => onChange({ ...estimate, vatPercent: value, updatedAt: new Date().toISOString() })} />
           </div>
           <div className="summary-actions">
             <button type="button" className="primary-button" onClick={onSave}><SaveIcon /> Сохранить версию</button>
@@ -203,7 +196,7 @@ function MobileEditor(props: EditorProps) {
       <header className="mobile-estimate-topbar">
         <button type="button" onClick={onClose} aria-label="Закрыть смету"><ArrowLeftIcon /></button>
         <div><strong>Смета</strong><span>Версия {estimate.revision}</span></div>
-        <button type="button" aria-label="Дополнительно"><MoreHorizontalIcon /></button>
+        <button type="button" aria-label="Передать смету" onClick={onDeliver}><Share2Icon /></button>
       </header>
 
       <main className="mobile-estimate-scroll">
@@ -215,11 +208,11 @@ function MobileEditor(props: EditorProps) {
         </section>
 
         <details className="mobile-meta">
-          <summary>Данные объекта <span>{estimate.customer}</span></summary>
+          <summary>Данные объекта <span>{estimate.customer || "Не указан"}</span></summary>
           <div>
-            <MetaInput id="mobile-project" label="Объект" value={estimate.project} onChange={(value) => onChange({ ...estimate, project: value })} />
-            <MetaInput id="mobile-customer" label="Заказчик" value={estimate.customer} onChange={(value) => onChange({ ...estimate, customer: value })} />
-            <MetaInput id="mobile-region" label="Регион" value={estimate.region} onChange={(value) => onChange({ ...estimate, region: value })} />
+            <MetaInput id="mobile-project" label="Объект" value={estimate.project} onChange={(value) => onChange({ ...estimate, project: value, updatedAt: new Date().toISOString() })} />
+            <MetaInput id="mobile-customer" label="Заказчик" value={estimate.customer} onChange={(value) => onChange({ ...estimate, customer: value, updatedAt: new Date().toISOString() })} />
+            <MetaInput id="mobile-region" label="Регион" value={estimate.region} onChange={(value) => onChange({ ...estimate, region: value, updatedAt: new Date().toISOString() })} />
           </div>
         </details>
 
@@ -256,9 +249,9 @@ function MobileEditor(props: EditorProps) {
         <section className="mobile-price-summary">
           <h2>Структура цены</h2>
           <SummaryLine label="Прямые затраты" value={calculation.direct} />
-          <PercentInput label="Накладные" value={estimate.overheadPercent} amount={calculation.overhead} onChange={(value) => onChange({ ...estimate, overheadPercent: value })} />
-          <PercentInput label="Прибыль" value={estimate.profitPercent} amount={calculation.profit} onChange={(value) => onChange({ ...estimate, profitPercent: value })} />
-          <PercentInput label="НДС" value={estimate.vatPercent} amount={calculation.vat} onChange={(value) => onChange({ ...estimate, vatPercent: value })} />
+          <PercentInput label="Накладные" value={estimate.overheadPercent} amount={calculation.overhead} onChange={(value) => onChange({ ...estimate, overheadPercent: value, updatedAt: new Date().toISOString() })} />
+          <PercentInput label="Прибыль" value={estimate.profitPercent} amount={calculation.profit} onChange={(value) => onChange({ ...estimate, profitPercent: value, updatedAt: new Date().toISOString() })} />
+          <PercentInput label="НДС" value={estimate.vatPercent} amount={calculation.vat} onChange={(value) => onChange({ ...estimate, vatPercent: value, updatedAt: new Date().toISOString() })} />
           <div className="mobile-grand-total"><span>Итого</span><strong>{formatMoney(calculation.total)}</strong></div>
         </section>
       </main>
@@ -295,20 +288,86 @@ function statusLabel(status: Estimate["status"]) {
 }
 
 function ShareDialog({ estimate, total, onClose, onSent }: { estimate: Estimate; total: number; onClose: () => void; onSent: () => void }) {
-  const summary = `${estimate.title}\n${estimate.project}\nИтого: ${formatMoney(total)}`;
+  const summary = estimateSummary(estimate, total);
+  const webShare = async () => {
+    if (navigator.share) {
+      await navigator.share({ title: estimate.title, text: summary });
+    } else {
+      await navigator.clipboard.writeText(summary);
+    }
+    onSent();
+  };
   const copy = async () => {
     await navigator.clipboard.writeText(summary);
+    onSent();
+  };
+  const email = () => {
+    window.location.href = `mailto:?subject=${encodeURIComponent(estimate.title)}&body=${encodeURIComponent(summary)}`;
+    onSent();
+  };
+  const whatsapp = () => {
+    window.open(`https://wa.me/?text=${encodeURIComponent(summary)}`, "_blank", "noopener,noreferrer");
     onSent();
   };
   return (
     <div className="share-dialog-layer">
       <button type="button" className="share-backdrop" aria-label="Закрыть передачу" onClick={onClose} />
       <section className="share-dialog" role="dialog" aria-modal="true" aria-label="Передача сметы клиенту">
-        <header><div><h2>Передать клиенту</h2><p>Выберите канал. Утверждение сметы остаётся отдельным действием.</p></div><button type="button" onClick={onClose} aria-label="Закрыть"><XIcon /></button></header>
-        <button type="button" onClick={onSent}><span className="share-channel whatsapp"><SendIcon /></span><span><strong>WhatsApp</strong><small>Отправить ссылку и PDF</small></span></button>
-        <button type="button" onClick={onSent}><span className="share-channel"><MailIcon /></span><span><strong>Электронная почта</strong><small>Письмо с вложениями</small></span></button>
-        <button type="button" onClick={() => void copy()}><span className="share-channel"><CopyIcon /></span><span><strong>Копировать краткое описание</strong><small>Сумма и сведения об объекте</small></span></button>
+        <header><div><h2>Передать клиенту</h2><p>Выберите реальный канал передачи. Статус обновится после запуска действия.</p></div><button type="button" onClick={onClose} aria-label="Закрыть"><XIcon /></button></header>
+        <button type="button" onClick={() => void webShare()}><span className="share-channel"><Share2Icon /></span><span><strong>Системное меню</strong><small>AirDrop, сообщения и установленные приложения</small></span></button>
+        <button type="button" onClick={whatsapp}><span className="share-channel whatsapp"><SendIcon /></span><span><strong>WhatsApp</strong><small>Открыть готовое сообщение</small></span></button>
+        <button type="button" onClick={email}><span className="share-channel"><MailIcon /></span><span><strong>Электронная почта</strong><small>Открыть письмо с суммой и объектом</small></span></button>
+        <button type="button" onClick={() => void copy()}><span className="share-channel"><CopyIcon /></span><span><strong>Копировать описание</strong><small>Скопировать состав и итог сметы</small></span></button>
       </section>
     </div>
   );
+}
+
+function estimateSummary(estimate: Estimate, total: number) {
+  const lines = [estimate.title, estimate.project, estimate.customer, estimate.region].filter(Boolean);
+  for (const section of estimate.sections) {
+    lines.push("", section.title);
+    for (const item of section.items) {
+      lines.push(`• ${item.name}: ${item.quantity} ${item.unit} × ${item.unitPrice.toLocaleString("ru-RU")} ₽`);
+    }
+  }
+  lines.push("", `Итого: ${formatMoney(total)}`);
+  return lines.join("\n");
+}
+
+function downloadExcel(estimate: Estimate, calculation: Calculation) {
+  const rows = estimate.sections.flatMap((section) => [
+    `<tr><th colspan="6">${escapeHtml(section.title)}</th></tr>`,
+    ...section.items.map((item) => `<tr><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.unit)}</td><td>${item.quantity}</td><td>${item.unitPrice}</td><td>${calculation.itemTotals[item.id] ?? 0}</td><td>${escapeHtml(item.category)}</td></tr>`)
+  ]).join("");
+  const html = `<!doctype html><html><head><meta charset="utf-8"></head><body><table><tr><th>Наименование</th><th>Ед.</th><th>Количество</th><th>Цена</th><th>Сумма</th><th>Категория</th></tr>${rows}<tr><th colspan="4">Итого</th><th>${calculation.total}</th><th></th></tr></table></body></html>`;
+  downloadBlob(new Blob(["\ufeff", html], { type: "application/vnd.ms-excel;charset=utf-8" }), `${safeFileName(estimate.title)}-v${estimate.revision}.xls`);
+}
+
+function printEstimate(estimate: Estimate, calculation: Calculation) {
+  const popup = window.open("", "_blank", "noopener,noreferrer");
+  if (!popup) throw new Error("Браузер заблокировал окно печати");
+  const rows = estimate.sections.flatMap((section) => [
+    `<tr class="section"><th colspan="5">${escapeHtml(section.title)}</th></tr>`,
+    ...section.items.map((item) => `<tr><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.unit)}</td><td>${item.quantity}</td><td>${item.unitPrice.toLocaleString("ru-RU")} ₽</td><td>${formatMoney(calculation.itemTotals[item.id] ?? 0)}</td></tr>`)
+  ]).join("");
+  popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(estimate.title)}</title><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:32px;color:#171719}h1{font-size:24px;margin:0 0 8px}p{color:#666;margin:4px 0}table{width:100%;border-collapse:collapse;margin-top:24px;font-size:12px}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f5f5f5}.section th{padding-top:14px;background:#eee}.total{margin-top:20px;text-align:right;font-size:20px;font-weight:700}@page{size:A4;margin:16mm}</style></head><body><h1>${escapeHtml(estimate.title)}</h1><p>${escapeHtml(estimate.project)}</p><p>${escapeHtml(estimate.customer)} · ${escapeHtml(estimate.region)}</p><table><thead><tr><th>Наименование</th><th>Ед.</th><th>Количество</th><th>Цена</th><th>Сумма</th></tr></thead><tbody>${rows}</tbody></table><div class="total">Итого: ${formatMoney(calculation.total)}</div><script>window.onload=()=>{window.print();window.onafterprint=()=>window.close();};<\/script></body></html>`);
+  popup.document.close();
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const href = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = href;
+  link.download = filename;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(href), 0);
+}
+
+function safeFileName(value: string) {
+  return value.trim().replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ").slice(0, 80) || "estimate";
+}
+
+function escapeHtml(value: string) {
+  return String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[character] || character);
 }
