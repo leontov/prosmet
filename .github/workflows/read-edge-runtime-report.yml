@@ -19,45 +19,142 @@ jobs:
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 10
     steps:
-      - name: Read persisted safe report
-        id: report
+      - name: Scan rootless edge metadata without secret values
+        id: scan
         shell: bash
         run: |
           set +e
-          report="$HOME/.prosmet/edge-diagnostics/report.txt"
-          output="$HOME/.prosmet/edge-diagnostics/report-public.txt"
+          output="$HOME/.prosmet/edge-diagnostics/rootless-edge-scan.json"
           mkdir -p "$(dirname "$output")"
-          : > "$output"
-          chmod 0600 "$output"
+          python3 - "$output" <<'PY'
+          import glob
+          import json
+          import os
+          import pathlib
+          import re
+          import subprocess
+          import sys
 
-          if [ -s "$report" ]; then
-            cat "$report" > "$output"
-          else
-            {
-              echo "report_missing=true"
-              echo "runner=$RUNNER_NAME"
-              echo "user=$(id -un)"
-              echo "uid=$(id -u)"
-              echo "low_port_start=$(cat /proc/sys/net/ipv4/ip_unprivileged_port_start 2>/dev/null || echo unknown)"
-              echo "sudo_noninteractive=$(sudo -n true >/dev/null 2>&1 && echo true || echo false)"
-              echo "docker_access=$(docker info >/dev/null 2>&1 && echo true || echo false)"
-              echo "cloudflared_processes=$(pgrep -xc cloudflared 2>/dev/null || echo 0)"
-            } > "$output"
-          fi
+          output = pathlib.Path(sys.argv[1])
+          roots = [
+              pathlib.Path.home() / ".cloudflared",
+              pathlib.Path.home() / ".config/cloudflared",
+              pathlib.Path.home() / ".config",
+              pathlib.Path.home() / ".kolibri",
+              pathlib.Path.home() / ".local/share",
+              pathlib.Path("/opt/kolibri"),
+              pathlib.Path("/etc/cloudflared"),
+          ]
 
-          cert_count="$(sed -n 's/^account_certificates=//p' "$output" | tail -n 1)"
-          credential_count="$(sed -n 's/^tunnel_credentials=//p' "$output" | tail -n 1)"
-          config_count="$(sed -n 's/^configs_referencing_kolibriai_online=//p' "$output" | tail -n 1)"
-          public_ip_assigned="$(sed -n 's/^public_ip_assigned=//p' "$output" | tail -n 1)"
-          low_port_start="$(sed -n 's/^low_port_start=//p' "$output" | tail -n 1)"
-          sudo_noninteractive="$(sed -n 's/^sudo_noninteractive=//p' "$output" | tail -n 1)"
+          account_certs = []
+          tunnel_credentials = []
+          configs_for_domain = []
+          metadata_files = 0
 
-          cert_count="${cert_count:-unknown}"
-          credential_count="${credential_count:-unknown}"
-          config_count="${config_count:-unknown}"
-          public_ip_assigned="${public_ip_assigned:-unknown}"
-          low_port_start="${low_port_start:-unknown}"
-          sudo_noninteractive="${sudo_noninteractive:-unknown}"
+          for root in roots:
+              if not root.is_dir():
+                  continue
+              try:
+                  candidates = list(root.rglob("*"))
+              except OSError:
+                  continue
+              for path in candidates:
+                  try:
+                      if not path.is_file() or not os.access(path, os.R_OK):
+                          continue
+                  except OSError:
+                      continue
+                  if path.name == "cert.pem":
+                      account_certs.append(str(path))
+                      metadata_files += 1
+                      continue
+                  if path.name in {"config.yml", "config.yaml"}:
+                      metadata_files += 1
+                      try:
+                          text = path.read_text(encoding="utf-8", errors="ignore")
+                          if "kolibriai.online" in text:
+                              configs_for_domain.append(str(path))
+                      except OSError:
+                          pass
+                      continue
+                  if path.suffix.lower() == ".json":
+                      metadata_files += 1
+                      try:
+                          value = json.loads(path.read_text(encoding="utf-8"))
+                          if isinstance(value, dict) and value.get("TunnelID") and value.get("TunnelSecret"):
+                              tunnel_credentials.append(str(path))
+                      except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+                          pass
+
+          cloudflared_processes = []
+          for proc_path in glob.glob("/proc/[0-9]*/comm"):
+              pid = proc_path.split("/")[2]
+              try:
+                  if pathlib.Path(proc_path).read_text().strip() != "cloudflared":
+                      continue
+                  raw = pathlib.Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+                  args = [item.decode("utf-8", "replace") for item in raw if item]
+                  mode = "unknown"
+                  if any(arg == "--token" or arg.startswith("--token=") for arg in args):
+                      mode = "named-token"
+                  elif any(arg == "--url" or arg.startswith("--url=") for arg in args):
+                      mode = "quick-url"
+                  elif any(arg == "--config" or arg.startswith("--config=") for arg in args):
+                      mode = "config-file"
+                  exe = ""
+                  try:
+                      exe = os.readlink(f"/proc/{pid}/exe")
+                  except OSError:
+                      pass
+                  cloudflared_processes.append({"pid": int(pid), "mode": mode, "exe": exe})
+              except OSError:
+                  continue
+
+          def command_ok(command):
+              try:
+                  return subprocess.run(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=8).returncode == 0
+              except (OSError, subprocess.TimeoutExpired):
+                  return False
+
+          low_port_start = "unknown"
+          try:
+              low_port_start = pathlib.Path("/proc/sys/net/ipv4/ip_unprivileged_port_start").read_text().strip()
+          except OSError:
+              pass
+
+          public_ip_assigned = False
+          try:
+              addresses = subprocess.check_output(["ip", "-o", "-4", "addr", "show"], text=True, timeout=8)
+              public_ip_assigned = bool(re.search(r"\b78\.17\.4\.108/", addresses))
+          except (OSError, subprocess.SubprocessError):
+              pass
+
+          result = {
+              "runner": os.environ.get("RUNNER_NAME", "unknown"),
+              "user": subprocess.getoutput("id -un"),
+              "uid": os.getuid(),
+              "publicIpDirectlyAssigned": public_ip_assigned,
+              "lowPortStart": low_port_start,
+              "passwordlessSudo": command_ok(["sudo", "-n", "true"]),
+              "dockerAccess": command_ok(["docker", "info"]),
+              "accountCertificateCount": len(set(account_certs)),
+              "tunnelCredentialCount": len(set(tunnel_credentials)),
+              "domainConfigCount": len(set(configs_for_domain)),
+              "candidateMetadataFiles": metadata_files,
+              "cloudflaredProcesses": cloudflared_processes,
+              "cloudflaredModes": sorted({item["mode"] for item in cloudflared_processes}),
+          }
+          output.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          print(json.dumps(result, ensure_ascii=False, indent=2))
+          PY
+
+          cert_count="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["accountCertificateCount"])' "$output")"
+          credential_count="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["tunnelCredentialCount"])' "$output")"
+          config_count="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["domainConfigCount"])' "$output")"
+          public_ip_assigned="$(python3 -c 'import json,sys; print(str(json.load(open(sys.argv[1]))["publicIpDirectlyAssigned"]).lower())' "$output")"
+          low_port_start="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["lowPortStart"])' "$output")"
+          sudo_noninteractive="$(python3 -c 'import json,sys; print(str(json.load(open(sys.argv[1]))["passwordlessSudo"]).lower())' "$output")"
+          cloudflared_modes="$(python3 -c 'import json,sys; print(",".join(json.load(open(sys.argv[1]))["cloudflaredModes"]) or "none")' "$output")"
 
           echo "cert_count=$cert_count" >> "$GITHUB_OUTPUT"
           echo "credential_count=$credential_count" >> "$GITHUB_OUTPUT"
@@ -65,28 +162,27 @@ jobs:
           echo "public_ip_assigned=$public_ip_assigned" >> "$GITHUB_OUTPUT"
           echo "low_port_start=$low_port_start" >> "$GITHUB_OUTPUT"
           echo "sudo_noninteractive=$sudo_noninteractive" >> "$GITHUB_OUTPUT"
-
-          echo "=== SAFE EDGE REPORT ==="
-          cat "$output"
+          echo "cloudflared_modes=$cloudflared_modes" >> "$GITHUB_OUTPUT"
           exit 0
 
-      - name: Upload safe report
+      - name: Upload safe scan
         uses: actions/upload-artifact@v4
         with:
-          name: prosmet-edge-runtime-report-${{ github.run_id }}
-          path: /home/actions-runner/.prosmet/edge-diagnostics/report-public.txt
+          name: prosmet-rootless-edge-scan-${{ github.run_id }}
+          path: /home/actions-runner/.prosmet/edge-diagnostics/rootless-edge-scan.json
           if-no-files-found: error
           retention-days: 14
 
-      - name: Publish report summary
+      - name: Publish scan summary
         uses: actions/github-script@v7
         env:
-          CERT_COUNT: ${{ steps.report.outputs.cert_count }}
-          CREDENTIAL_COUNT: ${{ steps.report.outputs.credential_count }}
-          CONFIG_COUNT: ${{ steps.report.outputs.config_count }}
-          PUBLIC_IP_ASSIGNED: ${{ steps.report.outputs.public_ip_assigned }}
-          LOW_PORT_START: ${{ steps.report.outputs.low_port_start }}
-          SUDO_NONINTERACTIVE: ${{ steps.report.outputs.sudo_noninteractive }}
+          CERT_COUNT: ${{ steps.scan.outputs.cert_count }}
+          CREDENTIAL_COUNT: ${{ steps.scan.outputs.credential_count }}
+          CONFIG_COUNT: ${{ steps.scan.outputs.config_count }}
+          PUBLIC_IP_ASSIGNED: ${{ steps.scan.outputs.public_ip_assigned }}
+          LOW_PORT_START: ${{ steps.scan.outputs.low_port_start }}
+          SUDO_NONINTERACTIVE: ${{ steps.scan.outputs.sudo_noninteractive }}
+          CLOUDFLARED_MODES: ${{ steps.scan.outputs.cloudflared_modes }}
         with:
           script: |
             await github.rest.issues.createComment({
@@ -94,7 +190,7 @@ jobs:
               repo: context.repo.repo,
               issue_number: 1,
               body: [
-                "EDGE RUNTIME REPORT READ",
+                "ROOTLESS EDGE SCAN PASS",
                 `Runner: \`${process.env.RUNNER_NAME}\``,
                 `Public IP directly assigned: \`${process.env.PUBLIC_IP_ASSIGNED}\``,
                 `Unprivileged low-port start: \`${process.env.LOW_PORT_START}\``,
@@ -102,7 +198,8 @@ jobs:
                 `Cloudflare account certificates: \`${process.env.CERT_COUNT}\``,
                 `Tunnel credential files: \`${process.env.CREDENTIAL_COUNT}\``,
                 `Configs for kolibriai.online: \`${process.env.CONFIG_COUNT}\``,
+                `Running cloudflared modes: \`${process.env.CLOUDFLARED_MODES}\``,
                 `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
-                "No secret values were read or printed."
+                "No credential value or token was read into output."
               ].join("\n\n")
             });
