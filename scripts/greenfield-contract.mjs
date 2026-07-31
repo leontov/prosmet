@@ -4,6 +4,7 @@ import { relative, resolve } from "node:path";
 const root = process.cwd();
 const contractPath = "scripts/greenfield-contract.mjs";
 const required = [
+  ".github/workflows/greenfield-deploy.yml",
   "apps/web/src/app/App.tsx",
   "apps/web/src/mobile-navigation.css",
   "apps/web/src/features/chat/ChatSurface.tsx",
@@ -68,10 +69,21 @@ for (const path of await walk(root)) {
 
 const webApp = await readFile(resolve(root, "apps/web/src/app/App.tsx"), "utf8");
 const nativeApp = await readFile(resolve(root, "apps/mobile/App.tsx"), "utf8");
+const deployment = await readFile(resolve(root, ".github/workflows/greenfield-deploy.yml"), "utf8");
+
 if (webApp.includes("mobile-bottom-nav")) failures.push("mobile-web:persistent-bottom-navigation");
 if (nativeApp.includes("BottomNav")) failures.push("mobile-native:persistent-bottom-navigation");
 if (!webApp.includes("aria-label=\"Открыть навигацию\"")) failures.push("mobile-web:on-demand-navigation-missing");
 if (!nativeApp.includes("MobileNavigation")) failures.push("mobile-native:on-demand-navigation-missing");
+
+if (!deployment.includes("env -u RUNNER_TRACKING_ID")) failures.push("deployment:runner-tracking-id-not-removed");
+if (!deployment.includes("post_cleanup_persistence:")) failures.push("deployment:post-cleanup-persistence-job-missing");
+if (!deployment.includes("external_acceptance:")) failures.push("deployment:external-acceptance-job-missing");
+if (!deployment.includes("runs-on: ubuntu-latest")) failures.push("deployment:external-github-hosted-runner-missing");
+if (!deployment.includes("survivedRunnerCleanup")) failures.push("deployment:final-persistence-evidence-missing");
+if (deployment.includes('PORT=3200 PROSMET_RELEASE_SHA="$RELEASE_SHA" nohup node server.mjs')) {
+  failures.push("deployment:ephemeral-runner-tracked-node-launch");
+}
 
 if (failures.length) {
   console.error(JSON.stringify({ status: "FAIL", failures }, null, 2));
@@ -86,5 +98,7 @@ console.log(JSON.stringify({
   mobile: "independent native UX without persistent bottom navigation",
   mobileNavigation: "on-demand drawer",
   editor: "new estimate workspace",
-  accountAndSettings: "new surfaces"
+  accountAndSettings: "new surfaces",
+  productionProcess: "detached from runner cleanup",
+  productionAcceptance: "post-cleanup plus external GitHub-hosted browser verification"
 }, null, 2));
