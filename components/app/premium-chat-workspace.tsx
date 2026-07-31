@@ -4,21 +4,21 @@ import { AuiProvider, Suggestions, Tools, useAui } from "@assistant-ui/react";
 import {
   ArchiveIcon,
   ArchiveRestoreIcon,
-  CalculatorIcon,
   ChevronRightIcon,
   CircleUserRoundIcon,
   FileSpreadsheetIcon,
   FileTextIcon,
   FolderKanbanIcon,
+  HistoryIcon,
   MenuIcon,
   MessageSquareTextIcon,
   MoreHorizontalIcon,
-  PanelLeftCloseIcon,
   PanelRightOpenIcon,
   PencilLineIcon,
   PinIcon,
   SearchIcon,
   Settings2Icon,
+  SparklesIcon,
   SquarePenIcon,
   TagIcon,
   Trash2Icon,
@@ -33,27 +33,27 @@ import {
   type WorkspaceView
 } from "@/components/app/workspace-library";
 import { ProsmetThread } from "@/components/chat/prosmet-thread";
+import { useClientManifest } from "@/lib/client/use-client-manifest";
 import { useLocalWorkspace } from "@/lib/local/context";
 import type { LocalThread } from "@/lib/local/repository";
 import { cn } from "@/lib/utils";
-import { useClientManifest } from "@/lib/client/use-client-manifest";
 
 const suggestions = Suggestions([
   {
     title: "Штукатурка 358 м²",
-    label: "технология, материалы и логистика",
+    label: "Технология, материалы и логистика",
     prompt:
       "Составь полную смету механизированной гипсовой штукатурки 358 м² в Лениногорске. Средний слой 15 мм. Сначала сделай технологическую карту. Учти защиту, грунтование, маяки, углы, смесь, доставку, подъём и уборку."
   },
   {
     title: "Кровля 160 м²",
-    label: "демонтаж, основание и новое покрытие",
+    label: "Демонтаж, основание и новое покрытие",
     prompt:
       "Составь смету замены кровли 160 м² в Казани: демонтировать старый шифер, локально отремонтировать основание и смонтировать новое покрытие. Сначала сформируй технологическую карту и покажи все допущения."
   },
   {
     title: "Отопление дома",
-    label: "оборудование, монтаж и пусконаладка",
+    label: "Оборудование, монтаж и пусконаладка",
     prompt:
       "Подготовь профессиональную смету монтажа отопления частного дома 160 м² в Альметьевске. Уточни только критичные исходные данные, затем составь технологическую карту, ресурсную ведомость и смету."
   },
@@ -71,15 +71,14 @@ const viewLabels: Record<Exclude<WorkspaceView, "chat">, string> = {
   documents: "Документы",
   prices: "Каталог цен",
   settings: "Настройки",
-  profile: "Профиль и организация"
+  profile: "Профиль"
 };
 
 export function PremiumChatWorkspace() {
   const workspace = useLocalWorkspace();
   const { manifest, hasModule } = useClientManifest();
   const [view, setView] = useState<WorkspaceView>("chat");
-  const [leftOpen, setLeftOpen] = useState(true);
-  const [leftMobileOpen, setLeftMobileOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [rightOpen, setRightOpen] = useState(false);
   const [rightMobileOpen, setRightMobileOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -107,20 +106,16 @@ export function PremiumChatWorkspace() {
       .includes(normalizedQuery);
 
   const pinnedThreads = useMemo(
-    () =>
-      workspace.threads.filter(
-        (thread) => thread.status === "active" && thread.pinned && matchesSearch(thread)
-      ),
+    () => workspace.threads.filter((thread) => thread.status === "active" && thread.pinned && matchesSearch(thread)),
     [normalizedQuery, workspace.threads]
   );
 
   const historyThreads = useMemo(
-    () =>
-      workspace.threads.filter((thread) => {
-        if (!matchesSearch(thread)) return false;
-        if (showArchive) return thread.status === "archived";
-        return thread.status === "active" && !thread.pinned;
-      }),
+    () => workspace.threads.filter((thread) => {
+      if (!matchesSearch(thread)) return false;
+      if (showArchive) return thread.status === "archived";
+      return thread.status === "active" && !thread.pinned;
+    }),
     [normalizedQuery, showArchive, workspace.threads]
   );
 
@@ -140,7 +135,7 @@ export function PremiumChatWorkspace() {
       setMenuId(null);
       setRenameTarget(null);
       setDeleteTarget(null);
-      setLeftMobileOpen(false);
+      setHistoryOpen(false);
       setRightMobileOpen(false);
     };
     document.addEventListener("keydown", onKeyDown);
@@ -150,7 +145,7 @@ export function PremiumChatWorkspace() {
   const navigate = (next: WorkspaceView) => {
     setView(next);
     setMenuId(null);
-    setLeftMobileOpen(false);
+    setHistoryOpen(false);
   };
 
   const startNew = async () => {
@@ -158,7 +153,7 @@ export function PremiumChatWorkspace() {
     setShowArchive(false);
     setMenuId(null);
     await aui.threads().switchToNewThread();
-    setLeftMobileOpen(false);
+    setHistoryOpen(false);
   };
 
   const openThread = async (threadId: string) => {
@@ -168,7 +163,7 @@ export function PremiumChatWorkspace() {
     setView("chat");
     setShowArchive(false);
     setMenuId(null);
-    setLeftMobileOpen(false);
+    setHistoryOpen(false);
   };
 
   const saveRename = async () => {
@@ -181,7 +176,7 @@ export function PremiumChatWorkspace() {
     if (!deleteTarget) return;
     await workspace.deleteThread(deleteTarget.id);
     setDeleteTarget(null);
-    setLeftMobileOpen(false);
+    setHistoryOpen(false);
   };
 
   const renderThread = (thread: LocalThread, pinned = false) => (
@@ -198,18 +193,12 @@ export function PremiumChatWorkspace() {
         setRenameTarget(thread);
         setRenameValue(thread.title || "Новый чат");
       }}
-      onPin={() =>
-        void workspace.togglePin(thread.id, !thread.pinned).then(() => setMenuId(null))
-      }
-      onArchive={() =>
-        void workspace.archiveThread(thread.id).then(() => {
-          setMenuId(null);
-          setLeftMobileOpen(false);
-        })
-      }
-      onRestore={() =>
-        void workspace.restoreThread(thread.id).then(() => setMenuId(null))
-      }
+      onPin={() => void workspace.togglePin(thread.id, !thread.pinned).then(() => setMenuId(null))}
+      onArchive={() => void workspace.archiveThread(thread.id).then(() => {
+        setMenuId(null);
+        setHistoryOpen(false);
+      })}
+      onRestore={() => void workspace.restoreThread(thread.id).then(() => setMenuId(null))}
       onDelete={() => {
         setMenuId(null);
         setDeleteTarget(thread);
@@ -217,234 +206,168 @@ export function PremiumChatWorkspace() {
     />
   );
 
-  const leftSidebar = (
-    <aside className="prosmet-premium-sidebar" data-testid="app-sidebar">
-      <div className="prosmet-premium-brandbar">
-        <button
-          type="button"
-          onClick={() => navigate("chat")}
-          className="prosmet-premium-brand"
-          aria-label="Открыть Просметчик"
-        >
-          <span className="prosmet-premium-brandmark">П</span>
-          <span>{manifest.productName}</span>
+  const navigation = [
+    hasModule("chat") ? { view: "chat" as WorkspaceView, label: "Чаты", icon: <MessageSquareTextIcon /> } : null,
+    hasModule("objects") ? { view: "objects" as WorkspaceView, label: manifest.terminology.objects || "Объекты", icon: <FolderKanbanIcon /> } : null,
+    hasModule("estimates") ? { view: "estimates" as WorkspaceView, label: manifest.terminology.estimates || "Сметы", icon: <FileSpreadsheetIcon /> } : null,
+    hasModule("documents") ? { view: "documents" as WorkspaceView, label: manifest.terminology.documents || "Документы", icon: <FileTextIcon /> } : null,
+    hasModule("prices") ? { view: "prices" as WorkspaceView, label: manifest.terminology.prices || "Цены", icon: <TagIcon /> } : null
+  ].filter(Boolean) as Array<{ view: WorkspaceView; label: string; icon: ReactNode }>;
+
+  const sidebar = (
+    <aside className="prosmet-v2-sidebar" data-testid="app-sidebar">
+      <div className="prosmet-v2-brandbar">
+        <button type="button" onClick={() => navigate("chat")} className="prosmet-v2-brand" aria-label="Открыть Просметчик">
+          <span className="prosmet-v2-brandmark"><SparklesIcon /></span>
+          <span className="min-w-0">
+            <strong>{manifest.productName}</strong>
+            <small>AI workspace</small>
+          </span>
         </button>
-        <PremiumIconButton
-          label="Скрыть боковую панель"
-          onClick={() => {
-            setLeftOpen(false);
-            setLeftMobileOpen(false);
-          }}
-        >
-          <PanelLeftCloseIcon />
-        </PremiumIconButton>
       </div>
 
-      <div className="px-3 pb-3">
-        <button type="button" onClick={() => void startNew()} className="prosmet-premium-new-chat">
-          <SquarePenIcon className="size-4" />
+      <div className="prosmet-v2-sidebar-actions">
+        <button type="button" onClick={() => void startNew()} className="prosmet-v2-new-chat">
+          <SquarePenIcon />
           <span>Новый чат</span>
         </button>
       </div>
 
-      <nav className="prosmet-premium-nav" aria-label="Рабочие разделы">
-        {hasModule("chat") ? <PremiumNavItem icon={<MessageSquareTextIcon />} label="Чаты" active={view === "chat"} onClick={() => navigate("chat")} /> : null}
-        {hasModule("objects") ? <PremiumNavItem icon={<FolderKanbanIcon />} label={manifest.terminology.objects || "Объекты"} active={view === "objects"} onClick={() => navigate("objects")} /> : null}
-        {hasModule("estimates") ? <PremiumNavItem icon={<FileSpreadsheetIcon />} label={manifest.terminology.estimates || "Сметы"} active={view === "estimates"} onClick={() => navigate("estimates")} /> : null}
-        {hasModule("documents") ? <PremiumNavItem icon={<FileTextIcon />} label={manifest.terminology.documents || "Документы"} active={view === "documents"} onClick={() => navigate("documents")} /> : null}
-        {hasModule("prices") ? <PremiumNavItem icon={<TagIcon />} label={manifest.terminology.prices || "Цены"} active={view === "prices"} onClick={() => navigate("prices")} /> : null}
+      <nav className="prosmet-v2-nav" aria-label="Рабочие разделы">
+        {navigation.map((item) => (
+          <PremiumNavItem key={item.view} icon={item.icon} label={item.label} active={view === item.view} onClick={() => navigate(item.view)} />
+        ))}
       </nav>
 
-      <div className="prosmet-premium-history-head">
-        <span>{showArchive ? "Архив" : "Недавние"}</span>
-        <button
-          type="button"
-          onClick={() => setShowArchive((value) => !value)}
-          className="prosmet-premium-history-action"
-        >
-          {showArchive ? "Назад" : "Архив"}
-        </button>
+      <div className="prosmet-v2-history-head">
+        <div>
+          <span>{showArchive ? "Архив" : "Недавние"}</span>
+          <small>{showArchive ? "Сохранённые диалоги" : "Продолжите с места остановки"}</small>
+        </div>
+        <button type="button" onClick={() => setShowArchive((value) => !value)}>{showArchive ? "Назад" : "Архив"}</button>
       </div>
 
-      <div className="px-3 pb-2">
-        <label className="prosmet-premium-search">
+      <div className="prosmet-v2-search-wrap">
+        <label className="prosmet-v2-search">
           <SearchIcon />
-          <input
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            aria-label="Поиск по чатам"
-            placeholder="Поиск"
-          />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Поиск по чатам" placeholder="Найти чат" />
         </label>
       </div>
 
-      <div className="prosmet-scrollbar min-h-0 flex-1 overflow-y-auto px-2 pb-4">
+      <div className="prosmet-v2-thread-list prosmet-scrollbar">
         {!showArchive && pinnedThreads.length ? (
-          <section className="mb-3">
-            <div className="prosmet-premium-thread-section-label">Закреплённые</div>
-            <div className="grid gap-0.5">{pinnedThreads.map((thread) => renderThread(thread, true))}</div>
+          <section className="prosmet-v2-thread-section">
+            <div className="prosmet-v2-thread-section-label">Закреплённые</div>
+            {pinnedThreads.map((thread) => renderThread(thread, true))}
           </section>
         ) : null}
-
-        {historyThreads.length ? (
-          <div className="grid gap-0.5">{historyThreads.map((thread) => renderThread(thread))}</div>
-        ) : (
-          <p className="px-3 py-4 text-xs leading-5 text-neutral-500">
-            {query ? "Ничего не найдено" : showArchive ? "Архив пуст" : "Новый чат появится после первого сообщения."}
-          </p>
+        {historyThreads.length ? historyThreads.map((thread) => renderThread(thread)) : (
+          <div className="prosmet-v2-empty-history">
+            <HistoryIcon />
+            <p>{query ? "Ничего не найдено" : showArchive ? "Архив пуст" : "Первый диалог появится здесь автоматически."}</p>
+          </div>
         )}
       </div>
 
-      <div className="prosmet-premium-account-wrap">
-        <button
-          type="button"
-          onClick={() => navigate("profile")}
-          className={cn("prosmet-premium-account", view === "profile" && "is-active")}
-        >
-          <span className="prosmet-premium-avatar">П</span>
+      <div className="prosmet-v2-account-wrap">
+        <button type="button" onClick={() => navigate("profile")} className={cn("prosmet-v2-account", view === "profile" && "is-active")}>
+          <span className="prosmet-v2-avatar"><CircleUserRoundIcon /></span>
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-medium">{manifest.organizationName || manifest.productName}</span>
-            <span className="block truncate text-[11px] text-neutral-500">Профиль и организация</span>
+            <strong>{manifest.organizationName || manifest.productName}</strong>
+            <small>Профиль и организация</small>
           </span>
-          <Settings2Icon className="size-4 text-neutral-400" />
+          <Settings2Icon />
         </button>
       </div>
     </aside>
   );
 
   const headerTitle = view === "chat" ? currentThread?.title || "Новый чат" : viewLabels[view];
-  const headerSubtitle =
-    view === "chat"
-      ? currentThread?.objectName || "Сметы и документы из одного диалога"
-      : "Рабочий раздел Просметчика";
+  const headerSubtitle = view === "chat"
+    ? currentThread?.objectName || "Диалог, расчёт и документы"
+    : "Рабочий раздел";
 
   return (
     <AuiProvider value={aui}>
-      <div className="prosmet-premium-app-shell">
-        {leftOpen ? <div className="prosmet-premium-sidebar-slot hidden md:block">{leftSidebar}</div> : null}
+      <div className="prosmet-v2-app-shell">
+        <div className="prosmet-v2-sidebar-slot hidden md:block">{sidebar}</div>
 
-        {leftMobileOpen ? (
+        {historyOpen ? (
           <div className="fixed inset-0 z-[180] md:hidden">
-            <button
-              type="button"
-              aria-label="Закрыть меню"
-              className="absolute inset-0 bg-black/30 backdrop-blur-sm"
-              onClick={() => setLeftMobileOpen(false)}
-            />
-            <div className="relative h-full w-[min(88vw,292px)] shadow-2xl">{leftSidebar}</div>
+            <button type="button" aria-label="Закрыть историю" className="absolute inset-0 bg-black/35 backdrop-blur-sm" onClick={() => setHistoryOpen(false)} />
+            <div className="relative h-full w-[min(88vw,336px)] shadow-2xl">{sidebar}</div>
           </div>
         ) : null}
 
-        <div className="flex min-w-0 flex-1">
-          <main className="prosmet-premium-main">
-            <header className="prosmet-premium-topbar">
-              <div className="flex min-w-0 items-center gap-2">
-                {!leftOpen ? (
-                  <PremiumIconButton
-                    label="Показать боковую панель"
-                    onClick={() => setLeftOpen(true)}
-                    className="hidden md:inline-flex"
-                  >
-                    <MenuIcon />
-                  </PremiumIconButton>
-                ) : null}
-                <PremiumIconButton
-                  label="Открыть меню"
-                  onClick={() => setLeftMobileOpen(true)}
-                  className="md:hidden"
-                >
-                  <MenuIcon />
-                </PremiumIconButton>
-                <div className="min-w-0">
-                  <div className="truncate text-sm font-semibold text-neutral-950">{headerTitle}</div>
-                  <div className="hidden truncate text-[11px] text-neutral-500 sm:block">{headerSubtitle}</div>
-                </div>
+        <main className="prosmet-v2-main">
+          <header className="prosmet-v2-topbar">
+            <div className="prosmet-v2-topbar-leading">
+              <PremiumIconButton label="Открыть историю" onClick={() => setHistoryOpen(true)} className="md:hidden"><MenuIcon /></PremiumIconButton>
+              <div className="prosmet-v2-title-block">
+                <strong>{headerTitle}</strong>
+                <span>{headerSubtitle}</span>
               </div>
-
-              <div className="flex items-center gap-1">
-                {view !== "chat" ? (
-                  <button type="button" onClick={() => navigate("chat")} className="prosmet-premium-back-to-chat">
-                    <MessageSquareTextIcon className="size-4" />
-                    <span>Чат</span>
-                  </button>
-                ) : null}
-                <PremiumIconButton
-                  label="Рабочий контекст"
-                  onClick={() => {
-                    if (window.matchMedia("(min-width: 1280px)").matches) setRightOpen((value) => !value);
-                    else setRightMobileOpen(true);
-                  }}
-                  active={rightOpen}
-                >
-                  <PanelRightOpenIcon />
-                </PremiumIconButton>
-                <PremiumIconButton
-                  label="Настройки"
-                  active={view === "settings"}
-                  onClick={() => navigate("settings")}
-                >
-                  <Settings2Icon />
-                </PremiumIconButton>
-              </div>
-            </header>
-
-            {workspace.error ? (
-              <div className="border-b border-red-200 bg-red-50 px-4 py-2 text-xs text-red-700">
-                Не удалось открыть локальное хранилище: {workspace.error}
-              </div>
-            ) : null}
-
-            <div className="relative min-h-0 flex-1 overflow-hidden" data-testid="universal-chat-canvas">
-              <div className={cn("h-full", view !== "chat" && "hidden")} aria-hidden={view !== "chat"}>
-                <ProsmetThread />
-              </div>
-
+            </div>
+            <div className="prosmet-v2-topbar-actions">
               {view !== "chat" ? (
-                <section className="h-full min-h-0 bg-white" data-testid="workspace-overlay">
-                  <WorkspaceLibrary
-                    view={view as LibraryView}
-                    onOpenThread={openThread}
-                    onStartNew={startNew}
-                    onNavigate={navigate}
-                  />
-                </section>
+                <button type="button" onClick={() => navigate("chat")} className="prosmet-v2-back-to-chat">
+                  <MessageSquareTextIcon />
+                  <span>Чат</span>
+                </button>
               ) : null}
+              <PremiumIconButton
+                label="Рабочий контекст"
+                active={rightOpen}
+                onClick={() => {
+                  if (window.matchMedia("(min-width: 1280px)").matches) setRightOpen((value) => !value);
+                  else setRightMobileOpen(true);
+                }}
+              >
+                <PanelRightOpenIcon />
+              </PremiumIconButton>
+              <PremiumIconButton label="Настройки" active={view === "settings"} onClick={() => navigate("settings")}><Settings2Icon /></PremiumIconButton>
             </div>
-          </main>
+          </header>
 
-          {rightOpen ? (
-            <div className="hidden h-full xl:block">
-              <RightInspector onClose={() => setRightOpen(false)} />
+          {workspace.error ? <div className="prosmet-v2-storage-error">Не удалось открыть локальное хранилище: {workspace.error}</div> : null}
+
+          <div className="prosmet-v2-canvas" data-testid="universal-chat-canvas">
+            <div className={cn("h-full", view !== "chat" && "hidden")} aria-hidden={view !== "chat"}>
+              <ProsmetThread />
             </div>
-          ) : null}
-        </div>
+            {view !== "chat" ? (
+              <section className="h-full min-h-0 bg-white" data-testid="workspace-overlay">
+                <WorkspaceLibrary view={view as LibraryView} onOpenThread={openThread} onStartNew={startNew} onNavigate={navigate} />
+              </section>
+            ) : null}
+          </div>
+
+          <nav className="prosmet-v2-mobile-nav md:hidden" aria-label="Основная навигация">
+            {navigation.slice(0, 4).map((item) => (
+              <button key={item.view} type="button" onClick={() => navigate(item.view)} className={cn(view === item.view && "is-active")}>
+                {item.icon}
+                <span>{item.label}</span>
+              </button>
+            ))}
+            <button type="button" onClick={() => navigate("profile")} className={cn(view === "profile" && "is-active")}>
+              <CircleUserRoundIcon />
+              <span>Профиль</span>
+            </button>
+          </nav>
+        </main>
+
+        {rightOpen ? <div className="hidden h-full xl:block"><RightInspector onClose={() => setRightOpen(false)} /></div> : null}
 
         {rightMobileOpen ? (
           <div className="fixed inset-0 z-[190] xl:hidden">
-            <button
-              type="button"
-              aria-label="Закрыть контекст"
-              className="absolute inset-0 bg-black/25 backdrop-blur-sm"
-              onClick={() => setRightMobileOpen(false)}
-            />
-            <div className="absolute inset-y-0 right-0 max-w-[92vw] shadow-2xl">
-              <RightInspector onClose={() => setRightMobileOpen(false)} />
-            </div>
+            <button type="button" aria-label="Закрыть контекст" className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={() => setRightMobileOpen(false)} />
+            <div className="absolute inset-y-0 right-0 max-w-[94vw] shadow-2xl"><RightInspector onClose={() => setRightMobileOpen(false)} /></div>
           </div>
         ) : null}
 
         {renameTarget ? (
           <PremiumDialog title="Переименовать чат" onClose={() => setRenameTarget(null)}>
-            <input
-              autoFocus
-              value={renameValue}
-              onChange={(event) => setRenameValue(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") void saveRename();
-              }}
-              aria-label="Новое название чата"
-              className="prosmet-premium-dialog-input"
-            />
+            <input autoFocus value={renameValue} onChange={(event) => setRenameValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void saveRename(); }} aria-label="Новое название чата" className="prosmet-v2-dialog-input" />
             <div className="mt-5 flex justify-end gap-2">
               <PremiumDialogButton onClick={() => setRenameTarget(null)}>Отмена</PremiumDialogButton>
               <PremiumDialogButton primary onClick={() => void saveRename()}>Сохранить</PremiumDialogButton>
@@ -454,9 +377,7 @@ export function PremiumChatWorkspace() {
 
         {deleteTarget ? (
           <PremiumDialog title="Удалить чат?" onClose={() => setDeleteTarget(null)}>
-            <p className="text-sm leading-6 text-neutral-600">
-              История чата «{deleteTarget.title || "Новый чат"}» будет удалена. Сохранённые сметы и документы останутся в рабочих разделах.
-            </p>
+            <p className="text-sm leading-6 text-neutral-600">История чата «{deleteTarget.title || "Новый чат"}» будет удалена. Сохранённые сметы и документы останутся в рабочих разделах.</p>
             <div className="mt-5 flex justify-end gap-2">
               <PremiumDialogButton onClick={() => setDeleteTarget(null)}>Отмена</PremiumDialogButton>
               <PremiumDialogButton danger onClick={() => void confirmDelete()}>Удалить</PremiumDialogButton>
@@ -494,33 +415,20 @@ function PremiumThreadRow({
   onDelete: () => void;
 }) {
   return (
-    <div data-thread-menu className={cn("prosmet-premium-thread-row", active && "is-active", menuOpen && "z-50")}>
-      <button type="button" onClick={onOpen} className="min-w-0 flex-1 px-2.5 py-2 text-left">
-        <span className="flex min-w-0 items-center gap-2">
-          {pinned ? <PinIcon className="size-3.5 shrink-0 text-neutral-400" /> : null}
-          {thread.status === "archived" ? <ArchiveIcon className="size-3.5 shrink-0 text-neutral-400" /> : null}
-          <span className="truncate text-[13px]">{thread.title || "Новый чат"}</span>
+    <div data-thread-menu className={cn("prosmet-v2-thread-row", active && "is-active", menuOpen && "z-50")}>
+      <button type="button" onClick={onOpen} className="prosmet-v2-thread-open">
+        <span className="prosmet-v2-thread-icon">{pinned ? <PinIcon /> : thread.status === "archived" ? <ArchiveIcon /> : <MessageSquareTextIcon />}</span>
+        <span className="min-w-0 flex-1">
+          <strong>{thread.title || "Новый чат"}</strong>
+          <small>{thread.objectName || "Диалог"}</small>
         </span>
-        {thread.objectName ? <span className="mt-0.5 block truncate pl-[22px] text-[10px] text-neutral-500">{thread.objectName}</span> : null}
       </button>
-      <button
-        type="button"
-        onClick={onMenu}
-        className="prosmet-premium-thread-menu"
-        aria-label={`Действия: ${thread.title || "Новый чат"}`}
-        aria-expanded={menuOpen}
-      >
-        <MoreHorizontalIcon className="size-4" />
-      </button>
+      <button type="button" onClick={onMenu} className="prosmet-v2-thread-menu" aria-label={`Действия: ${thread.title || "Новый чат"}`} aria-expanded={menuOpen}><MoreHorizontalIcon /></button>
       {menuOpen ? (
-        <div className="prosmet-premium-thread-popover">
+        <div className="prosmet-v2-thread-popover">
           <PremiumMenuAction onClick={onRename}><PencilLineIcon /> Переименовать</PremiumMenuAction>
           <PremiumMenuAction onClick={onPin}><PinIcon /> {thread.pinned ? "Открепить" : "Закрепить"}</PremiumMenuAction>
-          {thread.status === "archived" ? (
-            <PremiumMenuAction onClick={onRestore}><ArchiveRestoreIcon /> Восстановить</PremiumMenuAction>
-          ) : (
-            <PremiumMenuAction onClick={onArchive}><ArchiveIcon /> В архив</PremiumMenuAction>
-          )}
+          {thread.status === "archived" ? <PremiumMenuAction onClick={onRestore}><ArchiveRestoreIcon /> Восстановить</PremiumMenuAction> : <PremiumMenuAction onClick={onArchive}><ArchiveIcon /> В архив</PremiumMenuAction>}
           <PremiumMenuAction danger onClick={onDelete}><Trash2Icon /> Удалить</PremiumMenuAction>
         </div>
       ) : null}
@@ -530,60 +438,28 @@ function PremiumThreadRow({
 
 function PremiumNavItem({ icon, label, active, onClick }: { icon: ReactNode; label: string; active: boolean; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} className={cn("prosmet-premium-nav-item", active && "is-active")}>
-      <span className="[&_svg]:size-[17px]">{icon}</span>
+    <button type="button" onClick={onClick} className={cn("prosmet-v2-nav-item", active && "is-active")}>
+      <span className="prosmet-v2-nav-icon">{icon}</span>
       <span>{label}</span>
-      {active ? <ChevronRightIcon className="ml-auto size-3.5 text-neutral-400" /> : null}
+      {active ? <ChevronRightIcon className="ml-auto" /> : null}
     </button>
   );
 }
 
-function PremiumIconButton({
-  label,
-  onClick,
-  active,
-  className,
-  children
-}: {
-  label: string;
-  onClick: () => void;
-  active?: boolean;
-  className?: string;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={label}
-      aria-pressed={active}
-      onClick={onClick}
-      className={cn("prosmet-premium-icon-button", active && "is-active", className)}
-    >
-      {children}
-    </button>
-  );
+function PremiumIconButton({ label, onClick, active, className, children }: { label: string; onClick: () => void; active?: boolean; className?: string; children: ReactNode }) {
+  return <button type="button" aria-label={label} title={label} aria-pressed={active} onClick={onClick} className={cn("prosmet-v2-icon-button", active && "is-active", className)}>{children}</button>;
 }
 
 function PremiumMenuAction({ children, onClick, danger }: { children: ReactNode; onClick: () => void; danger?: boolean }) {
-  return (
-    <button type="button" onClick={onClick} className={cn("prosmet-premium-menu-action", danger && "is-danger")}>
-      {children}
-    </button>
-  );
+  return <button type="button" onClick={onClick} className={cn("prosmet-v2-menu-action", danger && "is-danger")}>{children}</button>;
 }
 
 function PremiumDialog({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
   return (
-    <div className="fixed inset-0 z-[260] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label={title}>
-      <button type="button" className="absolute inset-0 bg-black/30 backdrop-blur-sm" aria-label="Закрыть" onClick={onClose} />
-      <section className="relative w-full max-w-md rounded-2xl border border-black/10 bg-white p-5 shadow-2xl">
-        <header className="mb-4 flex items-center justify-between gap-3">
-          <h2 className="text-base font-semibold">{title}</h2>
-          <button type="button" onClick={onClose} className="prosmet-premium-icon-button" aria-label="Закрыть">
-            <XIcon />
-          </button>
-        </header>
+    <div className="fixed inset-0 z-[260] flex items-end justify-center sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label={title}>
+      <button type="button" className="absolute inset-0 bg-black/35 backdrop-blur-sm" aria-label="Закрыть" onClick={onClose} />
+      <section className="prosmet-v2-dialog">
+        <header><h2>{title}</h2><button type="button" onClick={onClose} className="prosmet-v2-icon-button" aria-label="Закрыть"><XIcon /></button></header>
         {children}
       </section>
     </div>
@@ -591,18 +467,5 @@ function PremiumDialog({ title, onClose, children }: { title: string; onClose: (
 }
 
 function PremiumDialogButton({ children, onClick, primary, danger }: { children: ReactNode; onClick: () => void; primary?: boolean; danger?: boolean }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        "h-10 rounded-xl px-4 text-sm font-semibold transition",
-        primary && "bg-neutral-950 text-white hover:bg-black",
-        danger && "bg-red-600 text-white hover:bg-red-700",
-        !primary && !danger && "border border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50"
-      )}
-    >
-      {children}
-    </button>
-  );
+  return <button type="button" onClick={onClick} className={cn("prosmet-v2-dialog-button", primary && "is-primary", danger && "is-danger")}>{children}</button>;
 }
