@@ -1,0 +1,107 @@
+name: Prosmet HTTPS Edge Recovery
+
+on:
+  push:
+    branches:
+      - main
+      - fix/https-low-port-bootstrap
+    paths:
+      - "deployment/recover-https-edge.sh"
+      - "deployment/provision-https.sh"
+      - ".github/workflows/https-edge-recovery.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: prosmet-https-edge
+  cancel-in-progress: true
+
+jobs:
+  recover:
+    name: Recover public HTTPS edge on Primary
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 30
+    env:
+      PROSMET_PUBLIC_DOMAIN: kolibriai.online
+      PROSMET_PUBLIC_IP: 78.17.4.108
+    steps:
+      - name: Verify trusted runner
+        run: |
+          set -Eeuo pipefail
+          test "${{ runner.name }}" = "prosmet-primary"
+
+      - name: Checkout exact commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          clean: true
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.16.0"
+
+      - name: Recover low-port HTTPS edge
+        run: |
+          set -Eeuo pipefail
+          mkdir -p artifacts/https artifacts/release
+          if [[ "${GITHUB_REF_NAME}" == "main" ]]; then
+            export PROSMET_EXPECTED_RELEASE_SHA="${GITHUB_SHA}"
+          else
+            export PROSMET_EXPECTED_RELEASE_SHA=""
+          fi
+          bash deployment/recover-https-edge.sh "$PROSMET_PUBLIC_DOMAIN" 3200 \
+            2>&1 | tee artifacts/https/recovery.log
+          cp "$HOME/.prosmet/caddy/status.json" artifacts/https/status.json
+          cp "$HOME/.prosmet/caddy/Caddyfile" artifacts/https/Caddyfile
+          cp "$HOME/.prosmet/caddy/privilege-diagnostics.txt" artifacts/https/privilege-diagnostics.txt 2>/dev/null || true
+          cp "$HOME/.prosmet/caddy/https-headers.txt" artifacts/https/https-headers.txt
+          cp "$HOME/.prosmet/caddy/http-redirect-headers.txt" artifacts/https/http-redirect-headers.txt
+
+      - name: Verify public domain
+        run: |
+          set -Eeuo pipefail
+          curl --fail --silent --show-error --max-time 20 \
+            "https://${PROSMET_PUBLIC_DOMAIN}/api/health" | tee artifacts/release/public-health.json
+          grep -q '"ok":true' artifacts/release/public-health.json
+          if [[ "${GITHUB_REF_NAME}" == "main" ]]; then
+            grep -q "\"releaseSha\":\"${GITHUB_SHA}\"" artifacts/release/public-health.json
+          fi
+          curl --fail --silent --show-error --head --max-time 20 \
+            "https://${PROSMET_PUBLIC_DOMAIN}/" | tee artifacts/release/public-headers.txt
+          grep -qi '^strict-transport-security:.*max-age=31536000' artifacts/release/public-headers.txt
+
+      - name: Upload HTTPS evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prosmet-https-edge-${{ github.run_id }}
+          path: artifacts
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish edge status
+        if: always() && github.ref_name == 'main'
+        continue-on-error: true
+        uses: actions/github-script@v7
+        env:
+          FINAL_STATUS: ${{ job.status }}
+        with:
+          script: |
+            const success = process.env.FINAL_STATUS === "success";
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 1,
+              body: [
+                `HTTPS EDGE ${success ? "PASS" : "FAILED"}`,
+                `Commit: \`${context.sha}\``,
+                `Runner: \`prosmet-primary\``,
+                `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                success ? "APP: https://kolibriai.online/" : "Inspect the uploaded privilege diagnostics."
+              ].join("\n\n")
+            });
