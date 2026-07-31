@@ -10,7 +10,6 @@ import {
   FileSpreadsheetIcon,
   HammerIcon,
   HouseIcon,
-  PaperclipIcon,
   SparklesIcon
 } from "lucide-react";
 
@@ -40,7 +39,7 @@ function DesktopChat({ hasEstimate, onOpenEstimate }: Omit<Props, "mobile">) {
           <div className="desktop-welcome">
             <div className="assistant-mark"><SparklesIcon /></div>
             <h1>Что нужно сделать?</h1>
-            <p>Опишите объект обычными словами. Я соберу исходные данные, подготовлю расчёт и открою результат как редактируемый документ.</p>
+            <p>Опишите объект обычными словами. Подключённый агент подготовит расчёт и откроет результат как редактируемый документ.</p>
             <div className="desktop-suggestions">
               {suggestions.map((item) => (
                 <ThreadPrimitive.Suggestion key={item.title} prompt={item.prompt} send className="suggestion-card">
@@ -119,8 +118,7 @@ function MobileChat({ hasEstimate, onOpenEstimate }: Omit<Props, "mobile">) {
 
 function Composer({ mobile }: { mobile: boolean }) {
   return (
-    <ComposerPrimitive.Root className={mobile ? "mobile-composer" : "desktop-composer"}>
-      <button type="button" className="composer-attach" aria-label="Прикрепить файл"><PaperclipIcon /></button>
+    <ComposerPrimitive.Root className={`${mobile ? "mobile-composer" : "desktop-composer"} no-attachment-composer`}>
       <ComposerPrimitive.Input
         id={mobile ? "mobile-message" : "desktop-message"}
         name={mobile ? "mobile-message" : "desktop-message"}
