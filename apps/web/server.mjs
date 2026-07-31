@@ -2,10 +2,22 @@ import { createServer } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  activateAgent,
+  AgentServiceError,
+  invokeConfiguredAgent,
+  listAdminAgents,
+  listPublicAgents,
+  removeAgent,
+  saveAgent,
+  testAgent
+} from "./server/agent-service.mjs";
+import { adminTokenConfigured, agentConfigurationPath, verifyAdminToken } from "./server/agent-config.mjs";
 
 const root = fileURLToPath(new URL("./dist/", import.meta.url));
 const port = Number(process.env.PORT || 3200);
 const releaseSha = process.env.PROSMET_RELEASE_SHA || "development";
+const maxBodyBytes = 2 * 1024 * 1024;
 
 const mime = {
   ".html": "text/html; charset=utf-8",
@@ -18,41 +30,8 @@ const mime = {
   ".map": "application/json; charset=utf-8"
 };
 
-const sampleEstimate = {
-  id: "estimate-demo",
-  title: "Механизированная штукатурка квартиры",
-  project: "Квартира 56 · ЖК Светлый",
-  customer: "Иван Петров",
-  region: "Казань, Республика Татарстан",
-  revision: 1,
-  status: "draft",
-  overheadPercent: 5,
-  profitPercent: 10,
-  vatPercent: 0,
-  updatedAt: new Date().toISOString(),
-  sections: [
-    {
-      id: "works",
-      title: "Подготовка и основные работы",
-      items: [
-        { id: "i1", name: "Механизированная штукатурка стен", unit: "м²", quantity: 358, unitPrice: 620, category: "work" },
-        { id: "i2", name: "Грунтование основания", unit: "м²", quantity: 358, unitPrice: 55, category: "work" },
-        { id: "i3", name: "Монтаж маячкового профиля", unit: "п.м.", quantity: 240, unitPrice: 95, category: "work" },
-        { id: "i4", name: "Установка перфоуголка ПВХ", unit: "п.м.", quantity: 84, unitPrice: 120, category: "work" }
-      ]
-    },
-    {
-      id: "materials",
-      title: "Материалы и защита",
-      items: [
-        { id: "i5", name: "Штукатурная смесь", unit: "меш.", quantity: 197, unitPrice: 415, category: "material" },
-        { id: "i6", name: "Защитная плёнка", unit: "м²", quantity: 118, unitPrice: 40, category: "material" }
-      ]
-    }
-  ]
-};
-
 function sendJson(response, statusCode, body) {
+  if (response.writableEnded) return;
   response.writeHead(statusCode, {
     "content-type": "application/json; charset=utf-8",
     "cache-control": "no-store",
@@ -61,48 +40,177 @@ function sendJson(response, statusCode, body) {
   response.end(JSON.stringify(body));
 }
 
-async function readBody(request) {
-  const chunks = [];
-  for await (const chunk of request) chunks.push(chunk);
-  return Buffer.concat(chunks).toString("utf8");
+function sendError(response, error) {
+  const status = error instanceof AgentServiceError ? error.status : 500;
+  const code = error instanceof AgentServiceError ? error.code : "internal_error";
+  const message = error instanceof Error ? error.message : "Internal server error";
+  const details = error instanceof AgentServiceError ? error.details : null;
+  if (status >= 500) console.error(`[${code}]`, message, details || "");
+  sendJson(response, status, { error: { code, message, ...(details ? { details } : {}) } });
 }
 
-function lastPrompt(messages) {
-  const last = [...(Array.isArray(messages) ? messages : [])].reverse().find((message) => message?.role === "user");
-  if (!last) return "";
-  if (typeof last.content === "string") return last.content;
-  if (Array.isArray(last.content)) return last.content.map((part) => part?.text || "").join(" ");
-  return JSON.stringify(last.content || "");
+async function readBody(request) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of request) {
+    size += chunk.length;
+    if (size > maxBodyBytes) throw new AgentServiceError("request_too_large", "Request body is too large", 413);
+    chunks.push(chunk);
+  }
+  const raw = Buffer.concat(chunks).toString("utf8");
+  if (!raw) return {};
+  try { return JSON.parse(raw); } catch { throw new AgentServiceError("invalid_json", "Request body must be valid JSON", 400); }
+}
+
+function bearerToken(request) {
+  const value = request.headers.authorization || "";
+  return value.startsWith("Bearer ") ? value.slice(7).trim() : "";
+}
+
+function requireAdmin(request) {
+  if (!adminTokenConfigured()) {
+    throw new AgentServiceError(
+      "admin_not_configured",
+      "PROSMET_ADMIN_TOKEN is not configured on the server; agent configuration is read-only",
+      503
+    );
+  }
+  if (!verifyAdminToken(bearerToken(request))) {
+    throw new AgentServiceError("admin_unauthorized", "A valid super-administrator token is required", 401);
+  }
+}
+
+function routeAgentId(pathname, suffix = "") {
+  const pattern = suffix
+    ? new RegExp(`^/api/admin/agents/([^/]+)/${suffix}$`)
+    : /^\/api\/admin\/agents\/([^/]+)$/;
+  const match = pathname.match(pattern);
+  return match ? decodeURIComponent(match[1]) : "";
+}
+
+async function handleApi(request, response, url) {
+  if (request.method === "GET" && url.pathname === "/api/health") {
+    let agents;
+    try {
+      const publicAgents = await listPublicAgents();
+      agents = {
+        configured: publicAgents.configured,
+        enabled: publicAgents.agents.length,
+        defaultAgentId: publicAgents.defaultAgentId
+      };
+    } catch (error) {
+      agents = { configured: false, enabled: 0, defaultAgentId: "", error: error instanceof Error ? error.message : "unknown" };
+    }
+    sendJson(response, 200, {
+      ok: true,
+      app: "prosmet-greenfield-v3",
+      releaseSha,
+      runtime: "node-static-plus-agent-router",
+      ui: "greenfield",
+      agents
+    });
+    return true;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/identity") {
+    sendJson(response, 200, {
+      authenticated: false,
+      role: "anonymous",
+      superAdminConfigured: adminTokenConfigured(),
+      agentConfiguration: adminTokenConfigured() ? "protected" : "read-only"
+    });
+    return true;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/agents") {
+    sendJson(response, 200, await listPublicAgents());
+    return true;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/agent") {
+    const body = await readBody(request);
+    if (!Array.isArray(body.messages) || body.messages.length === 0) {
+      throw new AgentServiceError("messages_required", "At least one message is required", 400);
+    }
+    if (body.messages.length > 100) throw new AgentServiceError("message_limit", "A request may contain at most 100 messages", 400);
+
+    const controller = new AbortController();
+    const abort = () => controller.abort(new Error("Client disconnected"));
+    request.once("aborted", abort);
+    response.once("close", () => { if (!response.writableEnded) abort(); });
+    try {
+      const result = await invokeConfiguredAgent({
+        agentId: typeof body.agentId === "string" ? body.agentId : "",
+        messages: body.messages,
+        signal: controller.signal
+      });
+      sendJson(response, 200, result);
+    } finally {
+      request.removeListener("aborted", abort);
+    }
+    return true;
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/admin/agents") {
+    requireAdmin(request);
+    sendJson(response, 200, { ...(await listAdminAgents()), configPath: agentConfigurationPath() });
+    return true;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/admin/agents") {
+    requireAdmin(request);
+    sendJson(response, 201, await saveAgent(await readBody(request)));
+    return true;
+  }
+
+  const agentId = routeAgentId(url.pathname);
+  if (agentId && request.method === "PUT") {
+    requireAdmin(request);
+    sendJson(response, 200, await saveAgent({ ...(await readBody(request)), id: agentId }));
+    return true;
+  }
+  if (agentId && request.method === "DELETE") {
+    requireAdmin(request);
+    sendJson(response, 200, await removeAgent(agentId));
+    return true;
+  }
+
+  const activateId = routeAgentId(url.pathname, "activate");
+  if (activateId && request.method === "POST") {
+    requireAdmin(request);
+    sendJson(response, 200, await activateAgent(activateId));
+    return true;
+  }
+
+  const testId = routeAgentId(url.pathname, "test");
+  if (testId && request.method === "POST") {
+    requireAdmin(request);
+    const controller = new AbortController();
+    const abort = () => controller.abort(new Error("Client disconnected"));
+    request.once("aborted", abort);
+    response.once("close", () => { if (!response.writableEnded) abort(); });
+    try {
+      sendJson(response, 200, await testAgent(testId, controller.signal));
+    } finally {
+      request.removeListener("aborted", abort);
+    }
+    return true;
+  }
+
+  if (url.pathname.startsWith("/api/")) {
+    throw new AgentServiceError("not_found", "API route not found", 404);
+  }
+  return false;
 }
 
 const server = createServer(async (request, response) => {
   const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
 
-  if (request.method === "GET" && url.pathname === "/api/health") {
-    return sendJson(response, 200, {
-      ok: true,
-      app: "prosmet-greenfield-v3",
-      releaseSha,
-      runtime: "node-static",
-      ui: "greenfield"
-    });
-  }
-
-  if (request.method === "POST" && url.pathname === "/api/agent") {
-    try {
-      const body = JSON.parse(await readBody(request));
-      const prompt = lastPrompt(body.messages);
-      const asksEstimate = /смет|расч[её]т|стоим|штукатур|ремонт|монтаж/i.test(prompt);
-      return sendJson(response, 200, asksEstimate ? {
-        text: "Подготовил рабочую смету. Она открылась отдельным документом: можно изменить объёмы и цены, сохранить версию, утвердить или передать клиенту.",
-        artifact: "estimate",
-        estimate: sampleEstimate
-      } : {
-        text: "Я готов работать с проектом. Опишите объект, объёмы, регион и желаемый результат — расчёт, смету, договор или комплект документов."
-      });
-    } catch (error) {
-      return sendJson(response, 400, { error: error instanceof Error ? error.message : "invalid request" });
-    }
+  try {
+    if (await handleApi(request, response, url)) return;
+  } catch (error) {
+    if (error?.name === "AbortError" || response.destroyed) return;
+    return sendError(response, error);
   }
 
   if (request.method !== "GET" && request.method !== "HEAD") {
