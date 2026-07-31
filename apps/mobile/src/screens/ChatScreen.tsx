@@ -18,12 +18,6 @@ const suggestions = [
 export function ChatScreen({ hasEstimate, onOpenEstimate }: Props) {
   return (
     <View style={styles.screen}>
-      <View style={styles.topbar}>
-        <View style={styles.mark}><Text style={styles.markText}>✦</Text></View>
-        <Text style={styles.brand}>Просметчик</Text>
-        <View style={styles.topbarSpacer} />
-      </View>
-
       <ThreadPrimitive.Root style={styles.thread}>
         <AuiIf condition={(state) => state.thread.isEmpty}>
           <ScrollView
@@ -110,14 +104,9 @@ function AssistantMessage() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: theme.canvas },
-  topbar: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: theme.border, paddingHorizontal: 14 },
-  mark: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: 11, backgroundColor: theme.text },
-  markText: { color: "white", fontSize: 17 },
-  brand: { color: theme.text, fontSize: 16, fontWeight: "700", letterSpacing: -0.3 },
-  topbarSpacer: { flex: 1 },
   thread: { flex: 1 },
   emptyScroll: { flex: 1 },
-  welcome: { flexGrow: 1, paddingHorizontal: 16, paddingTop: 30, paddingBottom: 118 },
+  welcome: { flexGrow: 1, paddingHorizontal: 16, paddingTop: 26, paddingBottom: 118 },
   heroMark: { width: 50, height: 50, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: theme.border, borderRadius: 16 },
   heroMarkText: { color: theme.text, fontSize: 22 },
   title: { marginTop: 22, color: theme.text, fontSize: 32, lineHeight: 37, fontWeight: "700", letterSpacing: -1.3 },
