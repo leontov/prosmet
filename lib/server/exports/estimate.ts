@@ -1,25 +1,5 @@
-import { Buffer } from "node:buffer";
-import { createRequire } from "node:module";
 import type { Content, TDocumentDefinitions } from "pdfmake/interfaces";
 import { calculateEstimate, type EstimateDraft } from "@/lib/domain/estimate";
-
-type PdfKitDocument = {
-  on: {
-    (event: "data", listener: (chunk: Buffer) => void): PdfKitDocument;
-    (event: "end", listener: () => void): PdfKitDocument;
-    (event: "error", listener: (error: Error) => void): PdfKitDocument;
-  };
-  end: () => void;
-};
-
-type PdfPrinterInstance = {
-  createPdfKitDocument: (definition: TDocumentDefinitions) => PdfKitDocument;
-};
-
-type PdfPrinterConstructor = new (fonts: Record<string, unknown>) => PdfPrinterInstance;
-
-const require = createRequire(import.meta.url);
-const PdfPrinter = require("pdfmake") as PdfPrinterConstructor;
 
 function safeName(value: string) {
   return value
@@ -30,17 +10,65 @@ function safeName(value: string) {
 
 type VirtualFileSystem = Record<string, string>;
 
+type PdfMakeDocument = {
+  getBuffer: (callback: (buffer: Uint8Array) => void) => void;
+};
+
+type PdfMakeApi = {
+  createPdf: (definition: TDocumentDefinitions) => PdfMakeDocument;
+  addVirtualFileSystem?: (vfs: VirtualFileSystem) => void;
+  vfs?: VirtualFileSystem;
+};
+
 function isVirtualFileSystem(value: unknown): value is VirtualFileSystem {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const entries = Object.entries(value as Record<string, unknown>);
   return entries.length > 0 && entries.every(([, content]) => typeof content === "string");
 }
 
+function isPdfMakeApi(value: unknown): value is PdfMakeApi {
+  if (!value || (typeof value !== "object" && typeof value !== "function")) return false;
+  return typeof (value as { createPdf?: unknown }).createPdf === "function";
+}
+
 function extractVirtualFileSystem(moduleValue: unknown) {
   const module = moduleValue as { default?: unknown; pdfMake?: { vfs?: unknown }; vfs?: unknown };
-  const defaultValue = module.default as { pdfMake?: { vfs?: unknown }; vfs?: unknown } | undefined;
-  return [module.default, module, module.pdfMake?.vfs, module.vfs, defaultValue?.pdfMake?.vfs, defaultValue?.vfs]
-    .find(isVirtualFileSystem) ?? null;
+  const defaultValue = module.default as { default?: unknown; pdfMake?: { vfs?: unknown }; vfs?: unknown } | undefined;
+  return [
+    module.default,
+    module,
+    module.pdfMake?.vfs,
+    module.vfs,
+    defaultValue?.default,
+    defaultValue?.pdfMake?.vfs,
+    defaultValue?.vfs
+  ].find(isVirtualFileSystem) ?? null;
+}
+
+function extractPdfMake(moduleValue: unknown) {
+  const module = moduleValue as { default?: unknown; pdfMake?: unknown };
+  const defaultValue = module.default as { default?: unknown; pdfMake?: unknown } | undefined;
+  return [
+    module.default,
+    module,
+    module.pdfMake,
+    defaultValue?.default,
+    defaultValue?.pdfMake
+  ].find(isPdfMakeApi) ?? null;
+}
+
+async function loadPdfMake() {
+  const [pdfModule, fontModule] = await Promise.all([
+    import("pdfmake/build/pdfmake"),
+    import("pdfmake/build/vfs_fonts")
+  ]);
+  const pdfMake = extractPdfMake(pdfModule);
+  const vfs = extractVirtualFileSystem(fontModule);
+  if (!pdfMake) throw new Error("PDF runtime не загрузился");
+  if (!vfs) throw new Error("Встроенные шрифты PDF не загрузились");
+  if (typeof pdfMake.addVirtualFileSystem === "function") pdfMake.addVirtualFileSystem(vfs);
+  else pdfMake.vfs = vfs;
+  return pdfMake;
 }
 
 function pdfDefinition(draft: EstimateDraft): TDocumentDefinitions {
@@ -60,7 +88,11 @@ function pdfDefinition(draft: EstimateDraft): TDocumentDefinitions {
     body.push([{ text: section.title, bold: true, colSpan: 7, fillColor: "#f1f1f1" }, {}, {}, {}, {}, {}, {}]);
     for (const item of section.items) {
       body.push([
-        index++, item.code, item.name, item.unit, item.quantity,
+        index++,
+        item.code,
+        item.name,
+        item.unit,
+        item.quantity,
         { text: item.unitPrice.toFixed(2), alignment: "right" },
         { text: (calculation.itemAmounts[item.id] ?? 0).toFixed(2), alignment: "right" }
       ]);
@@ -72,16 +104,16 @@ function pdfDefinition(draft: EstimateDraft): TDocumentDefinitions {
     {
       columns: [
         [
-{ text: `Объект: ${draft.objectName || "—"}` },
-{ text: `Заказчик: ${draft.customer || "—"}` },
-{ text: `Подрядчик: ${draft.contractor || "—"}` },
-{ text: `Регион: ${draft.region || "—"}` },
-{ text: `Метод: ${draft.method}` }
+          { text: `Объект: ${draft.objectName || "—"}` },
+          { text: `Заказчик: ${draft.customer || "—"}` },
+          { text: `Подрядчик: ${draft.contractor || "—"}` },
+          { text: `Регион: ${draft.region || "—"}` },
+          { text: `Метод: ${draft.method}` }
         ],
         [
-{ text: `Дата: ${draft.date}`, alignment: "right" },
-{ text: `Версия: ${draft.revision}`, alignment: "right" },
-{ text: `Статус: ${draft.status}`, alignment: "right" }
+          { text: `Дата: ${draft.date}`, alignment: "right" },
+          { text: `Версия: ${draft.revision}`, alignment: "right" },
+          { text: `Статус: ${draft.status}`, alignment: "right" }
         ]
       ],
       margin: [0, 0, 0, 10]
@@ -108,8 +140,18 @@ function pdfDefinition(draft: EstimateDraft): TDocumentDefinitions {
     }
   ];
 
-  if (draft.assumptions.length) content.push({ text: "Допущения", bold: true, margin: [0, 14, 0, 4] }, { ul: draft.assumptions });
-  if (draft.warnings.length) content.push({ text: "Предупреждения", bold: true, margin: [0, 12, 0, 4] }, { ul: draft.warnings });
+  if (draft.assumptions.length) {
+    content.push(
+      { text: "Допущения", bold: true, margin: [0, 14, 0, 4] },
+      { ul: draft.assumptions }
+    );
+  }
+  if (draft.warnings.length) {
+    content.push(
+      { text: "Предупреждения", bold: true, margin: [0, 12, 0, 4] },
+      { ul: draft.warnings }
+    );
+  }
 
   return {
     pageSize: "A4",
@@ -125,34 +167,19 @@ function pdfDefinition(draft: EstimateDraft): TDocumentDefinitions {
   };
 }
 
-async function fontDictionary() {
-  const moduleValue = await import("pdfmake/build/vfs_fonts");
-  const vfs = extractVirtualFileSystem(moduleValue);
-  if (!vfs) throw new Error("Встроенные шрифты PDF не загрузились");
-  const font = (name: string) => {
-    const value = vfs[name];
-    if (!value) throw new Error(`Шрифт ${name} отсутствует`);
-    return Buffer.from(value, "base64");
-  };
-  return {
-    Roboto: {
-      normal: font("Roboto-Regular.ttf"),
-      bold: font("Roboto-Medium.ttf"),
-      italics: font("Roboto-Italic.ttf"),
-      bolditalics: font("Roboto-MediumItalic.ttf")
-    }
-  };
-}
-
 export async function createEstimatePdfBuffer(draft: EstimateDraft) {
-  const printer = new PdfPrinter(await fontDictionary() as any);
-  const document = printer.createPdfKitDocument(pdfDefinition(draft));
+  const pdfMake = await loadPdfMake();
   return new Promise<Uint8Array>((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    document.on("data", (chunk: Buffer) => chunks.push(chunk));
-    document.on("end", () => resolve(new Uint8Array(Buffer.concat(chunks))));
-    document.on("error", reject);
-    document.end();
+    const timeout = setTimeout(() => reject(new Error("PDF формируется слишком долго")), 30_000);
+    try {
+      pdfMake.createPdf(pdfDefinition(draft)).getBuffer((buffer) => {
+        clearTimeout(timeout);
+        resolve(new Uint8Array(buffer));
+      });
+    } catch (error) {
+      clearTimeout(timeout);
+      reject(error);
+    }
   });
 }
 
@@ -177,7 +204,18 @@ export async function createEstimateXlsxBuffer(draft: EstimateDraft) {
   sheet.getCell("D4").value = "Версия";
   sheet.getCell("E4").value = draft.revision;
 
-  const header = sheet.addRow(["№", "Код", "Наименование", "Тип ресурса", "Ед.", "Количество", "Норма", "Коэффициент", "Цена", "Сумма"]);
+  const header = sheet.addRow([
+    "№",
+    "Код",
+    "Наименование",
+    "Тип ресурса",
+    "Ед.",
+    "Количество",
+    "Норма",
+    "Коэффициент",
+    "Цена",
+    "Сумма"
+  ]);
   header.font = { bold: true };
   header.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFE7E7E7" } };
 
@@ -189,8 +227,15 @@ export async function createEstimateXlsxBuffer(draft: EstimateDraft) {
     sectionRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFF3F4F6" } };
     for (const item of section.items) {
       const row = sheet.addRow([
-        position++, item.code, item.name, item.resourceType, item.unit,
-        item.quantity, item.norm, item.coefficient, item.unitPrice,
+        position++,
+        item.code,
+        item.name,
+        item.resourceType,
+        item.unit,
+        item.quantity,
+        item.norm,
+        item.coefficient,
+        item.unitPrice,
         calculation.itemAmounts[item.id] ?? 0
       ]);
       row.getCell(9).numFmt = "#,##0.00";
@@ -214,8 +259,16 @@ export async function createEstimateXlsxBuffer(draft: EstimateDraft) {
   }
 
   sheet.columns = [
-    { width: 7 }, { width: 16 }, { width: 42 }, { width: 16 }, { width: 10 },
-    { width: 14 }, { width: 12 }, { width: 14 }, { width: 14 }, { width: 16 }
+    { width: 7 },
+    { width: 16 },
+    { width: 42 },
+    { width: 16 },
+    { width: 10 },
+    { width: 14 },
+    { width: 12 },
+    { width: 14 },
+    { width: 14 },
+    { width: 16 }
   ];
   const buffer = await workbook.xlsx.writeBuffer();
   return new Uint8Array(buffer);
