@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { type ChatModelAdapter, useLocalRuntime } from "@assistant-ui/react-native";
+import { type ChatModelAdapter, type ChatModelRunResult, useLocalRuntime } from "@assistant-ui/react-native";
 import { getApiBase } from "@/src/config";
 
 type EventRecord = Record<string, unknown>;
+
+type ToolState = {
+  toolName: string;
+  argsText: string;
+};
 
 function textContent(message: { content?: unknown }) {
   if (typeof message.content === "string") return message.content;
@@ -12,9 +17,17 @@ function textContent(message: { content?: unknown }) {
     .join("\n");
 }
 
+function parsedArgs(argsText: string) {
+  try {
+    return JSON.parse(argsText || "{}") as Record<string, unknown>;
+  } catch {
+    return {};
+  }
+}
+
 function createAdapter(apiBase: string): ChatModelAdapter {
   return {
-    async *run({ messages, abortSignal }) {
+    async *run({ messages, abortSignal }): AsyncGenerator<ChatModelRunResult, void, unknown> {
       const response = await fetch(`${apiBase}/api/agent`, {
         method: "POST",
         headers: { Accept: "text/event-stream", "Content-Type": "application/json" },
@@ -37,16 +50,17 @@ function createAdapter(apiBase: string): ChatModelAdapter {
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
-      const tools = new Map<string, { toolName: string; argsText: string }>();
+      const tools = new Map<string, ToolState>();
       let text = "";
       let buffer = "";
-      const content = () => [
+      const content = (): ChatModelRunResult["content"] => [
         ...(text ? [{ type: "text" as const, text }] : []),
         ...Array.from(tools.entries()).map(([toolCallId, tool]) => ({
           type: "tool-call" as const,
           toolCallId,
           toolName: tool.toolName,
-          args: (() => { try { return JSON.parse(tool.argsText || "{}"); } catch { return {}; } })()
+          argsText: tool.argsText || "{}",
+          args: parsedArgs(tool.argsText)
         }))
       ];
 
