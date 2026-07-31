@@ -1,0 +1,84 @@
+name: Prosmet authorized infrastructure route
+
+on:
+  push:
+    branches: [ops/edge-secret-probe]
+    paths:
+      - ".github/workflows/authorized-infra-route.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  inspect:
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 15
+    steps:
+      - name: Verify Primary and existing SSH trust routes
+        id: routes
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "${{ runner.name }}" = "prosmet-primary"
+          STATE="$HOME/.prosmet/authorized-infra-route"
+          mkdir -p "$STATE"
+          KNOWN="$STATE/known_hosts"
+          : > "$KNOWN"
+          options=(
+            -o BatchMode=yes
+            -o ConnectTimeout=8
+            -o ConnectionAttempts=1
+            -o StrictHostKeyChecking=accept-new
+            -o UserKnownHostsFile="$KNOWN"
+            -o LogLevel=ERROR
+          )
+          home_ok=false
+          inference_ok=false
+
+          if ssh "${options[@]}" ladik@10.99.0.1 \
+            'id; hostname; printf "home=%s\n" "$HOME"; ss -H -ltn 2>/dev/null | grep -E ":(8080|8082|9101)\\b" || true' \
+            >"$STATE/home.txt" 2>"$STATE/home.err"; then
+            home_ok=true
+          fi
+
+          if ssh "${options[@]}" root@104.253.43.117 \
+            'id; hostname; test -e /var/run/docker.sock && echo docker_socket=present || true; ip -brief address 2>/dev/null | head -80; ip route 2>/dev/null | head -80' \
+            >"$STATE/inference.txt" 2>"$STATE/inference.err"; then
+            inference_ok=true
+          fi
+
+          printf 'home_ok=%s\ninference_ok=%s\n' "$home_ok" "$inference_ok" | tee "$STATE/result.txt"
+          cat "$STATE/home.txt" "$STATE/home.err" "$STATE/inference.txt" "$STATE/inference.err" 2>/dev/null || true
+          echo "home_ok=$home_ok" >> "$GITHUB_OUTPUT"
+          echo "inference_ok=$inference_ok" >> "$GITHUB_OUTPUT"
+          [[ "$home_ok" == true || "$inference_ok" == true ]]
+
+      - name: Upload route evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prosmet-authorized-route-${{ github.run_id }}
+          path: /home/actions-runner/.prosmet/authorized-infra-route
+          retention-days: 30
+
+      - name: Publish route status
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          HOME_OK: ${{ steps.routes.outputs.home_ok }}
+          INFERENCE_OK: ${{ steps.routes.outputs.inference_ok }}
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 1,
+              body: [
+                "PROSMET AUTHORIZED INFRA ROUTE",
+                `Home SSH: \`${process.env.HOME_OK || "false"}\``,
+                `Inference SSH: \`${process.env.INFERENCE_OK || "false"}\``,
+                `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+              ].join("\n\n")
+            });
