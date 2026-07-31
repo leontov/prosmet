@@ -8,6 +8,10 @@ function need(path, source, token) {
   if (!source.includes(token)) throw new Error(`${path}:missing:${token}`);
 }
 
+function forbid(path, source, token) {
+  if (source.includes(token)) throw new Error(`${path}:forbidden:${token}`);
+}
+
 const toolkit = await read("app/toolkit.tsx");
 const background = await read("components/tools/background-artifact.tsx");
 const developerWorkspace = await read("components/tools/developer-workspace.tsx");
@@ -16,7 +20,7 @@ const registry = await read("lib/server/a2a/registry.ts");
 const taskStore = await read("lib/server/a2a/task-store.ts");
 const a2aRoute = await read("app/api/a2a/route.ts");
 const agentCardRoute = await read("app/.well-known/agent-card.json/route.ts");
-const estimateWorkspaceStyles = await read("app/estimate-workspace.css");
+const premiumWorkspaceStyles = `${await read("app/premium-product.css")}\n${await read("app/premium-product-fixes.css")}`;
 
 need("app/toolkit.tsx", toolkit, "developer_workspace");
 need("app/toolkit.tsx", toolkit, 'BackgroundArtifact kind="technology"');
@@ -34,22 +38,32 @@ need("app/api/a2a/route.ts", a2aRoute, 'body.method === "tasks/get"');
 need("app/api/a2a/route.ts", a2aRoute, 'body.method === "tasks/cancel"');
 need("app/api/a2a/route.ts", a2aRoute, 'body.method === "tasks/list"');
 need("app/.well-known/agent-card.json/route.ts", agentCardRoute, "prosmetDeveloperAgentCard");
-need("app/estimate-workspace.css", estimateWorkspaceStyles, ".prosmet-estimate-sheet");
-need("app/estimate-workspace.css", estimateWorkspaceStyles, ".prosmet-row-sheet");
-need(
-  "app/estimate-workspace.css",
-  estimateWorkspaceStyles,
-  'body[data-prosmet-estimate-open="true"] main'
-);
+need("app/premium-product.css", premiumWorkspaceStyles, ".prosmet-v2-estimate-shell");
+need("app/premium-product.css", premiumWorkspaceStyles, ".prosmet-v2-estimate-layout");
+need("app/premium-product.css", premiumWorkspaceStyles, ".prosmet-v2-row-sheet");
+need("app/premium-product.css", premiumWorkspaceStyles, ".prosmet-v2-mobile-nav");
+forbid("app/premium-product.css", premiumWorkspaceStyles, 'body[data-prosmet-estimate-open="true"] main');
+forbid("app/premium-product.css", premiumWorkspaceStyles, ".prosmet-estimate-sheet");
 
 for (const path of [
   "docs/PRODUCT_SPEC_AND_ROADMAP.md",
   "docs/A2A_DEVELOPER_MODE.md",
+  "docs/PREMIUM_UI_V2_BRIEF.md",
   "scripts/compact-estimate-workspace-contract.mjs",
   "e2e/compact-estimate-workspace.spec.ts",
-  "e2e/estimate-compact-sheet.spec.ts"
+  "e2e/estimate-compact-sheet.spec.ts",
+  "e2e/premium-ui.spec.ts"
 ]) {
   await requireFile(path);
+}
+
+for (const legacyPath of ["app/estimate-workspace.css", "app/premium-foundation.css"]) {
+  try {
+    await requireFile(legacyPath);
+    throw new Error(`${legacyPath}:legacy-file-present`);
+  } catch (error) {
+    if (error instanceof Error && error.message.endsWith(":legacy-file-present")) throw error;
+  }
 }
 
 console.log(
@@ -57,8 +71,9 @@ console.log(
     {
       ok: true,
       root,
-      contract: "compact-estimate-workspace+a2a-developer-mode",
-      checks: 23
+      contract: "premium-v2-estimate-workspace+a2a-developer-mode",
+      checks: 27,
+      legacyWorkspaceCss: "deleted"
     },
     null,
     2
