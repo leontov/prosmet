@@ -31,14 +31,30 @@ test("greenfield shell, navigation and estimate editor are native to each viewpo
     await expect(page.getByTestId("mobile-shell")).toBeVisible();
     await expect(page.getByTestId("desktop-shell")).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Новый расчёт" })).toBeVisible();
+    await expect(page.locator(".mobile-bottom-nav")).toHaveCount(0);
+    await expect(page.getByRole("navigation", { name: "Мобильная навигация" })).toHaveCount(0);
 
-    const nav = page.getByRole("navigation", { name: "Мобильная навигация" });
-    expect((await nav.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(70);
-    await nav.getByRole("button", { name: "Профиль", exact: true }).click();
+    const menuButton = page.getByRole("button", { name: "Открыть навигацию" });
+    await expect(menuButton).toBeVisible();
+    const openMenu = async () => {
+      await menuButton.click();
+      const dialog = page.getByRole("dialog", { name: "Навигация" });
+      await expect(dialog).toBeVisible();
+      return dialog;
+    };
+
+    let menu = await openMenu();
+    await menu.getByRole("button", { name: /Профиль/ }).click();
     await expect(page.getByRole("heading", { name: "Кабинет" })).toBeVisible();
-    await page.getByRole("button", { name: "Настройки", exact: true }).click();
+
+    menu = await openMenu();
+    await menu.getByRole("button", { name: /Настройки/ }).click();
     await expect(page.getByRole("heading", { name: "Настройки" })).toBeVisible();
-    await nav.getByRole("button", { name: "Чат", exact: true }).click();
+
+    menu = await openMenu();
+    await menu.getByRole("button", { name: /^Чат/ }).click();
+    await expect(page.getByRole("heading", { name: "Новый расчёт" })).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "Навигация" })).toHaveCount(0);
   }
 
   await expect(page.getByRole("button", { name: /Механизированная штукатурка/ })).toBeVisible();
