@@ -23,3 +23,5 @@ Replace the legacy desktop-derived interface with a new assistant-first product 
 ## Browser security acceptance
 
 Desktop and mobile Chromium must record zero `securitypolicyviolation` events, zero console security errors and zero rendered form controls without both `id` and `name`. The production bundle is rejected before deployment if it contains string-evaluation constructs.
+
+Both the hosted verification and the canonical `prosmet-primary` verification must pass; only the Primary production run is allowed to declare the release complete.
