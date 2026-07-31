@@ -1,3 +1,10 @@
+.no-attachment-composer {
+  grid-template-columns: minmax(0, 1fr) 42px !important;
+}
+.mobile-composer.no-attachment-composer {
+  grid-template-columns: minmax(0, 1fr) 44px !important;
+}
+
 .sidebar-empty {
   margin: 14px 10px;
   color: var(--faint);
