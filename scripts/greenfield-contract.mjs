@@ -1,7 +1,8 @@
 import { access, readFile, readdir } from "node:fs/promises";
-import { resolve } from "node:path";
+import { relative, resolve } from "node:path";
 
 const root = process.cwd();
+const contractPath = "scripts/greenfield-contract.mjs";
 const required = [
   "apps/web/src/app/App.tsx",
   "apps/web/src/features/chat/ChatSurface.tsx",
@@ -54,9 +55,11 @@ async function walk(directory) {
 }
 
 for (const path of await walk(root)) {
+  const repoPath = relative(root, path).replaceAll("\\", "/");
+  if (repoPath === contractPath) continue;
   const source = await readFile(path, "utf8");
   for (const token of forbiddenTokens) {
-    if (source.includes(token)) failures.push(`legacy-token:${path.slice(root.length + 1)}:${token}`);
+    if (source.includes(token)) failures.push(`legacy-token:${repoPath}:${token}`);
   }
 }
 
