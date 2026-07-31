@@ -8,11 +8,11 @@ export function ChevronGlyph() {
   return <View style={styles.chevron}><View style={[styles.chevronLine, styles.chevronLeft]} /><View style={[styles.chevronLine, styles.chevronRight]} /></View>;
 }
 
-export function VoiceGlyph() {
+export function VoiceGlyph({ color = "#111214" }: { color?: string }) {
   return (
-    <View style={styles.voiceRing}>
+    <View style={[styles.voiceRing, { borderColor: color }]}>
       <View style={styles.waveRow}>
-        {[12, 22, 16, 25, 11].map((height, index) => <View key={index} style={[styles.waveBar, { height }]} />)}
+        {[12, 22, 16, 25, 11].map((height, index) => <View key={index} style={[styles.waveBar, { height, backgroundColor: color }]} />)}
       </View>
     </View>
   );
@@ -68,9 +68,9 @@ const styles = StyleSheet.create({
   chevronLine: { position: "absolute", top: 5, width: 13, height: 3, borderRadius: 99, backgroundColor: "#8b8c90" },
   chevronLeft: { left: 1, transform: [{ rotate: "42deg" }] },
   chevronRight: { right: 1, transform: [{ rotate: "-42deg" }] },
-  voiceRing: { width: 31, height: 31, alignItems: "center", justifyContent: "center", borderWidth: 2.2, borderColor: "#111214", borderRadius: 16 },
+  voiceRing: { width: 31, height: 31, alignItems: "center", justifyContent: "center", borderWidth: 2.2, borderRadius: 16 },
   waveRow: { height: 25, flexDirection: "row", alignItems: "center", gap: 2.5 },
-  waveBar: { width: 2.6, borderRadius: 99, backgroundColor: "#111214" },
+  waveBar: { width: 2.6, borderRadius: 99 },
   plus: { width: 31, height: 31, position: "relative" },
   plusHorizontal: { position: "absolute", left: 2, right: 2, top: 14, height: 2.5, borderRadius: 99, backgroundColor: "#111214" },
   plusVertical: { position: "absolute", top: 2, bottom: 2, left: 14, width: 2.5, borderRadius: 99, backgroundColor: "#111214" },
