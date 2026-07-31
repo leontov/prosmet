@@ -1,0 +1,89 @@
+name: Prosmet Runner Privilege Apply
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/runner-privilege-apply.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  apply:
+    name: Apply HTTPS privileges and start edge
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 20
+    steps:
+      - name: Verify runner
+        run: |
+          set -Eeuo pipefail
+          test "${{ runner.name }}" = "prosmet-primary"
+          id
+          echo "low_port_start=$(cat /proc/sys/net/ipv4/ip_unprivileged_port_start)"
+          sudo -n -l || true
+
+      - name: Checkout exact main
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          clean: true
+
+      - name: Wait for application
+        run: |
+          set -Eeuo pipefail
+          for attempt in $(seq 1 120); do
+            if curl -fsS http://127.0.0.1:3200/api/health > /tmp/prosmet-health.json; then
+              cat /tmp/prosmet-health.json
+              exit 0
+            fi
+            sleep 2
+          done
+          exit 1
+
+      - name: Materialize Caddy
+        run: |
+          set -Eeuo pipefail
+          bash deployment/provision-https.sh kolibriai.online 3200 || true
+          test -x "$HOME/.prosmet/caddy/bin/prosmet-caddy"
+
+      - name: Apply narrow privilege
+        run: |
+          set -Eeuo pipefail
+          CADDY="$HOME/.prosmet/caddy/bin/prosmet-caddy"
+          SETCAP="$(command -v setcap)"
+          SYSCTL="$(command -v sysctl)"
+
+          if sudo -n "$SETCAP" cap_net_bind_service=+ep "$CADDY"; then
+            echo "setcap_applied=true"
+          elif sudo -n setcap cap_net_bind_service=+ep "$CADDY"; then
+            echo "setcap_applied=true"
+          elif sudo -n "$SYSCTL" -w net.ipv4.ip_unprivileged_port_start=80; then
+            echo "sysctl_applied=true"
+          elif sudo -n sysctl -w net.ipv4.ip_unprivileged_port_start=80; then
+            echo "sysctl_applied=true"
+          elif "$SETCAP" cap_net_bind_service=+ep "$CADDY"; then
+            echo "direct_setcap_applied=true"
+          else
+            echo "No applicable privilege path succeeded" >&2
+            sudo -n -l || true
+            getcap "$CADDY" || true
+            exit 1
+          fi
+
+          getcap "$CADDY" || true
+          echo "low_port_start=$(cat /proc/sys/net/ipv4/ip_unprivileged_port_start)"
+
+      - name: Start and verify HTTPS edge
+        env:
+          PROSMET_EXPECTED_RELEASE_SHA: ""
+        run: |
+          set -Eeuo pipefail
+          bash deployment/recover-https-edge.sh kolibriai.online 3200
+          curl -fsS --max-time 20 https://kolibriai.online/api/health | tee /tmp/public-health.json
+          grep -q '"ok":true' /tmp/public-health.json
+          curl -fsSI --max-time 20 https://kolibriai.online/ | tee /tmp/public-headers.txt
+          grep -qi '^strict-transport-security:.*max-age=31536000' /tmp/public-headers.txt
