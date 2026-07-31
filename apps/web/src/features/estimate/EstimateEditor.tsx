@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import type { Estimate, EstimateItem } from "@prosmet/contracts";
 import {
   ArrowLeftIcon,
-  CheckIcon,
   CopyIcon,
   FileSpreadsheetIcon,
   FileTextIcon,
@@ -230,7 +229,18 @@ function MobileEditor(props: EditorProps) {
             <div className="mobile-estimate-items">
               {section.items.map((item, index) => (
                 <article key={item.id} className="mobile-estimate-item">
-                  <div className="mobile-item-head"><span>{index + 1}</span><input id={`mobile-name-${item.id}`} name={`mobile-name-${item.id}`} value={item.name} onChange={(event) => updateItem(section.id, item.id, { name: event.target.value })} /><button type="button" onClick={() => removeItem(section.id, item.id)} aria-label={`Удалить ${item.name}`}><Trash2Icon /></button></div>
+                  <div className="mobile-item-head">
+                    <span>{index + 1}</span>
+                    <textarea
+                      id={`mobile-name-${item.id}`}
+                      name={`mobile-name-${item.id}`}
+                      aria-label={`Название позиции ${index + 1}`}
+                      rows={2}
+                      value={item.name}
+                      onChange={(event) => updateItem(section.id, item.id, { name: event.target.value })}
+                    />
+                    <button type="button" onClick={() => removeItem(section.id, item.id)} aria-label={`Удалить ${item.name}`}><Trash2Icon /></button>
+                  </div>
                   <div className="mobile-item-fields">
                     <label><span>Количество</span><div><input id={`mobile-quantity-${item.id}`} name={`mobile-quantity-${item.id}`} type="number" min="0" inputMode="decimal" value={item.quantity} onChange={(event) => updateItem(section.id, item.id, { quantity: Math.max(0, Number(event.target.value)) })} /><b>{item.unit}</b></div></label>
                     <label><span>Цена</span><div><input id={`mobile-price-${item.id}`} name={`mobile-price-${item.id}`} type="number" min="0" inputMode="decimal" value={item.unitPrice} onChange={(event) => updateItem(section.id, item.id, { unitPrice: Math.max(0, Number(event.target.value)) })} /><b>₽</b></div></label>
