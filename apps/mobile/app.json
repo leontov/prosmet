@@ -6,9 +6,21 @@
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
+    "plugins": [
+      [
+        "expo-secure-store",
+        {
+          "configureAndroidBackup": true,
+          "faceIDPermission": "Разрешить Просметчику защищать данные администратора с помощью Face ID."
+        }
+      ]
+    ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "online.kolibriai.prosmet"
+      "bundleIdentifier": "online.kolibriai.prosmet",
+      "config": {
+        "usesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "online.kolibriai.prosmet",
