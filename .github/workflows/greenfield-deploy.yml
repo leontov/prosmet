@@ -31,6 +31,7 @@ jobs:
       CI: "1"
       RELEASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
       RELEASE_DIR: $HOME/.prosmet-greenfield/releases/${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
+      AGENT_ENV_FILE: $HOME/.prosmet-greenfield/agent-admin.env
     steps:
       - name: Verify trusted runner and release source
         run: |
@@ -56,6 +57,21 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - name: Prepare persistent agent control plane
+        run: |
+          set -Eeuo pipefail
+          mkdir -p "$HOME/.prosmet-greenfield" "$HOME/.prosmet-greenfield/workspaces"
+          chmod 700 "$HOME/.prosmet-greenfield"
+          if [ ! -s "$AGENT_ENV_FILE" ]; then
+            umask 077
+            ADMIN_TOKEN="$(node -e 'console.log(require("node:crypto").randomBytes(32).toString("hex"))')"
+            CONFIG_KEY="$(node -e 'console.log(require("node:crypto").randomBytes(32).toString("hex"))')"
+            printf 'PROSMET_ADMIN_TOKEN=%s\nPROSMET_AGENT_CONFIG_KEY=%s\n' "$ADMIN_TOKEN" "$CONFIG_KEY" > "$AGENT_ENV_FILE"
+          fi
+          chmod 600 "$AGENT_ENV_FILE"
+          grep -q '^PROSMET_ADMIN_TOKEN=' "$AGENT_ENV_FILE"
+          grep -q '^PROSMET_AGENT_CONFIG_KEY=' "$AGENT_ENV_FILE"
+
       - name: Install and verify exact main SHA
         run: |
           set -Eeuo pipefail
@@ -69,12 +85,15 @@ jobs:
         run: |
           set -Eeuo pipefail
           mkdir -p "$RELEASE_DIR"
-          rm -rf "$RELEASE_DIR/dist"
+          rm -rf "$RELEASE_DIR/dist" "$RELEASE_DIR/server"
           cp -a apps/web/dist "$RELEASE_DIR/dist"
+          cp -a apps/web/server "$RELEASE_DIR/server"
           cp apps/web/server.mjs "$RELEASE_DIR/server.mjs"
+          test -f "$RELEASE_DIR/server/agent-service.mjs"
+          test -f "$RELEASE_DIR/server/agent-adapters.mjs"
           printf '%s\n' "$RELEASE_SHA" > "$RELEASE_DIR/SHA"
           cat > "$RELEASE_DIR/release.json" <<EOF
-          {"releaseSha":"$RELEASE_SHA","repository":"${{ github.repository }}","event":"${{ github.event_name }}","runId":"${{ github.run_id }}"}
+          {"releaseSha":"$RELEASE_SHA","repository":"${{ github.repository }}","event":"${{ github.event_name }}","runId":"${{ github.run_id }}","agentRouter":true}
           EOF
 
       - name: Switch persistent process on port 3200
@@ -89,12 +108,26 @@ jobs:
           mkdir -p "$HOME/.prosmet-greenfield"
           cd "$RELEASE_DIR"
 
+          set -a
+          . "$AGENT_ENV_FILE"
+          set +a
+          export PROSMET_AGENT_CONFIG_FILE="$HOME/.prosmet-greenfield/agents.json"
+          if command -v codex >/dev/null 2>&1; then
+            export PROSMET_CODEX_ENABLED=1
+            export PROSMET_CODEX_CWD="$HOME/.prosmet-greenfield/workspaces"
+          fi
+
           # The self-hosted runner terminates descendants that retain its tracking
           # marker during post-job cleanup. Remove that marker before spawning the
           # production server so it remains alive after the deployment job exits.
           nohup env -u RUNNER_TRACKING_ID \
             PORT=3200 \
             PROSMET_RELEASE_SHA="$RELEASE_SHA" \
+            PROSMET_AGENT_CONFIG_FILE="$PROSMET_AGENT_CONFIG_FILE" \
+            PROSMET_ADMIN_TOKEN="$PROSMET_ADMIN_TOKEN" \
+            PROSMET_AGENT_CONFIG_KEY="$PROSMET_AGENT_CONFIG_KEY" \
+            PROSMET_CODEX_ENABLED="${PROSMET_CODEX_ENABLED:-}" \
+            PROSMET_CODEX_CWD="${PROSMET_CODEX_CWD:-}" \
             node server.mjs \
             </dev/null > "$HOME/.prosmet-greenfield/production.log" 2>&1 &
           PID=$!
@@ -108,13 +141,17 @@ jobs:
             exit 1
           fi
 
-      - name: Verify immediate local release
+      - name: Verify immediate local release and agent registry
         run: |
           set -Eeuo pipefail
           for attempt in $(seq 1 40); do
             HEALTH="$(curl -fsS http://127.0.0.1:3200/api/health || true)"
-            if printf '%s' "$HEALTH" | grep -q "$RELEASE_SHA" && printf '%s' "$HEALTH" | grep -q '"ui":"greenfield"'; then
+            if printf '%s' "$HEALTH" | grep -q "$RELEASE_SHA" \
+              && printf '%s' "$HEALTH" | grep -q '"ui":"greenfield"' \
+              && printf '%s' "$HEALTH" | grep -q 'node-static-plus-agent-router'; then
               printf '%s\n' "$HEALTH" > local-health-immediate.json
+              curl -fsS http://127.0.0.1:3200/api/agents > local-agents-immediate.json
+              grep -q '"agents"' local-agents-immediate.json
               exit 0
             fi
             sleep 1
@@ -127,8 +164,12 @@ jobs:
           set -Eeuo pipefail
           for attempt in $(seq 1 40); do
             HEALTH="$(curl -fsS https://kolibriai.online/api/health || true)"
-            if printf '%s' "$HEALTH" | grep -q "$RELEASE_SHA" && printf '%s' "$HEALTH" | grep -q '"ui":"greenfield"'; then
+            if printf '%s' "$HEALTH" | grep -q "$RELEASE_SHA" \
+              && printf '%s' "$HEALTH" | grep -q '"ui":"greenfield"' \
+              && printf '%s' "$HEALTH" | grep -q 'node-static-plus-agent-router'; then
               printf '%s\n' "$HEALTH" > public-health-immediate.json
+              curl -fsS https://kolibriai.online/api/agents > public-agents-immediate.json
+              grep -q '"agents"' public-agents-immediate.json
               curl -fsSI https://kolibriai.online/ > public-headers-immediate.txt
               curl -fsSI http://kolibriai.online/ > public-redirect-immediate.txt || true
               exit 0
@@ -151,7 +192,9 @@ jobs:
           name: prosmet-greenfield-deploy-${{ github.run_id }}
           path: |
             local-health-immediate.json
+            local-agents-immediate.json
             public-health-immediate.json
+            public-agents-immediate.json
             public-headers-immediate.txt
             public-redirect-immediate.txt
             apps/web/playwright-report
@@ -189,11 +232,15 @@ jobs:
           PUBLIC_HEALTH="$(curl -fsS https://kolibriai.online/api/health)"
           printf '%s\n' "$LOCAL_HEALTH" > local-health-post-cleanup.json
           printf '%s\n' "$PUBLIC_HEALTH" > public-health-post-cleanup.json
+          curl -fsS http://127.0.0.1:3200/api/agents > local-agents-post-cleanup.json
+          curl -fsS https://kolibriai.online/api/agents > public-agents-post-cleanup.json
 
           printf '%s' "$LOCAL_HEALTH" | grep -q "$RELEASE_SHA"
           printf '%s' "$LOCAL_HEALTH" | grep -q '"ui":"greenfield"'
           printf '%s' "$PUBLIC_HEALTH" | grep -q "$RELEASE_SHA"
           printf '%s' "$PUBLIC_HEALTH" | grep -q '"ui":"greenfield"'
+          grep -q '"agents"' local-agents-post-cleanup.json
+          grep -q '"agents"' public-agents-post-cleanup.json
           curl -fsSI https://kolibriai.online/ > public-headers-post-cleanup.txt
 
       - name: Upload post-cleanup persistence evidence
@@ -205,7 +252,9 @@ jobs:
             post-cleanup-process.txt
             post-cleanup-environment.txt
             local-health-post-cleanup.json
+            local-agents-post-cleanup.json
             public-health-post-cleanup.json
+            public-agents-post-cleanup.json
             public-headers-post-cleanup.txt
           if-no-files-found: warn
           retention-days: 30
@@ -220,7 +269,7 @@ jobs:
       RELEASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
       PROSMET_BASE_URL: https://kolibriai.online
     steps:
-      - name: Resolve public DNS and verify HTTPS from outside Primary
+      - name: Resolve public DNS, HTTPS and agent registry from outside Primary
         run: |
           set -Eeuo pipefail
           getent ahostsv4 kolibriai.online | tee external-dns.txt
@@ -231,6 +280,9 @@ jobs:
             https://kolibriai.online/api/health > external-public-health.json
           grep -q "$RELEASE_SHA" external-public-health.json
           grep -q '"ui":"greenfield"' external-public-health.json
+          grep -q 'node-static-plus-agent-router' external-public-health.json
+          curl -fsS https://kolibriai.online/api/agents > external-public-agents.json
+          grep -q '"agents"' external-public-agents.json
           curl -fsSI https://kolibriai.online/ > external-public-headers.txt
           curl -fsSI http://kolibriai.online/ > external-public-redirect.txt || true
 
@@ -261,10 +313,13 @@ jobs:
           curl --fail --show-error --silent \
             --retry 6 --retry-delay 5 --retry-all-errors \
             https://kolibriai.online/api/health > external-public-health-delayed.json
+          curl --fail --show-error --silent \
+            https://kolibriai.online/api/agents > external-public-agents-delayed.json
           grep -q "$RELEASE_SHA" external-public-health-delayed.json
           grep -q '"ui":"greenfield"' external-public-health-delayed.json
+          grep -q '"agents"' external-public-agents-delayed.json
           cat > production-acceptance.json <<EOF
-          {"status":"PASS","releaseSha":"$RELEASE_SHA","ui":"greenfield","origin":"https://kolibriai.online","survivedRunnerCleanup":true,"externalDns":true,"externalHttps":true,"desktopChromium":true,"mobileChromium":true,"runId":"${{ github.run_id }}"}
+          {"status":"PASS","releaseSha":"$RELEASE_SHA","ui":"greenfield","origin":"https://kolibriai.online","survivedRunnerCleanup":true,"externalDns":true,"externalHttps":true,"agentRegistry":true,"desktopChromium":true,"mobileChromium":true,"runId":"${{ github.run_id }}"}
           EOF
 
       - name: Upload final external production evidence
@@ -276,6 +331,8 @@ jobs:
             external-dns.txt
             external-public-health.json
             external-public-health-delayed.json
+            external-public-agents.json
+            external-public-agents-delayed.json
             external-public-headers.txt
             external-public-redirect.txt
             production-acceptance.json
