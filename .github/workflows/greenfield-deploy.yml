@@ -14,12 +14,15 @@ concurrency:
 
 jobs:
   deploy:
-    runs-on: [self-hosted, prosmet-primary]
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 55
     env:
       CI: "1"
       RELEASE_DIR: $HOME/.prosmet-greenfield/releases/${{ github.sha }}
     steps:
+      - name: Verify trusted runner
+        run: test "${{ runner.name }}" = "prosmet-primary"
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -56,6 +59,7 @@ jobs:
             if [ -n "$PIDS" ]; then kill $PIDS || true; fi
           fi
           sleep 1
+          mkdir -p "$HOME/.prosmet-greenfield"
           cd "$RELEASE_DIR"
           PORT=3200 PROSMET_RELEASE_SHA="${GITHUB_SHA}" nohup node server.mjs > "$HOME/.prosmet-greenfield/production.log" 2>&1 &
           echo $! > "$HOME/.prosmet-greenfield/production.pid"
