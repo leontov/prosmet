@@ -71,7 +71,7 @@ function runProcess(input: {
     let stdout = "";
     let stderr = "";
     let settled = false;
-    let forcedKill: NodeJS.Timeout | undefined;
+    let forcedKill: ReturnType<typeof setTimeout> | undefined;
 
     const append = (current: string, chunk: Buffer) => {
       const next = current + chunk.toString("utf8");
@@ -89,7 +89,6 @@ function runProcess(input: {
       settled = true;
       child.kill("SIGTERM");
       forcedKill = setTimeout(() => child.kill("SIGKILL"), 3_000);
-      forcedKill.unref();
       reject(reason);
     };
 
@@ -97,7 +96,6 @@ function runProcess(input: {
       () => terminate(new Error("Codex CLI превысил допустимое время выполнения.")),
       input.timeout ?? timeoutMs()
     );
-    timer.unref();
 
     const abort = () => terminate(new DOMException("Codex run cancelled", "AbortError"));
     if (input.signal?.aborted) abort();
