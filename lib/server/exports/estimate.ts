@@ -1,7 +1,25 @@
 import { Buffer } from "node:buffer";
-import PdfPrinter from "pdfmake";
+import { createRequire } from "node:module";
 import type { Content, TDocumentDefinitions } from "pdfmake/interfaces";
 import { calculateEstimate, type EstimateDraft } from "@/lib/domain/estimate";
+
+type PdfKitDocument = {
+  on: {
+    (event: "data", listener: (chunk: Buffer) => void): PdfKitDocument;
+    (event: "end", listener: () => void): PdfKitDocument;
+    (event: "error", listener: (error: Error) => void): PdfKitDocument;
+  };
+  end: () => void;
+};
+
+type PdfPrinterInstance = {
+  createPdfKitDocument: (definition: TDocumentDefinitions) => PdfKitDocument;
+};
+
+type PdfPrinterConstructor = new (fonts: Record<string, unknown>) => PdfPrinterInstance;
+
+const require = createRequire(import.meta.url);
+const PdfPrinter = require("pdfmake") as PdfPrinterConstructor;
 
 function safeName(value: string) {
   return value
