@@ -36,10 +36,10 @@ const config: PlaywrightTestConfig = {
   ],
   ...(external ? {} : {
     webServer: {
-      command: `PORT=${port} PROSMET_RELEASE_SHA=e2e node server.mjs`,
+      command: `PORT=${port} node e2e/harness.mjs`,
       url: `http://127.0.0.1:${port}/api/health`,
-      reuseExistingServer: true,
-      timeout: 30_000
+      reuseExistingServer: false,
+      timeout: 45_000
     }
   })
 };
