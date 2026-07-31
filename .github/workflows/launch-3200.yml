@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   verify-and-deploy:
-    name: Verify main and deploy to Primary 3200
+    name: Verify universal main and deploy to Primary 3200
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 150
     env:
@@ -27,6 +27,7 @@ jobs:
       PROSMET_PUBLIC_ORIGIN: https://kolibriai.online
       NEXT_PUBLIC_APP_ORIGIN: https://kolibriai.online
       PROSMET_PUBLIC_IP: 78.17.4.108
+      PROSMET_RUST_ENGINE_BIN: /home/actions-runner/.prosmet/bin/prosmet-engine-cli
     steps:
       - name: Verify the only production runner
         run: |
@@ -49,13 +50,48 @@ jobs:
           node-version: "22.16.0"
           cache: npm
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
       - name: Prepare evidence
         run: mkdir -p artifacts/logs artifacts/database artifacts/screenshots artifacts/release artifacts/https
 
-      - name: Install exact locked dependencies
+      - name: Install exact locked web dependencies
         run: |
           set -o pipefail
           npm ci --no-audit --no-fund 2>&1 | tee artifacts/logs/npm-ci.log
+
+      - name: Install exact locked mobile dependencies
+        run: |
+          set -o pipefail
+          npm ci --no-audit --no-fund --legacy-peer-deps --prefix apps/mobile 2>&1 | tee artifacts/logs/mobile-npm-ci.log
+
+      - name: Install exact locked desktop dependencies
+        run: |
+          set -o pipefail
+          npm ci --no-audit --no-fund --prefix apps/desktop 2>&1 | tee artifacts/logs/desktop-npm-ci.log
+
+      - name: Verify committed universal sources
+        run: |
+          set -Eeuo pipefail
+          npm run cleanup:universal
+          git diff --exit-code -- \
+            components/app/premium-chat-workspace.tsx \
+            components/app/premium-prosmet-application.tsx \
+            lib/server/agents/provider-executor.ts \
+            lib/server/services/providers.ts \
+            components/tools/service-settings.tsx \
+            deployment/migrate-postgres.mjs
+
+      - name: Verify and install authoritative Rust engine
+        run: |
+          set -o pipefail
+          cargo fmt --all --check 2>&1 | tee artifacts/logs/rustfmt.log
+          cargo test --locked -p prosmet-engine 2>&1 | tee artifacts/logs/rust-tests.log
+          cargo metadata --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --format-version 1 --no-deps > artifacts/logs/desktop-metadata.json
+          bash deployment/install-rust-engine.sh 2>&1 | tee artifacts/logs/rust-engine.log
 
       - name: Start persistent PostgreSQL
         run: |
@@ -125,10 +161,11 @@ jobs:
           set -o pipefail
           npm run source:contract 2>&1 | tee artifacts/logs/source-contract.log
 
-      - name: Typecheck
+      - name: Web and mobile typecheck
         run: |
           set -o pipefail
           npm run typecheck 2>&1 | tee artifacts/logs/typecheck.log
+          npm run mobile:typecheck 2>&1 | tee artifacts/logs/mobile-typecheck.log
 
       - name: Unit tests
         run: |
@@ -293,6 +330,8 @@ jobs:
             "tls": "Caddy automatic HTTPS",
             "workspaceService": "PostgreSQL tenant scoped",
             "providerService": "encrypted server side",
+            "rustEngine": "authoritative",
+            "mobileTypecheck": true,
             "verifiedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           }
           JSON
