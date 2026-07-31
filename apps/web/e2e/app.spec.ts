@@ -47,15 +47,16 @@ test("greenfield shell, navigation and estimate editor are native to each viewpo
   await page.getByRole("button", { name: /Механизированная штукатурка/ }).click();
   const editor = page.getByRole("dialog", { name: "Редактор сметы" });
   await expect(editor).toBeVisible({ timeout: 20_000 });
-  await expect(editor.getByDisplayValue("Механизированная штукатурка квартиры")).toBeVisible();
 
   if (testInfo.project.name === "desktop-chromium") {
-    await expect(editor.getByLabel("Итого по смете")).toHaveCount(0);
+    await expect(editor.getByDisplayValue("Механизированная штукатурка квартиры")).toBeVisible();
     const desktopEditor = page.getByTestId("desktop-estimate-editor");
     await expect(desktopEditor).toBeVisible();
+    await expect(editor.locator(".estimate-summary")).toBeVisible();
     const editorBox = await desktopEditor.boundingBox();
     expect(editorBox?.width ?? 0).toBeGreaterThan(1200);
   } else {
+    await expect(editor.getByRole("heading", { name: "Механизированная штукатурка квартиры" })).toBeVisible();
     const mobileEditor = page.getByTestId("mobile-estimate-editor");
     await expect(mobileEditor).toBeVisible();
     const card = editor.locator(".mobile-estimate-item").first();
