@@ -261,11 +261,18 @@ test("streaming chat creates a compact estimate card and premium document worksp
   const preview = page.getByTestId("estimate-revision-preview");
   await expect(preview).toBeVisible({ timeout: 30_000 });
   await expect(preview.getByText(/Версия 2/)).toBeVisible();
-  await expect(page.getByTestId("estimate-workspace-layer")).toBeVisible();
+  const workspaceLayer = page.getByTestId("estimate-workspace-layer");
+  await expect(workspaceLayer).toBeVisible();
+  await expect(page.locator("body")).toHaveAttribute("data-prosmet-estimate-open", "true");
 
   if (testInfo.project.name === "desktop-chromium") {
     await expect(page.locator('[data-testid="app-sidebar"]:visible')).toHaveCount(1);
-    await expect(composer(page)).not.toBeVisible();
+    const workspaceBox = await workspaceLayer.boundingBox();
+    const overlayBox = await overlay.boundingBox();
+    expect(workspaceBox).not.toBeNull();
+    expect(overlayBox).not.toBeNull();
+    expect(workspaceBox?.width ?? 0).toBeGreaterThan(900);
+    expect(overlayBox?.width ?? 0).toBeGreaterThan(900);
   }
 
   expect(relevantRuntimeErrors(runtimeErrors)).toEqual([]);
