@@ -140,6 +140,7 @@ class CodexRpcClient {
     this.sequence = 0;
     this.pending = new Map();
     this.notificationHandlers = new Set();
+    this.exitHandlers = new Set();
     this.stderr = [];
     this.closed = false;
     this.child = null;
@@ -154,7 +155,8 @@ class CodexRpcClient {
     this.child = child;
 
     const abort = () => {
-      this.failAll(this.signal?.reason || new Error("Codex request aborted"));
+      const error = this.signal?.reason instanceof Error ? this.signal.reason : new Error("Codex request aborted");
+      this.handleExit(error);
       child.kill("SIGTERM");
     };
     this.abort = abort;
@@ -167,11 +169,10 @@ class CodexRpcClient {
       this.stderr.push(String(chunk));
       if (this.stderr.length > 30) this.stderr.shift();
     });
-    child.on("error", (error) => this.failAll(error));
+    child.on("error", (error) => this.handleExit(error));
     child.on("exit", (code, signalName) => {
-      if (!this.closed && this.pending.size) {
-        this.failAll(new Error(`Codex App Server exited (${code ?? signalName ?? "unknown"}): ${this.stderr.join("").slice(-2000)}`));
-      }
+      if (this.closed) return;
+      this.handleExit(new Error(`Codex App Server exited (${code ?? signalName ?? "unknown"}): ${this.stderr.join("").slice(-2000)}`));
     });
 
     await this.request("initialize", {
@@ -222,7 +223,12 @@ class CodexRpcClient {
     const id = ++this.sequence;
     return new Promise((resolve, reject) => {
       this.pending.set(String(id), { resolve, reject });
-      this.write({ method, id, params });
+      try {
+        this.write({ method, id, params });
+      } catch (error) {
+        this.pending.delete(String(id));
+        reject(error);
+      }
     });
   }
 
@@ -235,6 +241,16 @@ class CodexRpcClient {
     return () => this.notificationHandlers.delete(handler);
   }
 
+  onExit(handler) {
+    this.exitHandlers.add(handler);
+    return () => this.exitHandlers.delete(handler);
+  }
+
+  handleExit(error) {
+    this.failAll(error);
+    for (const handler of this.exitHandlers) handler(error);
+  }
+
   failAll(error) {
     for (const pending of this.pending.values()) pending.reject(error);
     this.pending.clear();
@@ -243,6 +259,8 @@ class CodexRpcClient {
   close() {
     this.closed = true;
     this.signal?.removeEventListener("abort", this.abort);
+    this.notificationHandlers.clear();
+    this.exitHandlers.clear();
     try { this.child?.stdin?.end(); } catch {}
     try { this.child?.kill("SIGTERM"); } catch {}
   }
@@ -257,8 +275,13 @@ function codexPrompt(messages, systemPrompt) {
 
 async function invokeCodexAppServer(agent, messages, signal) {
   const client = new CodexRpcClient(agent, signal);
+  let rejectCompletion = null;
+  let stopNotifications = () => {};
+  let stopExit = () => {};
   const timeout = setTimeout(() => {
-    client.failAll(new Error(`Codex App Server timed out after ${agent.timeoutMs} ms`));
+    const error = new Error(`Codex App Server timed out after ${agent.timeoutMs} ms`);
+    rejectCompletion?.(error);
+    client.failAll(error);
     client.close();
   }, agent.timeoutMs);
 
@@ -278,8 +301,13 @@ async function invokeCodexAppServer(agent, messages, signal) {
     let completedItemText = "";
     let completionError = null;
     let completeTurn;
-    const completed = new Promise((resolve, reject) => { completeTurn = { resolve, reject }; });
-    const stop = client.onNotification((message) => {
+    const completed = new Promise((resolve, reject) => {
+      rejectCompletion = reject;
+      completeTurn = { resolve, reject };
+    });
+
+    stopExit = client.onExit((error) => completeTurn.reject(error));
+    stopNotifications = client.onNotification((message) => {
       const params = message.params || {};
       if (message.method === "item/agentMessage/delta" && params.threadId === threadId && typeof params.delta === "string") {
         streamedText += params.delta;
@@ -303,13 +331,14 @@ async function invokeCodexAppServer(agent, messages, signal) {
       outputSchema: agentResponseJsonSchema
     });
     await completed;
-    stop();
 
     const raw = String(completedItemText || streamedText).trim();
     if (!raw) throw new Error("Codex completed without an agent message");
     return normalizeAgentEnvelope(parseEnvelopeText(raw));
   } finally {
     clearTimeout(timeout);
+    stopNotifications();
+    stopExit();
     client.close();
   }
 }
