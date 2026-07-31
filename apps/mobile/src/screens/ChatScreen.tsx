@@ -1,4 +1,5 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useRef } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import {
   AuiIf,
   ComposerPrimitive,
@@ -8,7 +9,7 @@ import {
 import { GlobeGlyph, ImageGlyph, MicGlyph, PenGlyph, PlusGlyph, VoiceGlyph } from "../ReferenceIcons";
 import { theme } from "../theme";
 
-type Props = { hasEstimate: boolean; onOpenEstimate: () => void };
+type Props = { hasEstimate: boolean; onOpenEstimate: () => void; focusRequest: number };
 
 type QuickAction = {
   id: "image" | "write" | "search";
@@ -34,7 +35,13 @@ const quickActions: QuickAction[] = [
   }
 ];
 
-export function ChatScreen({ hasEstimate, onOpenEstimate }: Props) {
+export function ChatScreen({ hasEstimate, onOpenEstimate, focusRequest }: Props) {
+  const inputRef = useRef<TextInput | null>(null);
+
+  useEffect(() => {
+    if (focusRequest > 0) inputRef.current?.focus();
+  }, [focusRequest]);
+
   return (
     <View style={styles.screen}>
       <ThreadPrimitive.Root style={styles.thread}>
@@ -80,16 +87,17 @@ export function ChatScreen({ hasEstimate, onOpenEstimate }: Props) {
 
         <View style={styles.footer}>
           <ComposerPrimitive.Root style={styles.composer}>
-            <Pressable style={styles.composerUtility} accessibilityRole="button" accessibilityLabel="Добавить">
+            <Pressable style={styles.composerUtility} accessibilityRole="button" accessibilityLabel="Добавить запрос" onPress={() => inputRef.current?.focus()}>
               <PlusGlyph />
             </Pressable>
             <ComposerPrimitive.Input
+              ref={inputRef}
               style={styles.input}
               placeholder="Спросить Просметчик..."
               placeholderTextColor="#9a9b9e"
               multiline
             />
-            <Pressable style={styles.composerMic} accessibilityRole="button" accessibilityLabel="Голосовой ввод">
+            <Pressable style={styles.composerMic} accessibilityRole="button" accessibilityLabel="Голосовой ввод" onPress={() => inputRef.current?.focus()}>
               <MicGlyph />
             </Pressable>
             <ComposerPrimitive.Send style={styles.send} accessibilityLabel="Отправить">
