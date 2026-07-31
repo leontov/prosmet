@@ -12,10 +12,12 @@ const forbid = (source, token, scope) => {
 };
 
 const required = [
-  "components/app/prosmet-application.tsx",
-  "components/app/estimate-workspace-editor.tsx",
-  "app/estimate-workspace.css",
-  "e2e/compact-estimate-workspace.spec.ts"
+  "components/app/premium-prosmet-application.tsx",
+  "components/app/premium-estimate-workspace-editor.tsx",
+  "app/premium-product.css",
+  "app/premium-product-fixes.css",
+  "e2e/compact-estimate-workspace.spec.ts",
+  "e2e/premium-ui.spec.ts"
 ];
 
 for (const path of required) {
@@ -26,10 +28,10 @@ for (const path of required) {
   }
 }
 
-const application = await read("components/app/prosmet-application.tsx");
+const application = await read("components/app/premium-prosmet-application.tsx");
 for (const token of [
-  "ChatWorkspace",
-  "EstimateWorkspaceEditor",
+  "PremiumChatWorkspace",
+  "PremiumEstimateWorkspaceEditor",
   'document.addEventListener("click", handleOpen, true)',
   "prosmetSupportingArtifact",
   'body.dataset.prosmetEstimateOpen = "true"',
@@ -41,52 +43,86 @@ for (const token of [
   "openEstimateEmail",
   "copyEstimateSummary"
 ]) {
-  need(application, token, "compact-estimate-application");
+  need(application, token, "premium-estimate-application");
 }
 for (const token of ["AssistantRuntimeProvider", "useAgUiRuntime", "useLocalRuntime"]) {
   forbid(application, token, "single-chat-runtime");
 }
 
-const editor = await read("components/app/estimate-workspace-editor.tsx");
+const editor = await read("components/app/premium-estimate-workspace-editor.tsx");
 for (const token of [
   'data-testid="estimate-workspace-layer"',
   'data-testid="estimate-document-overlay"',
   'data-testid="estimate-document-canvas"',
   'data-testid="estimate-revision-preview"',
   'aria-label="Редактирование позиции"',
-  "Автосохранено",
+  'aria-label="Итоги сметы"',
+  "Сохранить версию",
+  "Утвердить",
+  "Передать клиенту",
   "Добавить позицию",
   "Добавить раздел",
   "Технология и подробности расчёта",
   "Скачать PDF",
   "Скачать Excel",
-  "Поделиться"
+  "prosmet-v2-mobile-row",
+  "prosmet-v2-mobile-actionbar"
 ]) {
-  need(editor, token, "compact-estimate-editor");
+  need(editor, token, "premium-v2-estimate-editor");
+}
+for (const token of [
+  "prosmet-premium-estimate-paper",
+  "prosmet-premium-desktop-row",
+  "prosmet-estimate-toolbar",
+  "prosmet-primary-action"
+]) {
+  forbid(editor, token, "legacy-estimate-editor");
 }
 
-const css = await read("app/estimate-workspace.css");
+const css = `${await read("app/premium-product.css")}\n${await read("app/premium-product-fixes.css")}`;
 for (const token of [
   '[data-prosmet-supporting-artifact="true"]',
-  ".prosmet-estimate-sheet",
-  ".prosmet-row-sheet",
+  ".prosmet-v2-estimate-layer",
+  ".prosmet-v2-estimate-sheet",
+  ".prosmet-v2-estimate-layout",
+  ".prosmet-v2-estimate-summary",
+  ".prosmet-v2-mobile-row",
+  ".prosmet-v2-mobile-actionbar",
+  ".prosmet-v2-row-sheet",
+  "grid-template-columns: minmax(0, 884px) 292px",
+  "min-height: 116px",
+  "max-width: 720px"
+]) {
+  need(css, token, "responsive-premium-v2-workspace");
+}
+for (const token of [
   'body[data-prosmet-estimate-open="true"] main',
   "--prosmet-chat-width",
-  "--prosmet-sidebar-width"
+  ".prosmet-estimate-sheet",
+  ".prosmet-row-sheet"
 ]) {
-  need(css, token, "responsive-estimate-workspace");
+  forbid(css, token, "legacy-responsive-workspace");
 }
 
-const e2e = await read("e2e/compact-estimate-workspace.spec.ts");
+const compactE2e = await read("e2e/compact-estimate-workspace.spec.ts");
 for (const token of [
   "compact estimate card opens the focused desktop or mobile workspace",
   "estimate-workspace-layer",
   "data-prosmet-estimate-open",
   "Редактирование позиции",
-  "Автосохранено",
   "estimate-workspace-${testInfo.project.name}.png"
 ]) {
-  need(e2e, token, "compact-estimate-e2e");
+  need(compactE2e, token, "estimate-workspace-e2e");
+}
+
+const premiumE2e = await read("e2e/premium-ui.spec.ts");
+for (const token of [
+  "distinct desktop and mobile product",
+  "height).toBeGreaterThanOrEqual(100)",
+  "rowTitleSize).toBeGreaterThanOrEqual(16)",
+  "prosmet-v2-mobile-nav"
+]) {
+  need(premiumE2e, token, "premium-v2-visual-e2e");
 }
 
 if (failures.length) {
@@ -98,12 +134,13 @@ console.log(
   JSON.stringify(
     {
       status: "PASS",
-      contract: "compact-estimate-workspace-v1",
-      desktop: "sidebar + estimate document + narrow chat",
-      mobile: "estimate sheet + row bottom sheet",
-      chat: "compact card only; supporting artifacts remain hidden but persisted",
+      contract: "premium-estimate-workspace-v2",
+      desktop: "full-width document workspace plus dedicated summary rail",
+      mobile: "full-screen estimate with 100px+ cards and keyboard-safe row sheet",
+      chat: "assistant-first canvas with compact estimate artifact",
       autosave: "IndexedDB + existing outbox",
-      runtime: "single assistant-ui runtime"
+      runtime: "single assistant-ui runtime",
+      legacyCompactLayout: "deleted"
     },
     null,
     2
