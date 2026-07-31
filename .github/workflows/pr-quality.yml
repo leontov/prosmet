@@ -32,19 +32,14 @@ jobs:
           set -Eeuo pipefail
           PATCH_WORKFLOW=.github/workflows/premium-v2-hardening-codemod.yml
           if [ "$PR_NUMBER" = "21" ] && [ -f "$PATCH_WORKFLOW" ]; then
-            python <<'PY'
-          from pathlib import Path
-          import textwrap
-
-          path = Path(".github/workflows/premium-v2-hardening-codemod.yml")
-          source = path.read_text(encoding="utf-8")
-          opening = "          python <<'PY'\n"
-          closing = "\n          PY\n"
-          start = source.index(opening) + len(opening)
-          end = source.index(closing, start)
-          script = textwrap.dedent(source[start:end])
-          exec(compile(script, str(path), "exec"), {"__name__": "__main__"})
-          PY
+            awk '
+              found && $0 == "          PY" { exit }
+              found { sub(/^          /, ""); print }
+              $0 == "          python <<'"'"'PY'"'"'" { found = 1 }
+            ' "$PATCH_WORKFLOW" > /tmp/prosmet-v2-hardening.py
+            test -s /tmp/prosmet-v2-hardening.py
+            head -n 3 /tmp/prosmet-v2-hardening.py
+            python /tmp/prosmet-v2-hardening.py
             git config user.name "prosmet-ui-hardening"
             git config user.email "actions@users.noreply.github.com"
             git add -A
