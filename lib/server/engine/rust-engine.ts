@@ -1,6 +1,6 @@
 import "server-only";
 
-import { spawn } from "node:child_process";
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { access } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -52,6 +52,13 @@ export async function calculateWithRust(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error("Rust engine timeout")), timeoutMs);
   const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
+  const environment: NodeJS.ProcessEnv = {
+    NODE_ENV: process.env.NODE_ENV ?? "production",
+    PATH: process.env.PATH ?? "/usr/bin:/bin",
+    HOME: process.env.HOME ?? homedir(),
+    LANG: "C.UTF-8",
+    RUST_BACKTRACE: "0"
+  };
 
   try {
     return await new Promise<RustEstimateCalculation>((resolve, reject) => {
@@ -59,13 +66,8 @@ export async function calculateWithRust(
         stdio: ["pipe", "pipe", "pipe"],
         signal,
         shell: false,
-        env: {
-          PATH: process.env.PATH ?? "/usr/bin:/bin",
-          HOME: process.env.HOME ?? homedir(),
-          LANG: "C.UTF-8",
-          RUST_BACKTRACE: "0"
-        }
-      });
+        env: environment
+      }) as ChildProcessWithoutNullStreams;
       let stdout = "";
       let stderr = "";
       const append = (current: string, chunk: Buffer) => (current + chunk.toString("utf8")).slice(-2_000_000);
@@ -76,7 +78,7 @@ export async function calculateWithRust(
         stderr = append(stderr, chunk);
       });
       child.on("error", reject);
-      child.on("close", (code) => {
+      child.on("close", (code: number | null) => {
         if (code !== 0) {
           reject(new Error(`Rust engine exited with ${code}: ${stderr.trim() || "no diagnostics"}`));
           return;
