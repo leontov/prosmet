@@ -4,12 +4,8 @@ import { resolve } from "node:path";
 const root = process.cwd();
 const failures = [];
 const read = (path) => readFile(resolve(root, path), "utf8");
-const need = (source, token, scope) => {
-  if (!source.includes(token)) failures.push(`${scope}:missing:${token}`);
-};
-const forbid = (source, token, scope) => {
-  if (source.includes(token)) failures.push(`${scope}:forbidden:${token}`);
-};
+const need = (source, token, scope) => { if (!source.includes(token)) failures.push(`${scope}:missing:${token}`); };
+const forbid = (source, token, scope) => { if (source.includes(token)) failures.push(`${scope}:forbidden:${token}`); };
 
 for (const path of [
   "components/app/premium-chat-workspace.tsx",
@@ -17,13 +13,10 @@ for (const path of [
   "components/app/premium-prosmet-application.tsx",
   "components/app/premium-estimate-workspace-editor.tsx",
   "app/premium-product.css",
-  "e2e/premium-ui.spec.ts"
+  "e2e/premium-ui.spec.ts",
+  "docs/PREMIUM_UI_V2_BRIEF.md"
 ]) {
-  try {
-    await access(resolve(root, path));
-  } catch {
-    failures.push(`missing:${path}`);
-  }
+  try { await access(resolve(root, path)); } catch { failures.push(`missing:${path}`); }
 }
 
 const page = await read("app/page.tsx");
@@ -39,40 +32,29 @@ for (const token of [
   'data-testid="app-sidebar"',
   'data-testid="universal-chat-canvas"',
   'data-testid="workspace-overlay"',
+  "prosmet-v2-mobile-nav",
+  "prosmet-v2-sidebar",
   "Новый чат",
   "Недавние",
   "ProsmetThread"
-]) need(shell, token, "premium-shell");
-for (const token of ["IndexedDB-кэш готов", "Backend ·", "Проверяем backend"]) {
-  forbid(shell, token, "customer-shell-no-service-noise");
-}
+]) need(shell, token, "premium-v2-shell");
+for (const token of ["prosmet-premium-app-shell", "prosmet-premium-sidebar", "IndexedDB-кэш готов", "Backend ·", "Проверяем backend"]) forbid(shell, token, "legacy-shell-removed");
 
 const thread = await read("components/chat/premium-prosmet-thread.tsx");
 for (const token of [
   "Что нужно посчитать?",
   "Опишите объект и работы",
+  "prosmet-v2-suggestion",
+  "prosmet-v2-composer",
   "ComposerPrimitive.Input",
   "ActionBarPrimitive.Copy",
   "ActionBarPrimitive.Reload",
   "ActionBarPrimitive.ExportMarkdown"
-]) need(thread, token, "premium-thread");
-for (const token of [
-  "ActionBarPrimitive.Speak",
-  "FeedbackPositive",
-  "FeedbackNegative",
-  "Прочитать вслух",
-  "Хороший ответ",
-  "Плохой ответ"
-]) forbid(thread, token, "unsupported-capabilities");
+]) need(thread, token, "premium-v2-thread");
+for (const token of ["prosmet-premium-welcome", "prosmet-premium-suggestion", "ActionBarPrimitive.Speak", "FeedbackPositive", "FeedbackNegative", "Прочитать вслух", "Хороший ответ", "Плохой ответ"]) forbid(thread, token, "legacy-or-unsupported-thread");
 
 const app = await read("components/app/premium-prosmet-application.tsx");
-for (const token of [
-  "validateForApproval",
-  'status: "approved"',
-  'recordEstimatePriceStatus(approved, "approved")',
-  'recordEstimatePriceStatus(sent, "sent_to_client")',
-  "PremiumEstimateWorkspaceEditor"
-]) need(app, token, "business-actions");
+for (const token of ["validateForApproval", 'status: "approved"', 'recordEstimatePriceStatus(approved, "approved")', 'recordEstimatePriceStatus(sent, "sent_to_client")', "PremiumEstimateWorkspaceEditor"]) need(app, token, "business-actions");
 
 const editor = await read("components/app/premium-estimate-workspace-editor.tsx");
 for (const token of [
@@ -81,29 +63,39 @@ for (const token of [
   'data-testid="estimate-document-canvas"',
   'data-testid="estimate-revision-preview"',
   'aria-label="Редактирование позиции"',
+  'aria-label="Итоги сметы"',
+  "prosmet-v2-mobile-row",
+  "prosmet-v2-estimate-summary",
   "Сохранить версию",
   "Утвердить",
   "Передать клиенту",
   "Дополнительно",
   "formatDateRu",
   "pluralPositions",
-  "inputMode=\"decimal\""
-]) need(editor, token, "premium-estimate");
-for (const token of [">Готово</span>", "07/30/2026"]) forbid(editor, token, "premium-estimate-copy");
+  'inputMode="decimal"'
+]) need(editor, token, "premium-v2-estimate");
+for (const token of ["prosmet-premium-estimate-paper", "prosmet-premium-desktop-row", ">Готово</span>", "07/30/2026"]) forbid(editor, token, "legacy-estimate-removed");
 
 const styles = await read("app/premium-product.css");
 for (const token of [
-  "--prosmet-sidebar-width: 280px",
-  ".prosmet-premium-app-shell",
-  ".prosmet-premium-welcome",
-  ".prosmet-premium-estimate-paper",
-  ".prosmet-premium-mobile-actionbar",
-  ".prosmet-premium-row-sheet-footer",
-  '@media (min-width: 1024px) and (max-width: 1599px)',
-  '@media (min-width: 1600px)',
-  "font-size: 16px",
+  "PROSMET PREMIUM PRODUCT UI V2",
+  "--prosmet-sidebar-width: 264px",
+  ".prosmet-v2-app-shell",
+  ".prosmet-v2-mobile-nav",
+  ".prosmet-v2-welcome",
+  ".prosmet-v2-suggestion",
+  ".prosmet-v2-estimate-canvas",
+  ".prosmet-v2-mobile-row",
+  ".prosmet-v2-mobile-actionbar",
+  ".prosmet-v2-row-sheet-footer",
+  "min-height: 96px",
+  "font-size: 17px",
   "env(safe-area-inset-bottom)"
-]) need(styles, token, "premium-styles");
+]) need(styles, token, "premium-v2-styles");
+for (const token of ["PROSMET PREMIUM PRODUCT UI V1", ".prosmet-premium-app-shell", ".prosmet-premium-estimate-paper"]) forbid(styles, token, "legacy-css-removed");
+
+const e2e = await read("e2e/premium-ui.spec.ts");
+for (const token of ["distinct desktop and mobile product", "height).toBeGreaterThanOrEqual(88)", "height).toBeGreaterThanOrEqual(100)", "fontSize)).toBeGreaterThanOrEqual(16)", "prosmet-v2-mobile-nav"]) need(e2e, token, "premium-v2-e2e");
 
 if (failures.length) {
   console.error(JSON.stringify({ status: "FAIL", failures }, null, 2));
@@ -112,9 +104,10 @@ if (failures.length) {
 
 console.log(JSON.stringify({
   status: "PASS",
-  contract: "prosmet-premium-ui-refactor-v1",
-  shell: "assistant-first, quiet, customer-facing",
-  estimate: "responsive document workspace with separated business actions",
-  mobile: "single surface + compact metadata + keyboard-safe row sheet",
+  contract: "prosmet-premium-ui-v2-from-scratch",
+  shell: "new assistant-first desktop shell plus native mobile bottom navigation",
+  estimate: "desktop document workspace plus large mobile estimate cards",
+  mobile: "16px+ body copy, 48px+ controls, 96px task cards and 100px estimate rows",
+  legacyVisualShell: "removed",
   unsupportedCapabilities: "not rendered"
 }, null, 2));
