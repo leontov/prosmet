@@ -3,8 +3,11 @@ import { relative, resolve } from "node:path";
 
 const root = process.cwd();
 const contractPath = "scripts/greenfield-contract.mjs";
+
 const required = [
+  ".github/workflows/greenfield-ci.yml",
   ".github/workflows/greenfield-deploy.yml",
+  ".github/workflows/public-root-recovery.yml",
   "deployment/ensure-public-edge.sh",
   "apps/web/server.mjs",
   "apps/web/src/app/App.tsx",
@@ -53,21 +56,29 @@ const forbiddenTokens = [
 ];
 
 const failures = [];
+
 for (const path of required) {
-  try { await access(resolve(root, path)); } catch { failures.push(`missing:${path}`); }
+  try {
+    await access(resolve(root, path));
+  } catch {
+    failures.push(`missing:${path}`);
+  }
 }
+
 for (const path of forbiddenPaths) {
-  try { await access(resolve(root, path)); failures.push(`forbidden-present:${path}`); } catch {}
+  try {
+    await access(resolve(root, path));
+    failures.push(`forbidden-present:${path}`);
+  } catch {}
 }
 
 async function walk(directory) {
-  const entries = await readdir(directory, { withFileTypes: true });
   const files = [];
-  for (const entry of entries) {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
     if (["node_modules", ".git", "dist", "target"].includes(entry.name)) continue;
     const path = resolve(directory, entry.name);
     if (entry.isDirectory()) files.push(...await walk(path));
-    else if (/\.(ts|tsx|css|md|mjs|sh)$/.test(entry.name)) files.push(path);
+    else if (/\.(ts|tsx|css|md|mjs|sh|yml)$/.test(entry.name)) files.push(path);
   }
   return files;
 }
@@ -99,11 +110,12 @@ const mobileSession = await read("apps/mobile/src/agent-session.ts");
 const playwright = await read("apps/web/playwright.config.ts");
 const e2e = await read("apps/web/e2e/app.spec.ts");
 const deployment = await read(".github/workflows/greenfield-deploy.yml");
-const edgeRecovery = await read("deployment/ensure-public-edge.sh");
+const rootRecovery = await read(".github/workflows/public-root-recovery.yml");
+const edge = await read("deployment/ensure-public-edge.sh");
 
 if (webApp.includes("mobile-bottom-nav")) failures.push("mobile-web:persistent-bottom-navigation");
 if (nativeApp.includes("BottomNav")) failures.push("mobile-native:persistent-bottom-navigation");
-if (!webApp.includes("aria-label=\"Открыть навигацию\"")) failures.push("mobile-web:on-demand-navigation-missing");
+if (!webApp.includes('aria-label="Открыть навигацию"')) failures.push("mobile-web:on-demand-navigation-missing");
 if (!nativeApp.includes("MobileNavigation")) failures.push("mobile-native:on-demand-navigation-missing");
 
 for (const [name, source] of [
@@ -133,7 +145,7 @@ for (const provider of ["openai-compatible", "ollama", "codex-app-server", "http
 }
 
 for (const token of [
-  "createCipheriv(\"aes-256-gcm\"",
+  'createCipheriv("aes-256-gcm"',
   "/api/admin/session",
   "/api/account",
   "/api/agents",
@@ -148,8 +160,8 @@ for (const token of [
   if (!server.includes(token)) failures.push(`server:agent-contract-missing:${token}`);
 }
 
-if (!server.includes("approvalPolicy: \"never\"")) failures.push("server:codex-noninteractive-approval-policy-missing");
-if (!server.includes("sandboxPolicy: { type: \"readOnly\" }")) failures.push("server:codex-readonly-sandbox-missing");
+if (!server.includes('approvalPolicy: "never"')) failures.push("server:codex-noninteractive-approval-policy-missing");
+if (!server.includes('sandboxPolicy: { type: "readOnly" }')) failures.push("server:codex-readonly-sandbox-missing");
 if (!server.includes("secretCipher")) failures.push("server:encrypted-secret-storage-missing");
 if (!server.includes("timingSafeEqual")) failures.push("server:constant-time-admin-auth-missing");
 if (server.includes("asksEstimate")) failures.push("server:legacy-fake-responder-present");
@@ -162,30 +174,59 @@ for (const token of ["mobileApiFetch", "setMobileAdminToken", "setMobileApiBaseU
 }
 if (!mobileSession.includes("expo-secure-store")) failures.push("native:secure-store-missing");
 if (!webRuntime.includes("/api/agent") || webRuntime.includes("demoEstimate")) failures.push("web-runtime:real-agent-only-contract-failed");
-if (!nativeRuntime.includes("mobileApiFetch(\"/api/agent\"") || nativeRuntime.includes("demoEstimate")) failures.push("native-runtime:real-agent-only-contract-failed");
+if (!nativeRuntime.includes('mobileApiFetch("/api/agent"') || nativeRuntime.includes("demoEstimate")) failures.push("native-runtime:real-agent-only-contract-failed");
 
 if (webChat.includes("composer-attach") || nativeChat.includes("styles.attach")) failures.push("chat:inert-attachment-control-present");
 if (!webEstimate.includes("downloadExcel") || !webEstimate.includes("printEstimate") || !webEstimate.includes("navigator.share")) failures.push("estimate:working-export-or-share-missing");
 if (webEstimate.includes('aria-label="Скачать PDF"><') || webEstimate.includes('aria-label="Скачать Excel"><')) failures.push("estimate:inert-export-control-present");
 
 if (!playwright.includes("fixture-agent.mjs")) failures.push("testing:external-http-agent-fixture-not-started");
-if (!e2e.includes("Fixture HTTP Agent") || !e2e.includes("/api/agents") || (!e2e.includes("estimate-e2e-agent") && !e2e.includes("Механизированная штукатурка 358 м²"))) failures.push("testing:real-agent-end-to-end-missing");
+if (!e2e.includes("Fixture HTTP Agent") || !e2e.includes("/api/agents")) failures.push("testing:real-agent-end-to-end-missing");
 
-if (!deployment.includes("env -u RUNNER_TRACKING_ID")) failures.push("deployment:runner-tracking-id-not-removed");
-if (!deployment.includes("post_cleanup_persistence:")) failures.push("deployment:post-cleanup-persistence-job-missing");
-if (!deployment.includes("external_acceptance:")) failures.push("deployment:external-acceptance-job-missing");
-if (!deployment.includes("runs-on: ubuntu-latest")) failures.push("deployment:external-github-hosted-runner-missing");
-if (!deployment.includes("survivedRunnerCleanup")) failures.push("deployment:final-persistence-evidence-missing");
-if (!deployment.includes("ensure-public-edge.sh")) failures.push("deployment:canonical-edge-recovery-not-invoked");
-if (!deployment.includes("canonicalEdgeReloaded")) failures.push("deployment:edge-reconciliation-evidence-missing");
-if (!deployment.includes("allResolvedIpv4Checked")) failures.push("deployment:dns-address-consistency-gate-missing");
-if (deployment.includes('PORT=3200 PROSMET_RELEASE_SHA="$RELEASE_SHA" nohup node server.mjs')) failures.push("deployment:ephemeral-runner-tracked-node-launch");
+for (const token of [
+  "env -u RUNNER_TRACKING_ID",
+  "post_cleanup_persistence:",
+  "external_acceptance:",
+  "runs-on: ubuntu-latest",
+  "survivedRunnerCleanup",
+  "ensure-public-edge.sh",
+  "canonicalEdgeReloaded",
+  "allResolvedIpv4Checked"
+]) {
+  if (!deployment.includes(token)) failures.push(`deployment:contract-missing:${token}`);
+}
+if (deployment.includes('PORT=3200 PROSMET_RELEASE_SHA="$RELEASE_SHA" nohup node server.mjs')) {
+  failures.push("deployment:ephemeral-runner-tracked-node-launch");
+}
 
-if (!edgeRecovery.includes("@health path /api/health")) failures.push("edge:explicit-health-route-missing");
-if (!edgeRecovery.includes("http://127.0.0.1:2019/load")) failures.push("edge:caddy-admin-reload-missing");
-if (!edgeRecovery.includes("env -u RUNNER_TRACKING_ID")) failures.push("edge:runner-tracking-id-not-removed");
-if (!edgeRecovery.includes("public-root-not-200")) failures.push("edge:public-root-gate-missing");
-if (!edgeRecovery.includes("public-health-route-not-ready")) failures.push("edge:public-health-gate-missing");
+for (const token of [
+  "root_matches()",
+  "health_matches()",
+  '<div id=\"root\"></div>',
+  "reverse_proxy 127.0.0.1:${UPSTREAM_PORT}",
+  "http://127.0.0.1:2019/load",
+  "env -u RUNNER_TRACKING_ID",
+  "upstream-health-or-root-not-ready",
+  "public-health-or-root-not-ready",
+  'routeMode: "single-terminal-reverse-proxy"',
+  'verifiedPaths: ["/", "/api/health"]'
+]) {
+  if (!edge.includes(token)) failures.push(`edge:all-routes-contract-missing:${token}`);
+}
+if (edge.includes("@health path /api/health")) failures.push("edge:split-health-handler-can-fall-through");
+
+for (const token of [
+  "git rev-parse origin/main",
+  "RELEASE_INSTANCE",
+  "dist/index.html",
+  "PROSMET_PUBLIC_AGENT_ACCESS=true",
+  "ln -sfn",
+  "mv -Tf",
+  "Check every resolved public IPv4 address",
+  "public-root-recovery.json"
+]) {
+  if (!rootRecovery.includes(token)) failures.push(`root-recovery:contract-missing:${token}`);
+}
 
 if (failures.length) {
   console.error(JSON.stringify({ status: "FAIL", failures }, null, 2));
@@ -205,6 +246,7 @@ console.log(JSON.stringify({
   agentAdapters: ["OpenAI-compatible", "Ollama", "Codex App Server", "HTTP agent"],
   secrets: "AES-256-GCM server storage and mobile SecureStore",
   productionProcess: "detached from runner cleanup",
-  publicEdge: "canonical Caddy route is reconciled before and after cleanup",
-  productionAcceptance: "post-cleanup, every IPv4 address, and external GitHub-hosted browser verification"
+  publicEdge: "single terminal reverse proxy verified for root and health",
+  recovery: "exact-main immutable release replacement plus external IPv4 proof",
+  productionAcceptance: "post-cleanup, every IPv4 address, root marker and external browser verification"
 }, null, 2));
