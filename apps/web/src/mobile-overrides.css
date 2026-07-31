@@ -1,0 +1,26 @@
+@media (max-width: 767px) {
+  .mobile-item-head > textarea {
+    width: 100%;
+    min-height: 52px;
+    max-height: 72px;
+    overflow: hidden;
+    resize: none;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    color: var(--text);
+    font: inherit;
+    font-size: 16px;
+    font-weight: 700;
+    line-height: 1.35;
+    letter-spacing: -0.01em;
+    outline: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .mobile-item-head > textarea:focus {
+    border-radius: 8px;
+    box-shadow: 0 0 0 2px var(--border-strong);
+  }
+}
