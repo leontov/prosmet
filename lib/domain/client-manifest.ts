@@ -4,6 +4,14 @@ export const ClientModuleSchema = z.enum([
   "chat", "objects", "estimates", "documents", "prices", "settings", "profile", "admin"
 ]);
 
+const DEFAULT_FEATURES = {
+  rustApprovalGate: true,
+  nativeShare: true,
+  a2aDeveloperMode: false,
+  priceIntelligence: true,
+  documents: true
+} as const;
+
 export const ClientManifestSchema = z.object({
   version: z.number().int().positive().default(1),
   productName: z.string().trim().min(2).max(80).default("Просметчик"),
@@ -12,12 +20,12 @@ export const ClientManifestSchema = z.object({
   logoUrl: z.string().url().or(z.literal("")).default(""),
   modules: z.array(ClientModuleSchema).min(1).default(["chat", "objects", "estimates", "documents", "prices", "settings", "profile"]),
   features: z.object({
-    rustApprovalGate: z.boolean().default(true),
-    nativeShare: z.boolean().default(true),
-    a2aDeveloperMode: z.boolean().default(false),
-    priceIntelligence: z.boolean().default(true),
-    documents: z.boolean().default(true)
-  }).default({}),
+    rustApprovalGate: z.boolean().default(DEFAULT_FEATURES.rustApprovalGate),
+    nativeShare: z.boolean().default(DEFAULT_FEATURES.nativeShare),
+    a2aDeveloperMode: z.boolean().default(DEFAULT_FEATURES.a2aDeveloperMode),
+    priceIntelligence: z.boolean().default(DEFAULT_FEATURES.priceIntelligence),
+    documents: z.boolean().default(DEFAULT_FEATURES.documents)
+  }).default(DEFAULT_FEATURES),
   terminology: z.record(z.string(), z.string()).default({}),
   updatedAt: z.string().default(() => new Date().toISOString())
 });
