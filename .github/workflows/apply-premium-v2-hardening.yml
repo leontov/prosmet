@@ -1,0 +1,242 @@
+name: Apply Premium V2 hardening
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/apply-premium-v2-hardening.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/premium-ui-v2-from-scratch
+          fetch-depth: 0
+      - name: Apply CSP and form identity fixes
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python <<'PY'
+          from pathlib import Path
+          import json
+
+          root = Path('.')
+
+          def read(path):
+              return (root / path).read_text(encoding='utf-8')
+
+          def write(path, value):
+              (root / path).write_text(value, encoding='utf-8')
+
+          def replace(path, old, new, expected=1):
+              source = read(path)
+              count = source.count(old)
+              if count != expected:
+                  raise SystemExit(f'{path}: expected {expected}, found {count}: {old[:120]!r}')
+              write(path, source.replace(old, new))
+
+          replace('scripts/source-contract-v2.mjs', "  'label=\"Чаты\"',", "  'label: \"Чаты\"',")
+          replace('scripts/source-contract-v2.mjs', '  "premium shell keeps the customer surface quiet",', '  "premium V2 shell is a distinct desktop and mobile product",')
+          replace('scripts/source-contract-v2.mjs', '  "premium estimate opens as a clean adaptive document workflow",', '  "premium V2 estimate uses document workspace on desktop and large cards on mobile",')
+
+          replace(
+              'components/app/premium-chat-workspace.tsx',
+              '<input value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Поиск по чатам" placeholder="Найти чат" />',
+              '<input id="prosmet-chat-search" name="prosmet-chat-search" value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Поиск по чатам" placeholder="Найти чат" />'
+          )
+          replace(
+              'components/app/premium-chat-workspace.tsx',
+              '<input autoFocus value={renameValue} onChange={(event) => setRenameValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void saveRename(); }} aria-label="Новое название чата" className="prosmet-v2-dialog-input" />',
+              '<input id="prosmet-chat-rename" name="prosmet-chat-rename" autoFocus value={renameValue} onChange={(event) => setRenameValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void saveRename(); }} aria-label="Новое название чата" className="prosmet-v2-dialog-input" />'
+          )
+          replace(
+              'components/chat/premium-prosmet-thread.tsx',
+              '<ComposerPrimitive.Input className="prosmet-v2-edit-input" autoFocus />',
+              '<ComposerPrimitive.Input id="prosmet-edit-message" name="prosmet-edit-message" className="prosmet-v2-edit-input" autoFocus />'
+          )
+          replace(
+              'components/chat/premium-prosmet-thread.tsx',
+              '          placeholder="Опишите объект и работы"\n          aria-label="Сообщение Просметчику"',
+              '          id="prosmet-message"\n          name="prosmet-message"\n          placeholder="Опишите объект и работы"\n          aria-label="Сообщение Просметчику"'
+          )
+
+          write('components/app/form-field-identity-guard.tsx', '''"use client";
+
+import { useLayoutEffect } from "react";
+
+let sequence = 0;
+
+function slug(value: string) {
+  return value
+    .toLocaleLowerCase("ru-RU")
+    .replace(/[^a-zа-яё0-9]+/giu, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48) || "field";
+}
+
+function ensureFieldIdentity(root: ParentNode) {
+  const fields = root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
+    "input, textarea, select"
+  );
+
+  for (const field of fields) {
+    const hint =
+      field.getAttribute("aria-label") ||
+      field.getAttribute("placeholder") ||
+      field.getAttribute("type") ||
+      field.tagName.toLocaleLowerCase("en-US");
+    const identity = field.id || field.name || `prosmet-${slug(hint)}-${++sequence}`;
+    if (!field.id) field.id = identity;
+    if (!field.name) field.name = field.id;
+  }
+}
+
+export function FormFieldIdentityGuard() {
+  useLayoutEffect(() => {
+    ensureFieldIdentity(document);
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.addedNodes) {
+          if (!(node instanceof Element)) continue;
+          ensureFieldIdentity(node.matches("input, textarea, select") ? (node.parentNode ?? document) : node);
+        }
+      }
+    });
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
+
+  return null;
+}
+''')
+
+          replace(
+              'components/app/premium-prosmet-application.tsx',
+              'import { PremiumChatWorkspace } from "@/components/app/premium-chat-workspace";\n',
+              'import { PremiumChatWorkspace } from "@/components/app/premium-chat-workspace";\nimport { FormFieldIdentityGuard } from "@/components/app/form-field-identity-guard";\n'
+          )
+          replace(
+              'components/app/premium-prosmet-application.tsx',
+              '    <>\n      <PremiumChatWorkspace />',
+              '    <>\n      <FormFieldIdentityGuard />\n      <PremiumChatWorkspace />'
+          )
+
+          write('scripts/csp-bundle-contract.mjs', '''import { readdir, readFile } from "node:fs/promises";
+import { join, relative, resolve } from "node:path";
+
+const root = resolve(process.cwd(), ".next/static/chunks");
+const offenders = [];
+const patterns = [
+  { label: "eval", regex: /(^|[^.$\\w])eval\\s*\\(/g },
+  { label: "new Function", regex: /\\bnew\\s+Function\\s*\\(/g },
+  { label: "Function constructor", regex: /(^|[^.$\\w])Function\\s*\\(\\s*["'`]/g },
+  { label: "string setTimeout", regex: /\\bsetTimeout\\s*\\(\\s*["'`]/g },
+  { label: "string setInterval", regex: /\\bsetInterval\\s*\\(\\s*["'`]/g }
+];
+
+async function walk(directory) {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) await walk(path);
+    else if (entry.isFile() && path.endsWith(".js")) {
+      const source = await readFile(path, "utf8");
+      for (const pattern of patterns) {
+        pattern.regex.lastIndex = 0;
+        const match = pattern.regex.exec(source);
+        if (!match) continue;
+        offenders.push({
+          file: relative(process.cwd(), path),
+          pattern: pattern.label,
+          snippet: source.slice(Math.max(0, match.index - 100), Math.min(source.length, match.index + 190)).replace(/\\s+/g, " ")
+        });
+      }
+    }
+  }
+}
+
+await walk(root);
+if (offenders.length) {
+  console.error(JSON.stringify({ status: "FAIL", contract: "csp-no-string-evaluation", offenders }, null, 2));
+  process.exit(1);
+}
+console.log(JSON.stringify({ status: "PASS", contract: "csp-no-string-evaluation", directory: relative(process.cwd(), root) }, null, 2));
+''')
+
+          package_path = root / 'package.json'
+          package = json.loads(package_path.read_text(encoding='utf-8'))
+          package['scripts']['build'] = 'next build && node scripts/csp-bundle-contract.mjs'
+          package_path.write_text(json.dumps(package, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+          e2e = read('e2e/premium-ui.spec.ts')
+          anchor = 'import { mkdir } from "node:fs/promises";\n\n'
+          helpers = '''type CspViolation = {
+  violatedDirective: string;
+  blockedURI: string;
+  sourceFile: string;
+  lineNumber: number;
+};
+
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    const scope = window as unknown as { __prosmetCspViolations?: CspViolation[] };
+    scope.__prosmetCspViolations = [];
+    document.addEventListener("securitypolicyviolation", (event) => {
+      scope.__prosmetCspViolations?.push({
+        violatedDirective: event.violatedDirective,
+        blockedURI: event.blockedURI,
+        sourceFile: event.sourceFile,
+        lineNumber: event.lineNumber
+      });
+    });
+  });
+});
+
+async function expectSecureInteractiveSurface(page: import("@playwright/test").Page) {
+  const violations = await page.evaluate(() =>
+    (window as unknown as { __prosmetCspViolations?: CspViolation[] }).__prosmetCspViolations ?? []
+  );
+  expect(violations).toEqual([]);
+
+  const anonymousFields = await page
+    .locator("input:not([id]), input:not([name]), textarea:not([id]), textarea:not([name]), select:not([id]), select:not([name])")
+    .evaluateAll((elements) =>
+      Array.from(new Set(elements)).map((element) => ({
+        tag: element.tagName,
+        type: element.getAttribute("type"),
+        label: element.getAttribute("aria-label"),
+        placeholder: element.getAttribute("placeholder")
+      }))
+    );
+  expect(anonymousFields).toEqual([]);
+}
+
+'''
+          if anchor not in e2e:
+              raise SystemExit('e2e import anchor missing')
+          e2e = e2e.replace(anchor, anchor + helpers, 1)
+          shell_shot = '  await page.screenshot({ path: `artifacts/screenshots/premium-shell-${testInfo.project.name}.png`, fullPage: true });'
+          estimate_shot = '  await page.screenshot({ path: `artifacts/screenshots/premium-estimate-${testInfo.project.name}.png`, fullPage: true });'
+          if shell_shot not in e2e or estimate_shot not in e2e:
+              raise SystemExit('e2e screenshot anchors missing')
+          e2e = e2e.replace(shell_shot, '  await expectSecureInteractiveSurface(page);\n\n' + shell_shot, 1)
+          e2e = e2e.replace(estimate_shot, '  await expectSecureInteractiveSurface(page);\n\n' + estimate_shot, 1)
+          e2e = e2e.replace('TypeError|ReferenceError|Page crashed', 'TypeError|ReferenceError|EvalError|Content Security Policy|Refused to evaluate|Page crashed')
+          write('e2e/premium-ui.spec.ts', e2e)
+
+          branch_workflow = root / '.github/workflows/premium-v2-hardening-codemod.yml'
+          if branch_workflow.exists():
+              branch_workflow.unlink()
+          PY
+
+          git config user.name "prosmet-ui-hardening"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git diff --cached --stat
+          git commit -m "fix(ui): enforce CSP and form identities"
+          git push origin HEAD:feature/premium-ui-v2-from-scratch
