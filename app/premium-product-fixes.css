@@ -12,6 +12,10 @@ body[data-prosmet-estimate-open="true"] .prosmet-v2-main {
   pointer-events: none;
 }
 
+.prosmet-v2-app-shell > .fixed > button[aria-label="Закрыть историю"] {
+  left: min(88vw, 336px);
+}
+
 :where(
   button,
   a,
