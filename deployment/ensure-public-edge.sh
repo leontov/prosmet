@@ -14,10 +14,19 @@ LOG_FILE="${ROOT}/caddy.log"
 PID_FILE="${ROOT}/caddy.pid"
 STATUS_FILE="${ROOT}/status.json"
 DIAGNOSTICS_FILE="${ROOT}/edge-diagnostics.txt"
-PUBLIC_BODY="${ROOT}/public-health-body.txt"
-PUBLIC_HEADERS="${ROOT}/public-health-headers.txt"
-LOCAL_TLS_BODY="${ROOT}/local-tls-health-body.txt"
-LOCAL_TLS_HEADERS="${ROOT}/local-tls-health-headers.txt"
+
+UPSTREAM_HEALTH_BODY="${ROOT}/upstream-health.json"
+UPSTREAM_HEALTH_HEADERS="${ROOT}/upstream-health-headers.txt"
+UPSTREAM_ROOT_BODY="${ROOT}/upstream-root.html"
+UPSTREAM_ROOT_HEADERS="${ROOT}/upstream-root-headers.txt"
+LOCAL_TLS_HEALTH_BODY="${ROOT}/local-tls-health.json"
+LOCAL_TLS_HEALTH_HEADERS="${ROOT}/local-tls-health-headers.txt"
+LOCAL_TLS_ROOT_BODY="${ROOT}/local-tls-root.html"
+LOCAL_TLS_ROOT_HEADERS="${ROOT}/local-tls-root-headers.txt"
+PUBLIC_HEALTH_BODY="${ROOT}/public-health-body.txt"
+PUBLIC_HEALTH_HEADERS="${ROOT}/public-health-headers.txt"
+PUBLIC_ROOT_BODY="${ROOT}/public-root-body.html"
+PUBLIC_ROOT_HEADERS="${ROOT}/public-root-headers.txt"
 
 mkdir -p "${ROOT}" "${DATA_DIR}" "${CONFIG_DIR}"
 chmod 700 "${ROOT}" "${DATA_DIR}" "${CONFIG_DIR}"
@@ -47,6 +56,42 @@ if [[ -z "${CADDY_BINARY}" ]]; then
   exit 1
 fi
 
+health_matches() {
+  local body_file="${1:?body file is required}"
+  grep -q '"ok":true' "${body_file}" || return 1
+  grep -q '"ui":"greenfield"' "${body_file}" || return 1
+  if [[ -n "${EXPECTED_RELEASE_SHA}" ]]; then
+    grep -q "\"releaseSha\":\"${EXPECTED_RELEASE_SHA}\"" "${body_file}" || return 1
+  fi
+}
+
+root_matches() {
+  local body_file="${1:?body file is required}"
+  grep -Fq '<div id="root"></div>' "${body_file}"
+}
+
+probe() {
+  local body_file="${1:?body file is required}"
+  local headers_file="${2:?headers file is required}"
+  local expected="${3:?expected response type is required}"
+  shift 3
+
+  local status
+  status="$(curl --silent --show-error \
+    --connect-timeout 5 --max-time 20 \
+    --output "${body_file}" \
+    --dump-header "${headers_file}" \
+    --write-out '%{http_code}' \
+    "$@" || true)"
+  [[ "${status}" == "200" ]] || return 1
+
+  case "${expected}" in
+    health) health_matches "${body_file}" ;;
+    root) root_matches "${body_file}" ;;
+    *) echo "Unknown probe type: ${expected}" >&2; return 2 ;;
+  esac
+}
+
 write_diagnostics() {
   local reason="${1:-unknown}"
   {
@@ -58,8 +103,9 @@ write_diagnostics() {
     printf 'caddy_binary=%s\n' "${CADDY_BINARY}"
     printf '\n[identity]\n'
     id || true
-    printf '\n[dns]\n'
+    printf '\n[dns_v4]\n'
     getent ahostsv4 "${DOMAIN}" 2>&1 || true
+    printf '\n[dns_v6]\n'
     getent ahostsv6 "${DOMAIN}" 2>&1 || true
     printf '\n[listeners]\n'
     ss -H -ltnp 2>&1 | grep -E ':(80|443|2019|3200)\\b' || true
@@ -70,56 +116,53 @@ write_diagnostics() {
     printf '\n[local_upstream_health]\n'
     curl --silent --show-error --include --max-time 5 \
       "http://127.0.0.1:${UPSTREAM_PORT}/api/health" 2>&1 || true
+    printf '\n[local_upstream_root]\n'
+    curl --silent --show-error --include --max-time 5 \
+      "http://127.0.0.1:${UPSTREAM_PORT}/" 2>&1 || true
     printf '\n[local_tls_health]\n'
-    curl --insecure --silent --show-error --include --max-time 10 \
+    curl --silent --show-error --include --max-time 10 \
       --resolve "${DOMAIN}:443:127.0.0.1" \
       "https://${DOMAIN}/api/health" 2>&1 || true
+    printf '\n[local_tls_root]\n'
+    curl --silent --show-error --include --max-time 10 \
+      --resolve "${DOMAIN}:443:127.0.0.1" \
+      "https://${DOMAIN}/" 2>&1 || true
     printf '\n[public_health]\n'
     curl --silent --show-error --include --max-time 15 \
       "https://${DOMAIN}/api/health" 2>&1 || true
+    printf '\n[public_root]\n'
+    curl --silent --show-error --include --max-time 15 \
+      "https://${DOMAIN}/" 2>&1 || true
     printf '\n[caddy_log_tail]\n'
-    tail -n 160 "${LOG_FILE}" 2>&1 || true
+    tail -n 200 "${LOG_FILE}" 2>&1 || true
   } > "${DIAGNOSTICS_FILE}"
   chmod 600 "${DIAGNOSTICS_FILE}"
 }
 
-health_matches() {
-  local body_file="${1:?body file is required}"
-  grep -q '"ok":true' "${body_file}" || return 1
-  grep -q '"ui":"greenfield"' "${body_file}" || return 1
-  if [[ -n "${EXPECTED_RELEASE_SHA}" ]]; then
-    grep -q "\"releaseSha\":\"${EXPECTED_RELEASE_SHA}\"" "${body_file}" || return 1
-  fi
-}
-
-probe_health() {
-  local body_file="${1:?body file is required}"
-  local headers_file="${2:?headers file is required}"
-  shift 2
-  local status
-  status="$(curl --silent --show-error \
-    --connect-timeout 5 --max-time 15 \
-    --output "${body_file}" \
-    --dump-header "${headers_file}" \
-    --write-out '%{http_code}' \
-    "$@" || true)"
-  [[ "${status}" == "200" ]] || return 1
-  health_matches "${body_file}"
-}
-
-for attempt in $(seq 1 60); do
-  if probe_health "${ROOT}/upstream-health.json" "${ROOT}/upstream-health-headers.txt" \
-      "http://127.0.0.1:${UPSTREAM_PORT}/api/health"; then
+upstream_ready=false
+for attempt in $(seq 1 90); do
+  health_ok=false
+  root_ok=false
+  probe "${UPSTREAM_HEALTH_BODY}" "${UPSTREAM_HEALTH_HEADERS}" health \
+    "http://127.0.0.1:${UPSTREAM_PORT}/api/health" && health_ok=true
+  probe "${UPSTREAM_ROOT_BODY}" "${UPSTREAM_ROOT_HEADERS}" root \
+    "http://127.0.0.1:${UPSTREAM_PORT}/" && root_ok=true
+  if [[ "${health_ok}" == true && "${root_ok}" == true ]]; then
+    upstream_ready=true
     break
-  fi
-  if [[ "${attempt}" == "60" ]]; then
-    write_diagnostics "upstream-not-ready"
-    echo "The exact application release is not healthy on port ${UPSTREAM_PORT}." >&2
-    exit 1
   fi
   sleep 1
 done
 
+if [[ "${upstream_ready}" != true ]]; then
+  write_diagnostics "upstream-health-or-root-not-ready"
+  echo "The exact application release does not serve both / and /api/health on port ${UPSTREAM_PORT}." >&2
+  exit 1
+fi
+
+# A single reverse_proxy directive is intentional. It is the terminal handler
+# for every request path, so neither / nor static assets can fall through to a
+# Caddy-generated 404 while /api/health still succeeds.
 cat > "${CONFIG_FILE}" <<CADDY
 {
   admin 127.0.0.1:2019
@@ -138,22 +181,11 @@ ${DOMAIN} {
     -Server
   }
 
-  @health path /api/health
-  handle @health {
-    reverse_proxy 127.0.0.1:${UPSTREAM_PORT} {
-      header_up X-Forwarded-Proto https
-      header_up X-Forwarded-Host {host}
-      header_up X-Real-IP {remote_host}
-    }
-  }
-
-  handle {
-    reverse_proxy 127.0.0.1:${UPSTREAM_PORT} {
-      flush_interval -1
-      header_up X-Forwarded-Proto https
-      header_up X-Forwarded-Host {host}
-      header_up X-Real-IP {remote_host}
-    }
+  reverse_proxy 127.0.0.1:${UPSTREAM_PORT} {
+    flush_interval -1
+    header_up X-Forwarded-Proto https
+    header_up X-Forwarded-Host {host}
+    header_up X-Real-IP {remote_host}
   }
 }
 CADDY
@@ -173,15 +205,16 @@ reload_existing_edge() {
     --header 'Content-Type: application/json' \
     --data-binary "@${CONFIG_JSON}" \
     http://127.0.0.1:2019/load >/dev/null
-  log "Loaded the canonical route through the existing Caddy admin API."
+  log "Loaded the all-routes reverse proxy through the existing Caddy admin API."
+}
+
+ports_are_free() {
+  ! ss -H -ltn 'sport = :80' 2>/dev/null | grep -q . \
+    && ! ss -H -ltn 'sport = :443' 2>/dev/null | grep -q .
 }
 
 start_detached_edge() {
-  if ss -H -ltn 'sport = :80' 2>/dev/null | grep -q . || \
-     ss -H -ltn 'sport = :443' 2>/dev/null | grep -q .; then
-    return 1
-  fi
-
+  ports_are_free || return 1
   : > "${LOG_FILE}"
   chmod 600 "${LOG_FILE}"
   nohup env -u RUNNER_TRACKING_ID \
@@ -198,60 +231,69 @@ start_detached_edge() {
     echo "Detached Caddy still contains RUNNER_TRACKING_ID." >&2
     return 1
   fi
-  log "Started a detached Caddy edge with PID ${pid}."
+  log "Started a detached all-routes Caddy edge with PID ${pid}."
 }
 
 if ! reload_existing_edge; then
   if ! start_detached_edge; then
     write_diagnostics "cannot-reload-or-start-edge"
-    echo "The existing listener cannot be reconfigured and ports 80/443 are occupied." >&2
+    echo "The existing HTTPS listener cannot be reconfigured and ports 80/443 are occupied." >&2
     exit 1
   fi
 fi
 
-local_tls_ready=false
+verify_edge_pair() {
+  local prefix="${1:?prefix required}"
+  shift
+  local health_body health_headers root_body root_headers
+  health_body="${ROOT}/${prefix}-health-body"
+  health_headers="${ROOT}/${prefix}-health-headers"
+  root_body="${ROOT}/${prefix}-root-body"
+  root_headers="${ROOT}/${prefix}-root-headers"
+
+  probe "${health_body}" "${health_headers}" health "$@" "https://${DOMAIN}/api/health" \
+    && probe "${root_body}" "${root_headers}" root "$@" "https://${DOMAIN}/"
+}
+
+local_ready=false
 for attempt in $(seq 1 90); do
-  if probe_health "${LOCAL_TLS_BODY}" "${LOCAL_TLS_HEADERS}" \
-      --resolve "${DOMAIN}:443:127.0.0.1" \
-      "https://${DOMAIN}/api/health"; then
-    local_tls_ready=true
+  if probe "${LOCAL_TLS_HEALTH_BODY}" "${LOCAL_TLS_HEALTH_HEADERS}" health \
+      --resolve "${DOMAIN}:443:127.0.0.1" "https://${DOMAIN}/api/health" \
+    && probe "${LOCAL_TLS_ROOT_BODY}" "${LOCAL_TLS_ROOT_HEADERS}" root \
+      --resolve "${DOMAIN}:443:127.0.0.1" "https://${DOMAIN}/"; then
+    local_ready=true
     break
   fi
+  if (( attempt % 15 == 0 )); then reload_existing_edge || true; fi
   sleep 1
 done
-if [[ "${local_tls_ready}" != true ]]; then
-  write_diagnostics "local-tls-route-not-ready"
-  echo "The local HTTPS edge does not route /api/health to the exact release." >&2
+
+if [[ "${local_ready}" != true ]]; then
+  write_diagnostics "local-tls-health-or-root-not-ready"
+  echo "The local HTTPS edge does not serve both / and /api/health from the exact release." >&2
   exit 1
 fi
 
 public_ready=false
 for attempt in $(seq 1 90); do
-  if probe_health "${PUBLIC_BODY}" "${PUBLIC_HEADERS}" \
-      "https://${DOMAIN}/api/health"; then
+  if probe "${PUBLIC_HEALTH_BODY}" "${PUBLIC_HEALTH_HEADERS}" health \
+      "https://${DOMAIN}/api/health" \
+    && probe "${PUBLIC_ROOT_BODY}" "${PUBLIC_ROOT_HEADERS}" root \
+      "https://${DOMAIN}/"; then
     public_ready=true
     break
   fi
+  if (( attempt % 15 == 0 )); then reload_existing_edge || true; fi
   sleep 2
 done
+
 if [[ "${public_ready}" != true ]]; then
-  write_diagnostics "public-health-route-not-ready"
-  echo "The public HTTPS edge still does not serve the exact /api/health route." >&2
+  write_diagnostics "public-health-or-root-not-ready"
+  echo "The public HTTPS edge does not serve both / and /api/health from the exact release." >&2
   exit 1
 fi
 
-ROOT_STATUS="$(curl --silent --show-error --connect-timeout 5 --max-time 15 \
-  --output "${ROOT}/public-root-body.html" \
-  --dump-header "${ROOT}/public-root-headers.txt" \
-  --write-out '%{http_code}' \
-  "https://${DOMAIN}/" || true)"
-if [[ "${ROOT_STATUS}" != "200" ]]; then
-  write_diagnostics "public-root-not-200"
-  echo "The public application root returned HTTP ${ROOT_STATUS}." >&2
-  exit 1
-fi
-
-grep -Eqi '^strict-transport-security:.*max-age=31536000' "${ROOT}/public-root-headers.txt"
+grep -Eqi '^strict-transport-security:.*max-age=31536000' "${PUBLIC_ROOT_HEADERS}"
 
 node --input-type=module - \
   "${STATUS_FILE}" "${DOMAIN}" "${UPSTREAM_PORT}" "${EXPECTED_RELEASE_SHA}" "${CADDY_BINARY}" <<'NODE'
@@ -264,9 +306,10 @@ await writeFile(file, JSON.stringify({
   upstream: `http://127.0.0.1:${upstreamPort}`,
   releaseSha: releaseSha || null,
   caddyBinary,
-  healthRoute: "/api/health",
+  routeMode: "single-terminal-reverse-proxy",
+  verifiedPaths: ["/", "/api/health"],
   checkedAt: new Date().toISOString()
 }, null, 2) + "\n", { mode: 0o600 });
 NODE
 
-log "Public HTTPS root and /api/health serve the exact release."
+log "Public HTTPS root and /api/health serve the exact release through one terminal reverse proxy."
