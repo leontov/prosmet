@@ -1,9 +1,9 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 const external = Boolean(process.env.PROSMET_BASE_URL);
 const adminToken = "e2e-admin";
 
-async function configureFixtureAgent(page: Parameters<typeof test>[0] extends never ? never : any) {
+async function configureFixtureAgent(page: Page) {
   const registryResponse = await page.request.get("/api/agents");
   expect(registryResponse.ok()).toBeTruthy();
   const registry = await registryResponse.json();
@@ -42,7 +42,7 @@ async function configureFixtureAgent(page: Parameters<typeof test>[0] extends ne
   expect(loginResponse.ok(), await loginResponse.text()).toBeTruthy();
 }
 
-async function openMobileMenu(page: any) {
+async function openMobileMenu(page: Page) {
   await page.getByRole("button", { name: "Открыть навигацию" }).click();
   const dialog = page.getByRole("dialog", { name: "Навигация" });
   await expect(dialog).toBeVisible();
@@ -61,8 +61,11 @@ test("greenfield shell uses real agent integration without demo fallbacks", asyn
     document.addEventListener("securitypolicyviolation", (event) => {
       console.error(`CSP:${event.violatedDirective}:${event.blockedURI}`);
     });
-    localStorage.removeItem("prosmet-greenfield-estimate");
-    localStorage.removeItem("prosmet-workspace-v1");
+    if (!sessionStorage.getItem("prosmet-e2e-reset")) {
+      localStorage.removeItem("prosmet-greenfield-estimate");
+      localStorage.removeItem("prosmet-workspace-v1");
+      sessionStorage.setItem("prosmet-e2e-reset", "1");
+    }
   });
 
   if (!external) await configureFixtureAgent(page);
@@ -80,8 +83,8 @@ test("greenfield shell uses real agent integration without demo fallbacks", asyn
     await page.getByRole("button", { name: "Настройки", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Настройки" })).toBeVisible();
     if (!external) {
-      await expect(page.getByText("Fixture HTTP Agent", { exact: true })).toBeVisible();
-      await expect(page.getByText("Активен", { exact: true })).toBeVisible();
+      await expect(page.getByText("Fixture HTTP Agent", { exact: true }).first()).toBeVisible();
+      await expect(page.locator(".agent-connection.active")).toHaveCount(1);
     }
     await page.getByRole("button", { name: "Чаты", exact: true }).click();
   } else {
@@ -93,7 +96,7 @@ test("greenfield shell uses real agent integration without demo fallbacks", asyn
     let menu = await openMobileMenu(page);
     await menu.getByRole("button", { name: /Настройки/ }).click();
     await expect(page.getByRole("heading", { name: "Настройки" })).toBeVisible();
-    if (!external) await expect(page.getByText("Fixture HTTP Agent", { exact: true })).toBeVisible();
+    if (!external) await expect(page.getByText("Fixture HTTP Agent", { exact: true }).first()).toBeVisible();
 
     menu = await openMobileMenu(page);
     await menu.getByRole("button", { name: /^Чат/ }).click();
@@ -145,6 +148,14 @@ test("greenfield shell uses real agent integration without demo fallbacks", asyn
 
   await page.screenshot({ path: `artifacts-estimate-${testInfo.project.name}.png`, fullPage: true });
   await page.reload({ waitUntil: "networkidle" });
-  await expect(page.getByRole("button", { name: /Механизированная штукатурка 358 м²/ }).first()).toBeVisible();
+
+  if (testInfo.project.name === "desktop-chromium") {
+    await expect(page.locator(".history-item").filter({ hasText: "Механизированная штукатурка 358 м²" })).toBeVisible();
+  } else {
+    const menu = await openMobileMenu(page);
+    await menu.getByRole("button", { name: /Сметы/ }).click();
+    await expect(page.getByText("Механизированная штукатурка 358 м²", { exact: true })).toBeVisible();
+  }
+
   expect(violations).toEqual([]);
 });
