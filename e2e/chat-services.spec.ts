@@ -21,10 +21,11 @@ function relevantErrors(errors: string[]) {
   );
 }
 
-test("tenant services are configured without leaving the assistant thread", async ({
+test("tenant services and provider RBAC are verified without leaving the assistant thread", async ({
   page
 }) => {
   const runtimeErrors: string[] = [];
+  const permissiveAdmin = process.env.PROSMET_ADMIN_MODE === "permissive";
   page.on("console", (message) => {
     if (message.type() === "error") runtimeErrors.push(message.text());
   });
@@ -55,11 +56,21 @@ test("tenant services are configured without leaving the assistant thread", asyn
   await expect(providers).toBeVisible({ timeout: 30_000 });
   await providers.getByLabel("Тип AI-провайдера").selectOption("rules");
   await providers.getByRole("button", { name: "Проверить и подключить" }).click();
-  await expect(providers.getByText("Соединение проверено и сохранено server-side.")).toBeVisible({
-    timeout: 30_000
-  });
-  await expect(providers.getByText("Встроенный сметный сервис", { exact: true }).last()).toBeVisible();
-  await expect(providers.getByText("Выбран", { exact: true })).toBeVisible();
+
+  if (permissiveAdmin) {
+    await expect(providers.getByText("Соединение проверено и сохранено server-side.")).toBeVisible({
+      timeout: 30_000
+    });
+    await expect(
+      providers.getByText("Встроенный сметный сервис", { exact: true }).last()
+    ).toBeVisible();
+    await expect(providers.getByText("Выбран", { exact: true })).toBeVisible();
+  } else {
+    await expect(providers.getByText("Требуются права супер-администратора.")).toBeVisible({
+      timeout: 30_000
+    });
+    await expect(providers.getByText("AI-провайдеры ещё не подключены.")).toBeVisible();
+  }
 
   await send(page, "Покажи статус сервисов, PostgreSQL и синхронизации");
   const status = page.getByTestId("service-status-tool");
@@ -67,7 +78,11 @@ test("tenant services are configured without leaving the assistant thread", asyn
   await expect(status.getByText("PostgreSQL", { exact: true })).toBeVisible();
   await expect(status.getByText("Подключён", { exact: true })).toBeVisible();
   await expect(status.getByText("Сохраняется на сервере", { exact: true })).toBeVisible();
-  await expect(status.getByText(/Встроенный сметный сервис/)).toBeVisible();
+  if (permissiveAdmin) {
+    await expect(status.getByText(/Встроенный сметный сервис/)).toBeVisible();
+  } else {
+    await expect(status.getByText("Не выбран", { exact: true })).toBeVisible();
+  }
 
   await page.reload();
   const restoredWorkspace = page.getByTestId("workspace-settings-tool");
