@@ -1,0 +1,171 @@
+name: Prosmet Edge Runtime Diagnostics
+
+on:
+  push:
+    branches: [ops/edge-runtime-diagnostics]
+    paths:
+      - ".github/workflows/edge-runtime-diagnostics.yml"
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  inspect:
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 15
+    steps:
+      - name: Inspect safe edge metadata
+        id: inspect
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$RUNNER_NAME" = "prosmet-primary"
+          root="$HOME/.prosmet/edge-diagnostics"
+          mkdir -p "$root"
+          chmod 0700 "$root"
+          report="$root/report.txt"
+          : > "$report"
+          chmod 0600 "$report"
+
+          {
+            echo "runner=$RUNNER_NAME"
+            echo "host=$(hostname)"
+            echo "user=$(id -un)"
+            echo "uid=$(id -u)"
+            echo "low_port_start=$(cat /proc/sys/net/ipv4/ip_unprivileged_port_start 2>/dev/null || echo unknown)"
+            echo
+            echo "== cloudflared processes =="
+          } >> "$report"
+
+          while IFS= read -r pid; do
+            test -n "$pid" || continue
+            exe="$(readlink -f "/proc/$pid/exe" 2>/dev/null || true)"
+            echo "pid=$pid exe=$exe" >> "$report"
+            node --input-type=module - "$pid" <<'NODE' >> "$report"
+            import { readFile } from "node:fs/promises";
+            const pid = process.argv[2];
+            let args = [];
+            try { args = (await readFile(`/proc/${pid}/cmdline`)).toString("utf8").split("\0").filter(Boolean); } catch {}
+            let redactNext = false;
+            const safe = args.map((arg) => {
+              if (redactNext) { redactNext = false; return "<redacted>"; }
+              if (/^--?(token|api-token|credentials-contents)$/i.test(arg)) { redactNext = true; return arg; }
+              if (/^--?(token|api-token|credentials-contents)=/i.test(arg)) return arg.replace(/=.*/, "=<redacted>");
+              if (/^eyJ[A-Za-z0-9_-]{20,}/.test(arg)) return "<redacted-token>";
+              return arg;
+            });
+            console.log(`argv=${JSON.stringify(safe)}`);
+            try {
+              const names = (await readFile(`/proc/${pid}/environ`)).toString("utf8")
+                .split("\0").filter(Boolean).map((entry) => entry.split("=", 1)[0])
+                .filter((name) => /CLOUDFLARE|CLOUDFLARED|TUNNEL/i.test(name));
+              console.log(`environment_names=${JSON.stringify(names)}`);
+            } catch {}
+            NODE
+          done < <(pgrep -x cloudflared 2>/dev/null || true)
+
+          search_roots=(
+            "$HOME/.cloudflared"
+            "$HOME/.config/cloudflared"
+            "$HOME/.config"
+            "$HOME/.kolibri"
+            "$HOME/.local/share"
+            "/opt/kolibri"
+            "/etc/cloudflared"
+          )
+          existing=()
+          for path in "${search_roots[@]}"; do [[ -d "$path" ]] && existing+=("$path"); done
+          candidates="$root/candidates.txt"
+          : > "$candidates"
+          if ((${#existing[@]})); then
+            find "${existing[@]}" -maxdepth 8 -type f -readable \
+              \( -name 'cert.pem' -o -name 'config.yml' -o -name 'config.yaml' -o -name '*.json' \) \
+              -print 2>/dev/null | sort -u > "$candidates"
+          fi
+
+          cert_count="$(grep -Ec '/cert\.pem$' "$candidates" || true)"
+          credential_count="$(node --input-type=module - "$candidates" <<'NODE'
+          import { readFile } from "node:fs/promises";
+          const file = process.argv[2];
+          let count = 0;
+          for (const path of (await readFile(file, "utf8")).split(/\r?\n/).filter(Boolean)) {
+            if (!path.endsWith(".json")) continue;
+            try {
+              const value = JSON.parse(await readFile(path, "utf8"));
+              if (value?.TunnelID && value?.TunnelSecret) count++;
+            } catch {}
+          }
+          process.stdout.write(String(count));
+          NODE
+          )"
+          config_domain_count="$(grep -l -E 'kolibriai\.online' $(grep -E '/config\.(yml|yaml)$' "$candidates" || true) 2>/dev/null | wc -l | tr -d ' ' || true)"
+
+          {
+            echo
+            echo "== cloudflare credential metadata =="
+            echo "account_certificates=$cert_count"
+            echo "tunnel_credentials=$credential_count"
+            echo "configs_referencing_kolibriai_online=${config_domain_count:-0}"
+            echo "candidate_metadata_files=$(wc -l < "$candidates" | tr -d ' ')"
+            echo
+            echo "== existing file capabilities relevant to bind =="
+            if command -v getcap >/dev/null 2>&1; then
+              getcap -r /usr /bin /sbin /usr/local "$HOME" 2>/dev/null | grep -E 'cap_net_bind_service|cap_setfcap|cap_net_admin' || true
+            fi
+            echo
+            echo "== setuid helpers =="
+            find /usr/bin /usr/sbin /bin /sbin /usr/local/bin -xdev -type f -perm -4000 \
+              -printf '%p\n' 2>/dev/null | sort | grep -E 'rootless|newuid|newgid|authbind|bubblewrap|bwrap|firejail|podman|docker|systemd|pkexec|sudo' || true
+            echo
+            echo "== rootless network commands =="
+            for command in rootlesskit slirp4netns pasta passt podman nerdctl unshare bwrap systemd-run cloudflared; do
+              if command -v "$command" >/dev/null 2>&1; then
+                echo "$command=$(command -v "$command")"
+              else
+                echo "$command=missing"
+              fi
+            done
+            echo
+            echo "== user namespace policy =="
+            echo "unprivileged_userns_clone=$(cat /proc/sys/kernel/unprivileged_userns_clone 2>/dev/null || echo unknown)"
+            echo "max_user_namespaces=$(cat /proc/sys/user/max_user_namespaces 2>/dev/null || echo unknown)"
+            echo
+            echo "== DNS metadata =="
+            echo "A=$(getent ahostsv4 kolibriai.online 2>/dev/null | awk 'NR==1 {print $1}' || true)"
+            if command -v resolvectl >/dev/null 2>&1; then
+              resolvectl query --type=NS kolibriai.online 2>/dev/null | sed -n '1,12p' || true
+            fi
+            echo
+            echo "== high-port listeners =="
+            ss -H -ltnp 2>/dev/null | grep -E ':(19443|19444|20241|20242|29445|3200)\b' || true
+          } >> "$report"
+
+          cat "$report"
+          echo "cert_count=$cert_count" >> "$GITHUB_OUTPUT"
+          echo "credential_count=$credential_count" >> "$GITHUB_OUTPUT"
+          echo "config_domain_count=${config_domain_count:-0}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish diagnostic summary
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          CERT_COUNT: ${{ steps.inspect.outputs.cert_count }}
+          CREDENTIAL_COUNT: ${{ steps.inspect.outputs.credential_count }}
+          CONFIG_DOMAIN_COUNT: ${{ steps.inspect.outputs.config_domain_count }}
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 1,
+              body: [
+                "EDGE RUNTIME DIAGNOSTICS COMPLETE",
+                `Runner: \`${process.env.RUNNER_NAME}\``,
+                `Cloudflare account certificates: \`${process.env.CERT_COUNT || "0"}\``,
+                `Tunnel credential files: \`${process.env.CREDENTIAL_COUNT || "0"}\``,
+                `Configs for kolibriai.online: \`${process.env.CONFIG_DOMAIN_COUNT || "0"}\``,
+                `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                "No secret values were read or printed."
+              ].join("\n\n")
+            });
