@@ -14,6 +14,8 @@ for (const path of [
   "components/app/premium-estimate-workspace-editor.tsx",
   "app/premium-product.css",
   "e2e/premium-ui.spec.ts",
+  "components/app/form-field-identity-guard.tsx",
+  "scripts/csp-bundle-contract.mjs",
   "docs/PREMIUM_UI_V2_BRIEF.md"
 ]) {
   try { await access(resolve(root, path)); } catch { failures.push(`missing:${path}`); }
@@ -93,6 +95,12 @@ for (const token of [
   "env(safe-area-inset-bottom)"
 ]) need(styles, token, "premium-v2-styles");
 for (const token of ["PROSMET PREMIUM PRODUCT UI V1", ".prosmet-premium-app-shell", ".prosmet-premium-estimate-paper"]) forbid(styles, token, "legacy-css-removed");
+
+const fieldGuard = await read("components/app/form-field-identity-guard.tsx");
+for (const token of ["useLayoutEffect", "MutationObserver", "field.name = field.id"]) need(fieldGuard, token, "form-field-identity");
+
+const cspContract = await read("scripts/csp-bundle-contract.mjs");
+for (const token of ["new Function", "string setTimeout", "string setInterval", ".next/static/chunks"]) need(cspContract, token, "csp-bundle-contract");
 
 const e2e = await read("e2e/premium-ui.spec.ts");
 for (const token of [

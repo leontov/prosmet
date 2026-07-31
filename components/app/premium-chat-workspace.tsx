@@ -250,7 +250,7 @@ export function PremiumChatWorkspace() {
       <div className="prosmet-v2-search-wrap">
         <label className="prosmet-v2-search">
           <SearchIcon />
-          <input value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Поиск по чатам" placeholder="Найти чат" />
+          <input id="prosmet-chat-search" name="prosmet-chat-search" value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Поиск по чатам" placeholder="Найти чат" />
         </label>
       </div>
 
@@ -367,7 +367,7 @@ export function PremiumChatWorkspace() {
 
         {renameTarget ? (
           <PremiumDialog title="Переименовать чат" onClose={() => setRenameTarget(null)}>
-            <input autoFocus value={renameValue} onChange={(event) => setRenameValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void saveRename(); }} aria-label="Новое название чата" className="prosmet-v2-dialog-input" />
+            <input id="prosmet-chat-rename" name="prosmet-chat-rename" autoFocus value={renameValue} onChange={(event) => setRenameValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void saveRename(); }} aria-label="Новое название чата" className="prosmet-v2-dialog-input" />
             <div className="mt-5 flex justify-end gap-2">
               <PremiumDialogButton onClick={() => setRenameTarget(null)}>Отмена</PremiumDialogButton>
               <PremiumDialogButton primary onClick={() => void saveRename()}>Сохранить</PremiumDialogButton>

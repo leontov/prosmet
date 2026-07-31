@@ -202,7 +202,7 @@ const UserMessage: FC = () => (
 const EditComposer: FC = () => (
   <MessagePrimitive.Root className="prosmet-v2-edit-message">
     <ComposerPrimitive.Root className="prosmet-v2-edit-composer">
-      <ComposerPrimitive.Input className="prosmet-v2-edit-input" autoFocus />
+      <ComposerPrimitive.Input id="prosmet-edit-message" name="prosmet-edit-message" className="prosmet-v2-edit-input" autoFocus />
       <div className="prosmet-v2-edit-actions">
         <ComposerPrimitive.Cancel asChild><button type="button">Отмена</button></ComposerPrimitive.Cancel>
         <ComposerPrimitive.Send asChild><button type="button" className="is-primary">Обновить</button></ComposerPrimitive.Send>
@@ -225,6 +225,8 @@ const PremiumComposer: FC = () => (
       <div className="prosmet-v2-composer">
         <ComposerAttachments />
         <ComposerPrimitive.Input
+          id="prosmet-message"
+          name="prosmet-message"
           placeholder="Опишите объект и работы"
           aria-label="Сообщение Просметчику"
           className="prosmet-v2-composer-input"

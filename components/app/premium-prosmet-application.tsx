@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { PremiumChatWorkspace } from "@/components/app/premium-chat-workspace";
+import { FormFieldIdentityGuard } from "@/components/app/form-field-identity-guard";
 import {
   PremiumEstimateWorkspaceEditor,
   type PremiumEstimateWorkspaceBusy,
@@ -316,6 +317,7 @@ export function PremiumProsmetApplication() {
 
   return (
     <>
+      <FormFieldIdentityGuard />
       <PremiumChatWorkspace />
       {draft ? (
         <PremiumEstimateWorkspaceEditor

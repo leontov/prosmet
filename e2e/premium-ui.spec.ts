@@ -1,6 +1,47 @@
 import { expect, test } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
 
+type CspViolation = {
+  violatedDirective: string;
+  blockedURI: string;
+  sourceFile: string;
+  lineNumber: number;
+};
+
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    const scope = window as unknown as { __prosmetCspViolations?: CspViolation[] };
+    scope.__prosmetCspViolations = [];
+    document.addEventListener("securitypolicyviolation", (event) => {
+      scope.__prosmetCspViolations?.push({
+        violatedDirective: event.violatedDirective,
+        blockedURI: event.blockedURI,
+        sourceFile: event.sourceFile,
+        lineNumber: event.lineNumber
+      });
+    });
+  });
+});
+
+async function expectSecureInteractiveSurface(page: import("@playwright/test").Page) {
+  const violations = await page.evaluate(() =>
+    (window as unknown as { __prosmetCspViolations?: CspViolation[] }).__prosmetCspViolations ?? []
+  );
+  expect(violations).toEqual([]);
+
+  const anonymousFields = await page
+    .locator("input:not([id]), input:not([name]), textarea:not([id]), textarea:not([name]), select:not([id]), select:not([name])")
+    .evaluateAll((elements) =>
+      Array.from(new Set(elements)).map((element) => ({
+        tag: element.tagName,
+        type: element.getAttribute("type"),
+        label: element.getAttribute("aria-label"),
+        placeholder: element.getAttribute("placeholder")
+      }))
+    );
+  expect(anonymousFields).toEqual([]);
+}
+
 function composer(page: import("@playwright/test").Page) {
   return page.getByLabel("Сообщение Просметчику");
 }
@@ -64,10 +105,12 @@ test("premium V2 shell is a distinct desktop and mobile product", async ({ page 
     expect(cardTitleSize).toBeGreaterThanOrEqual(16);
   }
 
+  await expectSecureInteractiveSurface(page);
+
   await page.screenshot({ path: `artifacts/screenshots/premium-shell-${testInfo.project.name}.png`, fullPage: true });
 
   const relevant = errors.filter((message) =>
-    /Speech adapter|Feedback adapter|hydration|Maximum update depth|Too many re-renders|TypeError|ReferenceError|Page crashed/i.test(message)
+    /Speech adapter|Feedback adapter|hydration|Maximum update depth|Too many re-renders|TypeError|ReferenceError|EvalError|Content Security Policy|Refused to evaluate|Page crashed/i.test(message)
   );
   expect(relevant).toEqual([]);
 });
@@ -146,13 +189,15 @@ test("premium V2 estimate uses document workspace on desktop and large cards on 
     expect(doneBox!.height).toBeGreaterThanOrEqual(52);
   }
 
+  await expectSecureInteractiveSurface(page);
+
   await page.screenshot({ path: `artifacts/screenshots/premium-estimate-${testInfo.project.name}.png`, fullPage: true });
 
   const titleOverflow = await canvas.locator('textarea[aria-label="Название сметы"], h1').first().evaluate((element) => ({ scrollWidth: element.scrollWidth, clientWidth: element.clientWidth }));
   expect(titleOverflow.scrollWidth).toBeLessThanOrEqual(titleOverflow.clientWidth + 2);
 
   const relevant = errors.filter((message) =>
-    /Speech adapter|Feedback adapter|hydration|Maximum update depth|Too many re-renders|TypeError|ReferenceError|Page crashed/i.test(message)
+    /Speech adapter|Feedback adapter|hydration|Maximum update depth|Too many re-renders|TypeError|ReferenceError|EvalError|Content Security Policy|Refused to evaluate|Page crashed/i.test(message)
   );
   expect(relevant).toEqual([]);
 });

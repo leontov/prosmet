@@ -19,6 +19,7 @@ const required = [
   "app/api/health/route.ts",
   "app/api/sync/route.ts",
   "components/app/premium-prosmet-application.tsx",
+  "components/app/form-field-identity-guard.tsx",
   "components/app/premium-chat-workspace.tsx",
   "components/app/premium-estimate-workspace-editor.tsx",
   "components/app/right-inspector.tsx",
@@ -43,6 +44,7 @@ const required = [
   "playwright.config.ts",
   "e2e/chat.spec.ts",
   "e2e/premium-ui.spec.ts",
+  "scripts/csp-bundle-contract.mjs",
   "e2e/workspace-navigation.spec.ts",
   ".github/workflows/launch-3200.yml"
 ];
@@ -203,7 +205,7 @@ for (const token of [
   "workspace.restoreThread",
   "workspace.deleteThread",
   "workspace.renameThread",
-  'label="Чаты"',
+  'label: "Чаты"',
   "manifest.terminology.objects || \"Объекты\"",
   "manifest.terminology.estimates || \"Сметы\"",
   "manifest.terminology.documents || \"Документы\"",
@@ -240,6 +242,7 @@ const premiumApplication = await read("components/app/premium-prosmet-applicatio
 for (const token of [
   "PremiumChatWorkspace",
   "PremiumEstimateWorkspaceEditor",
+  "FormFieldIdentityGuard",
   "saveEstimate(workspace.currentThreadId",
   "validateForApproval",
   'status: "approved"',
@@ -326,8 +329,8 @@ for (const token of [
 
 const premiumE2e = await read("e2e/premium-ui.spec.ts");
 for (const token of [
-  "premium shell keeps the customer surface quiet",
-  "premium estimate opens as a clean adaptive document workflow",
+  "premium V2 shell is a distinct desktop and mobile product",
+  "premium V2 estimate uses document workspace on desktop and large cards on mobile",
   "premium-shell-",
   "premium-estimate-",
   "Сохранить версию"
@@ -405,6 +408,16 @@ if (!nextConfig.includes("...(isDevelopment ? [\"'unsafe-eval'\"] : [])")) {
   failures.push("csp:production-unsafe-eval-not-disabled");
 }
 need(nextConfig, "no-store, no-cache, must-revalidate", "cache-control");
+
+const cspBundleContract = await read("scripts/csp-bundle-contract.mjs");
+for (const token of ["new Function", "securitypolicyviolation", "setTimeout", "setInterval", ".next/static/chunks"]) {
+  need(cspBundleContract, token, "csp-bundle-contract");
+}
+
+const formGuard = await read("components/app/form-field-identity-guard.tsx");
+for (const token of ["useLayoutEffect", "MutationObserver", "input, textarea, select", "field.name = field.id"]) {
+  need(formGuard, token, "form-field-identity");
+}
 
 const playwright = await read("playwright.config.ts");
 for (const token of ["PROSMET_BASE_URL", "externalBaseURL", "desktop-chromium", "mobile-chromium"]) {

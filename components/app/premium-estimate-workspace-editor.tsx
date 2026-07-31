@@ -20,7 +20,7 @@ import {
   Trash2Icon,
   XIcon
 } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { useId, useMemo, useState, type ReactNode } from "react";
 import {
   calculateEstimate,
   makeId,
@@ -319,7 +319,7 @@ function PremiumEstimateCanvas({
         <div className="prosmet-v2-document-title-wrap">
           <span className="prosmet-v2-eyebrow">Смета</span>
           {editable ? (
-            <textarea aria-label="Название сметы" value={draft.title} rows={1} onChange={(event) => onChange((current) => ({ ...current, title: event.target.value }))} className="prosmet-v2-estimate-title" />
+            <textarea id="estimate-title" name="estimate-title" aria-label="Название сметы" value={draft.title} rows={1} onChange={(event) => onChange((current) => ({ ...current, title: event.target.value }))} className="prosmet-v2-estimate-title" />
           ) : (
             <h1 className="prosmet-v2-estimate-title-readonly">{draft.title}</h1>
           )}
@@ -365,7 +365,7 @@ function PremiumEstimateCanvas({
               <span className="prosmet-v2-section-icon"><TagIcon /></span>
               <div className="min-w-0 flex-1">
                 {editable ? (
-                  <textarea aria-label={`Название раздела ${section.title}`} value={section.title} rows={1} onChange={(event) => onChange((current) => ({ ...current, sections: current.sections.map((entry) => entry.id === section.id ? { ...entry, title: event.target.value } : entry) }))} className="prosmet-v2-section-title-input" />
+                  <textarea id={`estimate-section-${section.id}`} name={`estimate-section-${section.id}`} aria-label={`Название раздела ${section.title}`} value={section.title} rows={1} onChange={(event) => onChange((current) => ({ ...current, sections: current.sections.map((entry) => entry.id === section.id ? { ...entry, title: event.target.value } : entry) }))} className="prosmet-v2-section-title-input" />
                 ) : (
                   <h2 className="prosmet-v2-section-title">{section.title}</h2>
                 )}
@@ -447,10 +447,10 @@ function PremiumEstimateRow({ position, item, amount, currency, editable, onChan
     <div className="prosmet-v2-estimate-row">
       <div className="prosmet-v2-desktop-row">
         <span className="prosmet-v2-position">{position}</span>
-        {editable ? <input aria-label={`Наименование позиции ${position}`} value={item.name} onChange={(event) => onChange("name", event.target.value)} className="prosmet-v2-cell is-name" /> : <span className="prosmet-v2-cell-readonly is-name">{item.name}</span>}
-        {editable ? <input aria-label={`Единица позиции ${position}`} value={item.unit} onChange={(event) => onChange("unit", event.target.value)} className="prosmet-v2-cell text-center" /> : <span className="prosmet-v2-cell-readonly text-center">{item.unit}</span>}
-        {editable ? <input aria-label={`Количество позиции ${position}`} inputMode="decimal" value={String(item.quantity)} onChange={(event) => onChange("quantity", parseDecimal(event.target.value))} className="prosmet-v2-cell text-right" /> : <span className="prosmet-v2-cell-readonly text-right tabular-nums">{item.quantity.toLocaleString("ru-RU")}</span>}
-        {editable ? <input aria-label={`Цена позиции ${position}`} inputMode="decimal" value={String(item.unitPrice)} onChange={(event) => onChange("unitPrice", parseDecimal(event.target.value))} className="prosmet-v2-cell text-right font-medium" /> : <span className="prosmet-v2-cell-readonly text-right tabular-nums">{formatMoney(item.unitPrice, currency)}</span>}
+        {editable ? <input id={`estimate-item-name-${item.id}`} name={`estimate-item-name-${item.id}`} aria-label={`Наименование позиции ${position}`} value={item.name} onChange={(event) => onChange("name", event.target.value)} className="prosmet-v2-cell is-name" /> : <span className="prosmet-v2-cell-readonly is-name">{item.name}</span>}
+        {editable ? <input id={`estimate-item-unit-${item.id}`} name={`estimate-item-unit-${item.id}`} aria-label={`Единица позиции ${position}`} value={item.unit} onChange={(event) => onChange("unit", event.target.value)} className="prosmet-v2-cell text-center" /> : <span className="prosmet-v2-cell-readonly text-center">{item.unit}</span>}
+        {editable ? <input id={`estimate-item-quantity-${item.id}`} name={`estimate-item-quantity-${item.id}`} aria-label={`Количество позиции ${position}`} inputMode="decimal" value={String(item.quantity)} onChange={(event) => onChange("quantity", parseDecimal(event.target.value))} className="prosmet-v2-cell text-right" /> : <span className="prosmet-v2-cell-readonly text-right tabular-nums">{item.quantity.toLocaleString("ru-RU")}</span>}
+        {editable ? <input id={`estimate-item-price-${item.id}`} name={`estimate-item-price-${item.id}`} aria-label={`Цена позиции ${position}`} inputMode="decimal" value={String(item.unitPrice)} onChange={(event) => onChange("unitPrice", parseDecimal(event.target.value))} className="prosmet-v2-cell text-right font-medium" /> : <span className="prosmet-v2-cell-readonly text-right tabular-nums">{formatMoney(item.unitPrice, currency)}</span>}
         <strong className="prosmet-v2-row-amount">{formatMoney(amount, currency)}</strong>
         {editable ? <button type="button" onClick={onDelete} aria-label={`Удалить позицию ${item.name}`} className="prosmet-v2-delete-icon"><Trash2Icon /></button> : <span />}
       </div>
@@ -490,17 +490,17 @@ function PremiumEstimateRowEditor({ draft, row, onClose, onChange, onDelete }: {
         </header>
 
         <div className="prosmet-v2-row-form">
-          <Field label="Наименование" wide><input className="prosmet-v2-input" value={item.name} onChange={(event) => onChange(row.sectionId, row.itemId, "name", event.target.value)} /></Field>
-          <Field label="Количество"><input className="prosmet-v2-input" inputMode="decimal" value={String(item.quantity)} onChange={(event) => onChange(row.sectionId, row.itemId, "quantity", parseDecimal(event.target.value))} /></Field>
-          <Field label="Единица"><input className="prosmet-v2-input" value={item.unit} onChange={(event) => onChange(row.sectionId, row.itemId, "unit", event.target.value)} list="prosmet-units" /><datalist id="prosmet-units"><option value="м²" /><option value="м³" /><option value="пог. м" /><option value="шт" /><option value="кг" /><option value="компл." /></datalist></Field>
-          <Field label="Цена"><input className="prosmet-v2-input" inputMode="decimal" value={String(item.unitPrice)} onChange={(event) => onChange(row.sectionId, row.itemId, "unitPrice", parseDecimal(event.target.value))} /></Field>
+          <Field label="Наименование" wide><input id={`estimate-sheet-name-${item.id}`} name={`estimate-sheet-name-${item.id}`} className="prosmet-v2-input" value={item.name} onChange={(event) => onChange(row.sectionId, row.itemId, "name", event.target.value)} /></Field>
+          <Field label="Количество"><input id={`estimate-sheet-quantity-${item.id}`} name={`estimate-sheet-quantity-${item.id}`} className="prosmet-v2-input" inputMode="decimal" value={String(item.quantity)} onChange={(event) => onChange(row.sectionId, row.itemId, "quantity", parseDecimal(event.target.value))} /></Field>
+          <Field label="Единица"><input id={`estimate-sheet-unit-${item.id}`} name={`estimate-sheet-unit-${item.id}`} className="prosmet-v2-input" value={item.unit} onChange={(event) => onChange(row.sectionId, row.itemId, "unit", event.target.value)} list="prosmet-units" /><datalist id="prosmet-units"><option value="м²" /><option value="м³" /><option value="пог. м" /><option value="шт" /><option value="кг" /><option value="компл." /></datalist></Field>
+          <Field label="Цена"><input id={`estimate-sheet-price-${item.id}`} name={`estimate-sheet-price-${item.id}`} className="prosmet-v2-input" inputMode="decimal" value={String(item.unitPrice)} onChange={(event) => onChange(row.sectionId, row.itemId, "unitPrice", parseDecimal(event.target.value))} /></Field>
 
           <details className="prosmet-v2-advanced-fields">
             <summary><span>Дополнительно</span><ChevronDownIcon /></summary>
             <div className="prosmet-v2-advanced-grid">
-              <Field label="Тип ресурса"><select className="prosmet-v2-input" value={item.resourceType} onChange={(event) => onChange(row.sectionId, row.itemId, "resourceType", event.target.value as ResourceType)}>{Object.entries(resourceLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
-              <Field label="Код нормы"><input className="prosmet-v2-input" value={item.code} onChange={(event) => onChange(row.sectionId, row.itemId, "code", event.target.value)} /></Field>
-              <Field label="Комментарий" wide><textarea className="prosmet-v2-input" value={item.comment} onChange={(event) => onChange(row.sectionId, row.itemId, "comment", event.target.value)} /></Field>
+              <Field label="Тип ресурса"><select id={`estimate-sheet-resource-${item.id}`} name={`estimate-sheet-resource-${item.id}`} className="prosmet-v2-input" value={item.resourceType} onChange={(event) => onChange(row.sectionId, row.itemId, "resourceType", event.target.value as ResourceType)}>{Object.entries(resourceLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></Field>
+              <Field label="Код нормы"><input id={`estimate-sheet-code-${item.id}`} name={`estimate-sheet-code-${item.id}`} className="prosmet-v2-input" value={item.code} onChange={(event) => onChange(row.sectionId, row.itemId, "code", event.target.value)} /></Field>
+              <Field label="Комментарий" wide><textarea id={`estimate-sheet-comment-${item.id}`} name={`estimate-sheet-comment-${item.id}`} className="prosmet-v2-input" value={item.comment} onChange={(event) => onChange(row.sectionId, row.itemId, "comment", event.target.value)} /></Field>
             </div>
           </details>
         </div>
@@ -526,18 +526,20 @@ function ToolbarIcon({ label, onClick, disabled, children }: { label: string; on
 }
 
 function MetaField({ icon, label, value, editable, type = "text", onChange }: { icon: ReactNode; label: string; value: string; editable: boolean; type?: string; onChange: (value: string) => void }) {
+  const fieldId = useId();
   return (
     <label className="prosmet-v2-meta-field">
       <span className="prosmet-v2-meta-icon">{icon}</span>
-      <span className="min-w-0 flex-1"><small>{label}</small>{editable ? <input aria-label={label} type={type} value={value} onChange={(event) => onChange(event.target.value)} /> : <strong>{type === "date" ? formatDateRu(value) : value || "Не указано"}</strong>}</span>
+      <span className="min-w-0 flex-1"><small>{label}</small>{editable ? <input id={fieldId} name={`estimate-meta-${label.toLocaleLowerCase("ru-RU")}`} aria-label={label} type={type} value={value} onChange={(event) => onChange(event.target.value)} /> : <strong>{type === "date" ? formatDateRu(value) : value || "Не указано"}</strong>}</span>
     </label>
   );
 }
 
 function PercentField({ label, value, amount, currency, editable, onChange }: { label: string; value: number; amount: number; currency: string; editable: boolean; onChange: (value: number) => void }) {
+  const fieldId = useId();
   return (
     <div className="prosmet-v2-total-line">
-      <span>{label}{editable ? <span className="prosmet-v2-percent-input"><input aria-label={`${label}, процентов`} inputMode="decimal" value={String(value)} onChange={(event) => onChange(parseDecimal(event.target.value))} /><b>%</b></span> : <small>{value}%</small>}</span>
+      <span>{label}{editable ? <span className="prosmet-v2-percent-input"><input id={fieldId} name={`estimate-percent-${label.toLocaleLowerCase("ru-RU")}`} aria-label={`${label}, процентов`} inputMode="decimal" value={String(value)} onChange={(event) => onChange(parseDecimal(event.target.value))} /><b>%</b></span> : <small>{value}%</small>}</span>
       <strong className={cn(amount < 0 && "text-red-600")}>{amount < 0 ? "− " : ""}{formatMoney(Math.abs(amount), currency)}</strong>
     </div>
   );
