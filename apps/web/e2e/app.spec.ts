@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("greenfield shell, navigation and estimate editor are native to each viewport", async ({ page }, testInfo) => {
+test("greenfield shell, reference mobile start and estimate editor pass", async ({ page }, testInfo) => {
   const violations: string[] = [];
   page.on("console", (message) => {
     if (message.type() === "error") violations.push(`console:${message.text()}`);
@@ -15,9 +15,9 @@ test("greenfield shell, navigation and estimate editor are native to each viewpo
   });
 
   await page.goto("/", { waitUntil: "networkidle" });
-  await expect(page.getByText("Просметчик", { exact: true })).toBeVisible();
 
   if (testInfo.project.name === "desktop-chromium") {
+    await expect(page.getByText("Просметчик", { exact: true })).toBeVisible();
     await expect(page.getByTestId("desktop-shell")).toBeVisible();
     await expect(page.getByTestId("mobile-shell")).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Что нужно сделать?" })).toBeVisible();
@@ -30,14 +30,31 @@ test("greenfield shell, navigation and estimate editor are native to each viewpo
   } else {
     await expect(page.getByTestId("mobile-shell")).toBeVisible();
     await expect(page.getByTestId("desktop-shell")).toHaveCount(0);
-    await expect(page.getByRole("heading", { name: "Новый расчёт" })).toBeVisible();
+    await expect(page.getByTestId("mobile-reference-start")).toBeVisible();
     await expect(page.locator(".mobile-bottom-nav")).toHaveCount(0);
-    await expect(page.getByRole("navigation", { name: "Мобильная навигация" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Новый расчёт" })).toHaveCount(0);
 
-    const menuButton = page.getByRole("button", { name: "Открыть навигацию" });
-    await expect(menuButton).toBeVisible();
+    await expect(page.getByRole("button", { name: "Создать изображение" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Напиши или отредактируй" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Искать в интернете" })).toBeVisible();
+    await expect(page.getByPlaceholder("Спросить Просметчик...")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Голосовой ввод" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Отправить" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Выбрать раздел" })).toContainText("Чат");
+
+    const topMenu = page.getByRole("button", { name: "Открыть навигацию" });
+    const menuBox = await topMenu.boundingBox();
+    expect(menuBox?.width ?? 0).toBeGreaterThanOrEqual(52);
+    expect(menuBox?.height ?? 0).toBeGreaterThanOrEqual(52);
+
+    const composer = page.locator(".mobile-reference-composer");
+    const composerBox = await composer.boundingBox();
+    expect(composerBox?.height ?? 0).toBeGreaterThanOrEqual(60);
+    const composerRadius = await composer.evaluate((element) => parseFloat(getComputedStyle(element).borderRadius));
+    expect(composerRadius).toBeGreaterThanOrEqual(30);
+
     const openMenu = async () => {
-      await menuButton.click();
+      await topMenu.click();
       const dialog = page.getByRole("dialog", { name: "Навигация" });
       await expect(dialog).toBeVisible();
       return dialog;
@@ -53,14 +70,18 @@ test("greenfield shell, navigation and estimate editor are native to each viewpo
 
     menu = await openMenu();
     await menu.getByRole("button", { name: /^Чат/ }).click();
-    await expect(page.getByRole("heading", { name: "Новый расчёт" })).toBeVisible();
+    await expect(page.getByTestId("mobile-reference-start")).toBeVisible();
     await expect(page.getByRole("dialog", { name: "Навигация" })).toHaveCount(0);
   }
 
-  await expect(page.getByRole("button", { name: /Механизированная штукатурка/ })).toBeVisible();
   await page.screenshot({ path: `artifacts-shell-${testInfo.project.name}.png`, fullPage: true });
 
-  await page.getByRole("button", { name: /Механизированная штукатурка/ }).click();
+  if (testInfo.project.name === "desktop-chromium") {
+    await page.getByRole("button", { name: /Механизированная штукатурка/ }).click();
+  } else {
+    await page.getByRole("button", { name: "Искать в интернете" }).click();
+  }
+
   const editor = page.getByRole("dialog", { name: "Редактор сметы" });
   await expect(editor).toBeVisible({ timeout: 20_000 });
 
