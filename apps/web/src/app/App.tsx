@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { AppView, Estimate } from "@prosmet/contracts";
 import {
-  BotIcon,
   ChevronRightIcon,
   CircleUserRoundIcon,
   FileSpreadsheetIcon,
@@ -23,7 +22,7 @@ import { EstimateEditor } from "../features/estimate/EstimateEditor";
 import { LibraryView } from "../features/library/LibraryView";
 import { AccountView } from "../features/account/AccountView";
 import { SettingsView } from "../features/settings/SettingsView";
-import { demoEstimate } from "../data/demo";
+import { AgentSelector } from "../agents/AgentSelector";
 
 const storageKey = "prosmet-greenfield-estimate";
 
@@ -75,9 +74,8 @@ export function App() {
   }, []);
 
   const openEstimate = useCallback(() => {
-    setEstimate((current) => current ?? demoEstimate);
-    setEstimateOpen(true);
-  }, []);
+    if (estimate) setEstimateOpen(true);
+  }, [estimate]);
 
   return (
     <RuntimeProvider onEstimateReady={handleEstimateReady}>
@@ -136,21 +134,21 @@ function DesktopShell({ view, onView, estimate, onOpenEstimate }: ShellProps) {
         </nav>
 
         <div className="sidebar-history">
-          <header><span>Недавние</span><button type="button">Все</button></header>
-          <button type="button" className="history-item active">
-            <span className="history-icon"><MessageSquareTextIcon /></span>
-            <span><strong>Штукатурка квартиры</strong><small>Казань · сегодня</small></span>
-          </button>
-          <button type="button" className="history-item">
-            <span className="history-icon"><MessageSquareTextIcon /></span>
-            <span><strong>Отопление дома</strong><small>Альметьевск · вчера</small></span>
-          </button>
+          <header><span>Текущий контекст</span></header>
+          {estimate ? (
+            <button type="button" className="history-item active" onClick={onOpenEstimate}>
+              <span className="history-icon"><FileSpreadsheetIcon /></span>
+              <span><strong>{estimate.title}</strong><small>{estimate.region || "Регион не указан"}</small></span>
+            </button>
+          ) : (
+            <p className="sidebar-empty">История появится после первого реального диалога.</p>
+          )}
         </div>
 
         <div className="sidebar-footer">
           <button type="button" className={view === "account" ? "profile-button active" : "profile-button"} onClick={() => onView("account")}>
             <span className="profile-avatar-small"><CircleUserRoundIcon /></span>
-            <span><strong>Владислав</strong><small>Founder</small></span>
+            <span><strong>Кабинет</strong><small>Профиль и доступ</small></span>
           </button>
           <button type="button" className={view === "settings" ? "sidebar-settings active" : "sidebar-settings"} onClick={() => onView("settings")} aria-label="Настройки"><Settings2Icon /></button>
         </div>
@@ -161,13 +159,13 @@ function DesktopShell({ view, onView, estimate, onOpenEstimate }: ShellProps) {
           <div><strong>{viewMeta[view].title}</strong><span>{viewMeta[view].subtitle}</span></div>
           <div className="topbar-actions">
             <label className="topbar-search"><SearchIcon /><input id="global-search" name="global-search" placeholder="Поиск" /></label>
-            <button type="button" className="agent-button"><BotIcon /><span>Codex</span></button>
+            <AgentSelector onConfigure={() => onView("settings")} />
             <button type="button" className="icon-button" aria-label="Рабочий контекст"><PanelRightIcon /></button>
           </div>
         </header>
 
         <div className="desktop-content">
-          <Workspace view={view} mobile={false} estimate={estimate} onOpenEstimate={onOpenEstimate} />
+          <Workspace view={view} mobile={false} estimate={estimate} onOpenEstimate={onOpenEstimate} onCreate={() => onView("chat")} />
         </div>
       </main>
     </div>
@@ -211,7 +209,7 @@ function MobileShell({ view, onView, estimate, onOpenEstimate }: ShellProps) {
       </header>
 
       <main className="mobile-main">
-        <Workspace view={view} mobile estimate={estimate} onOpenEstimate={onOpenEstimate} />
+        <Workspace view={view} mobile estimate={estimate} onOpenEstimate={onOpenEstimate} onCreate={() => navigate("chat")} />
       </main>
 
       {menuOpen ? (
@@ -238,11 +236,17 @@ function MobileShell({ view, onView, estimate, onOpenEstimate }: ShellProps) {
   );
 }
 
-function Workspace({ view, mobile, estimate, onOpenEstimate }: { view: AppView; mobile: boolean; estimate: Estimate | null; onOpenEstimate: () => void }) {
+function Workspace({ view, mobile, estimate, onOpenEstimate, onCreate }: {
+  view: AppView;
+  mobile: boolean;
+  estimate: Estimate | null;
+  onOpenEstimate: () => void;
+  onCreate: () => void;
+}) {
   if (view === "chat") return <ChatSurface mobile={mobile} hasEstimate={Boolean(estimate)} onOpenEstimate={onOpenEstimate} />;
   if (view === "account") return <AccountView mobile={mobile} />;
   if (view === "settings") return <SettingsView mobile={mobile} />;
-  return <LibraryView view={view} mobile={mobile} onOpenEstimate={onOpenEstimate} />;
+  return <LibraryView view={view} mobile={mobile} estimate={estimate} onOpenEstimate={onOpenEstimate} onCreate={onCreate} />;
 }
 
 function NavButton({ active, label, icon, onClick }: { active: boolean; label: string; icon: React.ReactNode; onClick: () => void }) {
