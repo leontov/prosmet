@@ -57,7 +57,7 @@ function projectRows(estimates: Estimate[]): Row[] {
     projects.set(key, entry);
   }
   return [...projects.entries()].map(([title, entry]) => {
-    const latest = [...entry.estimates].sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))[0];
+    const latest = [...entry.estimates].sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))[0]!;
     return {
       id: `project:${title}`,
       estimateId: latest.id,
