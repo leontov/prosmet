@@ -5,15 +5,25 @@ import {
   type ChatModelAdapter
 } from "@assistant-ui/react";
 import type { AgentResponse, Estimate } from "@prosmet/contracts";
-import { demoEstimate } from "../data/demo";
+
+const selectedAgentStorageKey = "prosmet-selected-agent";
 
 type Props = {
   children: ReactNode;
   onEstimateReady: (estimate: Estimate) => void;
 };
 
-function cloneDemoEstimate(): Estimate {
-  return structuredClone(demoEstimate);
+function selectedAgentId() {
+  try { return window.localStorage.getItem(selectedAgentStorageKey) || ""; } catch { return ""; }
+}
+
+async function responseError(response: Response) {
+  try {
+    const body = await response.json() as { error?: { message?: string } };
+    return body.error?.message || `Agent request failed: ${response.status}`;
+  } catch {
+    return `Agent request failed: ${response.status}`;
+  }
 }
 
 export function RuntimeProvider({ children, onEstimateReady }: Props) {
@@ -23,27 +33,25 @@ export function RuntimeProvider({ children, onEstimateReady }: Props) {
         const response = await fetch("/api/agent", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ messages }),
+          body: JSON.stringify({ messages, agentId: selectedAgentId() }),
           signal: abortSignal,
           credentials: "same-origin"
         });
 
-        if (!response.ok) throw new Error(`Agent request failed: ${response.status}`);
+        if (!response.ok) throw new Error(await responseError(response));
         const result = await response.json() as AgentResponse;
         if (result.artifact === "estimate" && result.estimate) {
           queueMicrotask(() => onEstimateReady(result.estimate as Estimate));
         }
 
-        return {
-          content: [{ type: "text", text: result.text }]
-        };
+        return { content: [{ type: "text", text: result.text }] };
       } catch (error) {
         if (abortSignal.aborted) throw error;
-        queueMicrotask(() => onEstimateReady(cloneDemoEstimate()));
+        const message = error instanceof Error ? error.message : "Agent request failed";
         return {
           content: [{
             type: "text",
-            text: "Подготовил локальный черновик сметы. Проверьте объёмы и цены, затем сохраните отдельную версию."
+            text: `Агент не выполнил запрос: ${message}`
           }]
         };
       }
