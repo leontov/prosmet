@@ -2,6 +2,10 @@
   display: none !important;
 }
 
+[data-prosmet-supporting-artifact="true"] {
+  display: none !important;
+}
+
 :where(
   button,
   a,
