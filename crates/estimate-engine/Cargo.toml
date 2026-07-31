@@ -1,0 +1,9 @@
+[package]
+name = "prosmet-estimate-engine"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[lib]
+name = "prosmet_estimate_engine"
+path = "src/lib.rs"

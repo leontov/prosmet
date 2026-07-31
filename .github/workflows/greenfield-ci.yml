@@ -1,0 +1,69 @@
+name: Prosmet Greenfield Quality
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [greenfield/prosmet-v3]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prosmet-greenfield-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 45
+    env:
+      CI: "1"
+    steps:
+      - name: Verify trusted runner
+        run: test "${{ runner.name }}" = "prosmet-primary"
+
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Install clean workspace
+        run: npm install --workspaces --include-workspace-root --legacy-peer-deps --no-audit --no-fund
+
+      - name: Greenfield source contract
+        run: node scripts/greenfield-contract.mjs
+
+      - name: TypeScript, unit tests and build
+        run: |
+          npm run typecheck
+          npm run test
+          npm run build
+
+      - name: Desktop manifest
+        run: npm run desktop:metadata
+
+      - name: Install Chromium
+        run: npx playwright install chromium
+
+      - name: Desktop and mobile browser acceptance
+        run: npm run e2e
+
+      - name: Upload browser evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prosmet-greenfield-${{ github.run_id }}
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+            apps/web/artifacts-*.png
+          if-no-files-found: warn
+          retention-days: 14

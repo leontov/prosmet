@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Minimal local capability set. Remote production pages receive no Tauri IPC permissions.",
+  "description": "Minimum permissions for the Prosmet main window",
   "windows": ["main"],
   "permissions": ["core:default"]
 }
