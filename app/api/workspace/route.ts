@@ -1,4 +1,4 @@
-import { ZodError } from "zod";
+import { ZodError } from "@/lib/zod";
 import { resolveServerIdentity } from "@/lib/server/identity";
 import { loadWorkspace, saveWorkspace } from "@/lib/server/services/workspace";
 

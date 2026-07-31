@@ -1,4 +1,4 @@
-import { ZodError } from "zod";
+import { ZodError } from "@/lib/zod";
 import { resolveServerIdentity } from "@/lib/server/identity";
 import { assertSuperAdmin, AuthorizationError } from "@/lib/server/auth/roles";
 import { loadClientManifest, saveClientManifest } from "@/lib/server/services/client-manifest";

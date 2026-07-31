@@ -4,7 +4,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { access } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
-import { z } from "zod";
+import { z } from "@/lib/zod";
 import type { EstimateDraft } from "@/lib/domain/estimate";
 
 const DecimalMapSchema = z.record(z.string(), z.string().regex(/^-?\d+(?:\.\d+)?$/));

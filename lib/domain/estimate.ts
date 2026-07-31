@@ -1,5 +1,5 @@
 import Decimal from "decimal.js";
-import { z } from "zod";
+import { z } from "@/lib/zod";
 import { browserUuid } from "@/lib/platform/browser-crypto";
 
 export const ResourceTypeSchema = z.enum([

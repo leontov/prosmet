@@ -45,6 +45,11 @@ const required = [
   "e2e/chat.spec.ts",
   "e2e/premium-ui.spec.ts",
   "scripts/csp-bundle-contract.mjs",
+  "scripts/zod-jitless-contract.mjs",
+  "lib/zod.ts",
+  "lib/exports/estimate-runtime.ts",
+  "lib/server/exports/estimate.ts",
+  "app/api/export/estimate/route.ts",
   "e2e/workspace-navigation.spec.ts",
   ".github/workflows/launch-3200.yml"
 ];
@@ -71,6 +76,16 @@ for (const token of [
   "NEXT_PUBLIC_APP_ORIGIN",
   "https://kolibriai.online"
 ]) need(layout, token, "layout");
+
+const zodWrapper = await read("lib/zod.ts");
+for (const token of ["z.config({ jitless: true })", 'export * from "zod"']) need(zodWrapper, token, "zod-jitless");
+
+const exportRuntime = await read("lib/exports/estimate-runtime.ts");
+for (const token of ["/api/export/estimate?format=", "downloadBlobWithoutNavigating"]) need(exportRuntime, token, "client-export-runtime");
+for (const token of ["pdfmake", "exceljs"]) forbid(exportRuntime, token, "client-export-runtime");
+
+const exportRoute = await read("app/api/export/estimate/route.ts");
+for (const token of ['runtime = "nodejs"', "EstimateDraftSchema.safeParse", "createEstimatePdfBuffer", "createEstimateXlsxBuffer"]) need(exportRoute, token, "server-export-route");
 
 const runtime = await read("app/MyRuntimeProvider.tsx");
 for (const token of [

@@ -1,4 +1,4 @@
-import { ZodError } from "zod";
+import { ZodError } from "@/lib/zod";
 import { EstimateDraftSchema } from "@/lib/domain/estimate";
 import { calculateWithRust, rustCalculationAsNumbers } from "@/lib/server/engine/rust-engine";
 

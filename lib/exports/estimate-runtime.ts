@@ -1,20 +1,37 @@
 "use client";
 
 import { cloneEstimate, type EstimateDraft } from "@/lib/domain/estimate";
-import {
-  createEstimatePdfBlob as createEstimatePdfBlobCore,
-  estimatePdfFilename,
-  exportEstimateXlsx
-} from "./estimate";
 
-export { estimatePdfFilename, exportEstimateXlsx };
+function safeName(value: string) {
+  return value
+    .replace(/[^a-zA-Zа-яА-Я0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 90) || "prosmet-estimate";
+}
+
+export function estimatePdfFilename(draft: EstimateDraft) {
+  return `${safeName(draft.title)}-v${draft.revision}.pdf`;
+}
+
+function estimateXlsxFilename(draft: EstimateDraft) {
+  return `${safeName(draft.title)}-v${draft.revision}.xlsx`;
+}
+
+async function requestEstimateExport(draft: EstimateDraft, format: "pdf" | "xlsx") {
+  const response = await fetch(`/api/export/estimate?format=${format}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(cloneEstimate(draft))
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null) as { error?: string } | null;
+    throw new Error(payload?.error || `Экспорт ${format.toUpperCase()} не выполнен`);
+  }
+  return response.blob();
+}
 
 export async function createEstimatePdfBlob(draft: EstimateDraft) {
-  // pdfmake decorates and normalises the document definition in place. The
-  // definition contains arrays derived from the estimate, so always pass a
-  // detached copy; otherwise a completed PDF download can mutate the live
-  // React state and make the preview render pdfmake's internal layout objects.
-  return createEstimatePdfBlobCore(cloneEstimate(draft));
+  return requestEstimateExport(draft, "pdf");
 }
 
 function downloadBlobWithoutNavigating(blob: Blob, filename: string) {
@@ -40,9 +57,6 @@ function downloadBlobWithoutNavigating(blob: Blob, filename: string) {
     anchor.click();
   } finally {
     anchor.remove();
-    // Keep both the browsing context and the object URL alive while Chromium
-    // finalises the asynchronous download. If a browser ignores `download`,
-    // the blob is opened only inside the hidden frame, never in the chat tab.
     window.setTimeout(() => {
       frame.remove();
       URL.revokeObjectURL(objectUrl);
@@ -51,6 +65,9 @@ function downloadBlobWithoutNavigating(blob: Blob, filename: string) {
 }
 
 export async function exportEstimatePdf(draft: EstimateDraft) {
-  const blob = await createEstimatePdfBlob(draft);
-  downloadBlobWithoutNavigating(blob, estimatePdfFilename(draft));
+  downloadBlobWithoutNavigating(await createEstimatePdfBlob(draft), estimatePdfFilename(draft));
+}
+
+export async function exportEstimateXlsx(draft: EstimateDraft) {
+  downloadBlobWithoutNavigating(await requestEstimateExport(draft, "xlsx"), estimateXlsxFilename(draft));
 }

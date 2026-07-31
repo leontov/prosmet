@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@/lib/zod";
 import { PriceContextSchema } from "@/lib/domain/price-intelligence";
 import { resolveServerIdentity } from "@/lib/server/identity";
 import { resolveServerPrice } from "@/lib/server/services/price-intelligence";

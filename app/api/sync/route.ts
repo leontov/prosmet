@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@/lib/zod";
 import { resolveServerIdentity } from "@/lib/server/identity";
 import {
   deletePriceIntelligence,

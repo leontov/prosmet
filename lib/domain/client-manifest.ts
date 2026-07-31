@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@/lib/zod";
 
 export const ClientModuleSchema = z.enum([
   "chat", "objects", "estimates", "documents", "prices", "settings", "profile", "admin"

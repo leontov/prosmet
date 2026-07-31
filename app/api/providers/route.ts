@@ -1,4 +1,4 @@
-import { z, ZodError } from "zod";
+import { z, ZodError } from "@/lib/zod";
 import { resolveServerIdentity } from "@/lib/server/identity";
 import { assertSuperAdmin, AuthorizationError } from "@/lib/server/auth/roles";
 import {

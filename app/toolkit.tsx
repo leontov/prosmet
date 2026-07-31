@@ -1,7 +1,7 @@
 "use client";
 
 import { defineToolkit } from "@assistant-ui/react";
-import { z } from "zod";
+import { z } from "@/lib/zod";
 import { ActivityIcon, CheckCircle2Icon, LoaderCircleIcon } from "lucide-react";
 import { BackgroundArtifact } from "@/components/tools/background-artifact";
 import { DeveloperWorkspace } from "@/components/tools/developer-workspace";

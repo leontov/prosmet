@@ -7,7 +7,7 @@ import {
   randomBytes,
   randomUUID
 } from "node:crypto";
-import { z } from "zod";
+import { z } from "@/lib/zod";
 import { checkCodexCli } from "@/lib/server/agents/codex-cli";
 import { checkCodexAppServer } from "@/lib/server/agents/codex-app-server";
 import { probeUniversalAgent } from "@/lib/server/agents/universal-protocols";
