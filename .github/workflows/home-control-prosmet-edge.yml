@@ -1,0 +1,185 @@
+name: Prosmet Home-controlled HTTPS recovery
+
+on:
+  push:
+    branches: [ops/edge-secret-probe]
+    paths:
+      - ".github/workflows/home-control-prosmet-edge.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: prosmet-home-controlled-edge
+  cancel-in-progress: true
+
+jobs:
+  recover:
+    name: Delegate least-privilege HTTPS recovery to Home
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 45
+    steps:
+      - name: Verify Primary runner and exact deployed release
+        id: release
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "${{ runner.name }}" = "prosmet-primary"
+          STATE="$HOME/.prosmet/home-edge-recovery"
+          mkdir -p "$STATE"
+          curl -fsS --max-time 10 http://127.0.0.1:3200/api/health | tee "$STATE/internal-health.json"
+          RELEASE_SHA="$(node -e 'const fs=require("fs"); const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(String(x.releaseSha||""))' "$STATE/internal-health.json")"
+          test -n "$RELEASE_SHA"
+          echo "release_sha=$RELEASE_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Discover Home factory control API
+        id: control
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          STATE="$HOME/.prosmet/home-edge-recovery"
+          CONTROL=""
+          for candidate in http://10.99.0.2:9101 http://192.168.88.210:9101; do
+            if curl -fsS --max-time 10 "$candidate/v1/nodes" > "$STATE/nodes.json"; then
+              CONTROL="$candidate"
+              break
+            fi
+          done
+          test -n "$CONTROL"
+          echo "url=$CONTROL" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$CONTROL" > "$STATE/control-url.txt"
+          cat "$STATE/nodes.json"
+
+          for path in /openapi.json /docs /v1/nodes /v1/tasks; do
+            safe="$(printf '%s' "$path" | tr '/?' '__')"
+            code="$(curl -sS --max-time 10 -o "$STATE/${safe}.body" -w '%{http_code}' "$CONTROL$path" || true)"
+            printf '%s %s\n' "$code" "$path" | tee -a "$STATE/endpoints.txt"
+          done
+
+      - name: Submit authorized Home-to-Primary service task
+        id: task
+        env:
+          CONTROL: ${{ steps.control.outputs.url }}
+          RELEASE_SHA: ${{ steps.release.outputs.release_sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          STATE="$HOME/.prosmet/home-edge-recovery"
+          TASK_ID="PROSMET-HTTPS-RECOVERY-$(date -u +%Y%m%dT%H%M%SZ)"
+          cat > "$STATE/task.json" <<JSON
+          {
+            "task_id": "$TASK_ID",
+            "kind": "owner_remote_task",
+            "root_goal_id": "PROSMET-PRODUCTION-HTTPS",
+            "target_node": "home-live",
+            "required_capability": "admin_service",
+            "priority": "P0",
+            "project_path": "/home/ladik/kolibri-ai-platform",
+            "branch": "main",
+            "objective": "Restore the public HTTPS production edge for Prosmet on Primary node 10.99.0.10 / 78.17.4.108 without granting broad sudo. The exact application release already healthy at http://10.99.0.10:3200 is $RELEASE_SHA. Use the authorized Home-to-Primary administration path. Install or update a root-owned Caddy binary and a systemd service that runs as actions-runner with only CAP_NET_BIND_SERVICE in CapabilityBoundingSet and AmbientCapabilities. Configure kolibriai.online to reverse proxy 127.0.0.1:3200, automatic TLS, HTTP-to-HTTPS redirect, HSTS max-age=31536000, and restart persistence. Do not modify application source or PostgreSQL. Verify locally on Primary and externally that https://kolibriai.online/api/health returns releaseSha $RELEASE_SHA. Return exact service status, listeners 80/443, headers, health JSON, and any blocker.",
+            "evidence_required": [
+              "task_id",
+              "target_node",
+              "release_sha",
+              "authorized_management_path",
+              "service_status",
+              "listeners_80_443",
+              "public_health_json",
+              "public_headers",
+              "result_path"
+            ]
+          }
+          JSON
+          curl -fsS --max-time 30 \
+            -H 'Content-Type: application/json' \
+            --data-binary "@$STATE/task.json" \
+            "$CONTROL/v1/tasks" | tee "$STATE/task-created.json"
+          echo "id=$TASK_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Track task to a terminal state
+        id: track
+        env:
+          CONTROL: ${{ steps.control.outputs.url }}
+          TASK_ID: ${{ steps.task.outputs.id }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          STATE="$HOME/.prosmet/home-edge-recovery"
+          terminal=""
+          for attempt in $(seq 1 600); do
+            found=0
+            for url in \
+              "$CONTROL/v1/tasks/$TASK_ID" \
+              "$CONTROL/v1/tasks?task_id=$TASK_ID" \
+              "$CONTROL/v1/tasks/$TASK_ID/status"; do
+              code="$(curl -sS --max-time 10 -o "$STATE/task-status.json" -w '%{http_code}' "$url" || true)"
+              if [[ "$code" == "200" ]]; then found=1; break; fi
+            done
+            if [[ "$found" == 1 ]]; then
+              status="$(node -e 'const fs=require("fs"); const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const t=x.task||x.items?.[0]||x.tasks?.[0]||x; process.stdout.write(String(t.status||t.state||""))' "$STATE/task-status.json" 2>/dev/null || true)"
+              echo "attempt=$attempt status=$status"
+              if [[ "$status" =~ ^(completed|failed|blocked|cancelled|canceled)$ ]]; then terminal="$status"; break; fi
+            fi
+            sleep 3
+          done
+          cat "$STATE/task-status.json" 2>/dev/null || true
+          test -n "$terminal"
+          echo "status=$terminal" >> "$GITHUB_OUTPUT"
+          [[ "$terminal" == "completed" ]]
+
+      - name: Verify exact public production independently
+        env:
+          RELEASE_SHA: ${{ steps.release.outputs.release_sha }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          STATE="$HOME/.prosmet/home-edge-recovery"
+          for attempt in $(seq 1 120); do
+            if curl -fsS --max-time 20 https://kolibriai.online/api/health > "$STATE/public-health.json" 2>/dev/null && \
+               grep -q "\"releaseSha\":\"${RELEASE_SHA}\"" "$STATE/public-health.json"; then
+              break
+            fi
+            if [[ "$attempt" == "120" ]]; then exit 1; fi
+            sleep 3
+          done
+          curl -fsSI --max-time 20 https://kolibriai.online/ | tee "$STATE/public-headers.txt"
+          grep -qi '^strict-transport-security:.*max-age=31536000' "$STATE/public-headers.txt"
+          curl -fsSI --max-time 20 http://kolibriai.online/ | tee "$STATE/http-redirect.txt"
+          grep -Eqi '^HTTP/[^ ]+ (301|302|307|308)' "$STATE/http-redirect.txt"
+          cat "$STATE/public-health.json"
+
+      - name: Upload Home execution evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prosmet-home-edge-${{ github.run_id }}
+          path: /home/actions-runner/.prosmet/home-edge-recovery
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish delegated recovery status
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          FINAL_STATUS: ${{ job.status }}
+          RELEASE_SHA: ${{ steps.release.outputs.release_sha }}
+          TASK_ID: ${{ steps.task.outputs.id }}
+          TASK_STATUS: ${{ steps.track.outputs.status }}
+        with:
+          script: |
+            const success = process.env.FINAL_STATUS === "success";
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 1,
+              body: [
+                `PROSMET HOME-CONTROLLED HTTPS ${success ? "PASS" : "FAILED"}`,
+                `Release: \`${process.env.RELEASE_SHA || "unknown"}\``,
+                `Task: \`${process.env.TASK_ID || "unknown"}\``,
+                `Task status: \`${process.env.TASK_STATUS || "unknown"}\``,
+                `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                success ? "APP: https://kolibriai.online/" : "Inspect the Home control-plane task evidence."
+              ].join("\n\n")
+            });
