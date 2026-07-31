@@ -1,4 +1,5 @@
-.prosmet-v2-estimate-topbar-actions > .prosmet-v2-primary-action {
+.prosmet-v2-estimate-topbar-actions > .prosmet-v2-primary-action,
+.prosmet-v2-estimate-topbar-actions > [aria-label="Передать клиенту"] {
   display: none !important;
 }
 
