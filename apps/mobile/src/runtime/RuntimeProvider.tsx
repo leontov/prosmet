@@ -5,9 +5,17 @@ import {
   type ChatModelAdapter
 } from "@assistant-ui/react-native";
 import type { AgentResponse, Estimate } from "@prosmet/contracts";
-import { demoEstimate } from "../data";
 
 type Props = { children: ReactNode; onEstimateReady: (estimate: Estimate) => void };
+
+async function responseError(response: Response) {
+  try {
+    const body = await response.json() as { error?: { message?: string } };
+    return body.error?.message || `Agent request failed: ${response.status}`;
+  } catch {
+    return `Agent request failed: ${response.status}`;
+  }
+}
 
 export function RuntimeProvider({ children, onEstimateReady }: Props) {
   const adapter = useMemo<ChatModelAdapter>(() => ({
@@ -20,14 +28,21 @@ export function RuntimeProvider({ children, onEstimateReady }: Props) {
           body: JSON.stringify({ messages }),
           signal: abortSignal
         });
-        if (!response.ok) throw new Error(`Agent request failed: ${response.status}`);
+        if (!response.ok) throw new Error(await responseError(response));
         const result = await response.json() as AgentResponse;
-        if (result.artifact === "estimate" && result.estimate) queueMicrotask(() => onEstimateReady(result.estimate as Estimate));
+        if (result.artifact === "estimate" && result.estimate) {
+          queueMicrotask(() => onEstimateReady(result.estimate as Estimate));
+        }
         return { content: [{ type: "text", text: result.text }] };
       } catch (error) {
         if (abortSignal.aborted) throw error;
-        queueMicrotask(() => onEstimateReady(demoEstimate));
-        return { content: [{ type: "text", text: "Подготовил локальный черновик сметы. Проверьте объёмы и цены перед сохранением версии." }] };
+        const message = error instanceof Error ? error.message : "Agent request failed";
+        return {
+          content: [{
+            type: "text",
+            text: `Агент не выполнил запрос: ${message}`
+          }]
+        };
       }
     }
   }), [onEstimateReady]);
