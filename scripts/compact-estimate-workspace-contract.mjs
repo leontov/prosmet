@@ -98,9 +98,9 @@ for (const token of [
 }
 needMatch(
   css,
-  /grid-template-columns\s*:\s*minmax\(0\s*,\s*884px\)\s+292px\s*;/,
+  /grid-template-columns\s*:\s*minmax\(0\s*,\s*1fr\)\s+292px\s*;/,
   "responsive-premium-v2-workspace",
-  "desktop document and summary columns"
+  "fluid desktop document and fixed summary columns"
 );
 for (const token of [
   'body[data-prosmet-estimate-open="true"] main',
@@ -142,7 +142,7 @@ console.log(
     {
       status: "PASS",
       contract: "premium-estimate-workspace-v2",
-      desktop: "full-width document workspace plus dedicated summary rail",
+      desktop: "fluid full-width document workspace plus dedicated summary rail",
       mobile: "full-screen estimate with 100px+ cards and keyboard-safe row sheet",
       chat: "assistant-first canvas with compact estimate artifact",
       autosave: "IndexedDB + existing outbox",
