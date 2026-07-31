@@ -68,7 +68,7 @@ for (const token of [
   "Технология и допущения",
   "Скачать PDF",
   "Скачать Excel",
-  "prosmet-v2-estimate-sheet",
+  "prosmet-v2-estimate-shell",
   "prosmet-v2-mobile-row",
   "prosmet-v2-mobile-actionbar"
 ]) {
@@ -86,6 +86,7 @@ for (const token of [
 const css = `${await read("app/premium-product.css")}\n${await read("app/premium-product-fixes.css")}`;
 for (const token of [
   ".prosmet-v2-estimate-layer",
+  ".prosmet-v2-estimate-shell",
   ".prosmet-v2-estimate-layout",
   ".prosmet-v2-estimate-summary",
   ".prosmet-v2-mobile-row",
