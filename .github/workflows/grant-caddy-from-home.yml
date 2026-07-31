@@ -1,0 +1,149 @@
+name: Grant Caddy capability from Home
+
+on:
+  push:
+    branches: [ops/grant-caddy-from-home]
+    paths:
+      - ".github/workflows/grant-caddy-from-home.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prosmet-grant-caddy-from-home
+  cancel-in-progress: false
+
+jobs:
+  grant-and-start:
+    name: Grant only cap_net_bind_service and start HTTPS
+    runs-on: [self-hosted, home]
+    timeout-minutes: 25
+    env:
+      PRIMARY_WG_IP: 10.99.0.10
+      PRIMARY_PUBLIC_IP: 78.17.4.108
+      PROSMET_DOMAIN: kolibriai.online
+    steps:
+      - name: Verify trusted Home runner
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          echo "runner=${RUNNER_NAME:-unknown}"
+          echo "host=$(hostname)"
+          echo "user=$(id -un)"
+          id
+
+      - name: Grant narrow capability and start Caddy on Primary
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          install -d -m 0700 "$HOME/.ssh"
+
+          remote_script='set -Eeuo pipefail
+          DOMAIN=kolibriai.online
+          SOURCE=/home/actions-runner/.prosmet/caddy/bin/prosmet-caddy
+          SYSTEM=/usr/local/bin/prosmet-caddy
+          CADDY_ROOT=/home/actions-runner/.prosmet/caddy
+          CONFIG="$CADDY_ROOT/Caddyfile"
+          DATA="$CADDY_ROOT/data"
+          CONFIG_DIR="$CADDY_ROOT/config"
+          LOG="$CADDY_ROOT/caddy.log"
+          PID="$CADDY_ROOT/caddy.pid"
+
+          test "$(id -u)" = 0
+          test -x "$SOURCE"
+          test -s "$CONFIG"
+          install -o root -g root -m 0755 "$SOURCE" "$SYSTEM"
+          /usr/sbin/setcap "cap_net_bind_service=+ep" "$SYSTEM"
+          capability="$(/usr/sbin/getcap "$SYSTEM")"
+          printf "%s\n" "$capability"
+          printf "%s" "$capability" | grep -q "cap_net_bind_service"
+
+          install -d -o actions-runner -g actions-runner -m 0700 "$DATA" "$CONFIG_DIR"
+          if test -s "$PID"; then
+            old_pid="$(cat "$PID" 2>/dev/null || true)"
+            if printf "%s" "$old_pid" | grep -Eq "^[0-9]+$" && kill -0 "$old_pid" 2>/dev/null; then
+              kill "$old_pid" 2>/dev/null || true
+              sleep 2
+              kill -9 "$old_pid" 2>/dev/null || true
+            fi
+          fi
+
+          if ss -H -ltn "sport = :80" 2>/dev/null | grep -q . || ss -H -ltn "sport = :443" 2>/dev/null | grep -q .; then
+            echo "A process already listens on 80/443; checking whether the exact Prosmet edge is healthy."
+          else
+            : > "$LOG"
+            chown actions-runner:actions-runner "$LOG"
+            runuser -u actions-runner -- env \
+              HOME=/home/actions-runner \
+              XDG_DATA_HOME="$DATA" \
+              XDG_CONFIG_HOME="$CONFIG_DIR" \
+              RUNNER_TRACKING_ID= \
+              nohup "$SYSTEM" run --config "$CONFIG" --adapter caddyfile \
+              > "$LOG" 2>&1 < /dev/null &
+            caddy_pid=$!
+            printf "%s\n" "$caddy_pid" > "$PID"
+            chown actions-runner:actions-runner "$PID"
+          fi
+
+          for attempt in $(seq 1 120); do
+            if curl --fail --silent --show-error --max-time 10 \
+              --resolve "${DOMAIN}:443:127.0.0.1" \
+              "https://${DOMAIN}/api/health" > "$CADDY_ROOT/public-health.json" 2>/dev/null && \
+              grep -q "\"ok\":true" "$CADDY_ROOT/public-health.json"; then
+              curl --silent --show-error --head --max-time 10 \
+                --resolve "${DOMAIN}:80:127.0.0.1" \
+                "http://${DOMAIN}/" > "$CADDY_ROOT/http-redirect-headers.txt"
+              curl --fail --silent --show-error --head --max-time 10 \
+                --resolve "${DOMAIN}:443:127.0.0.1" \
+                "https://${DOMAIN}/" > "$CADDY_ROOT/https-headers.txt"
+              grep -Eqi "^HTTP/[^ ]+ (301|302|307|308)" "$CADDY_ROOT/http-redirect-headers.txt"
+              grep -Eqi "^strict-transport-security:.*max-age=31536000" "$CADDY_ROOT/https-headers.txt"
+              echo "Prosmet HTTPS edge is healthy."
+              exit 0
+            fi
+            sleep 2
+          done
+
+          tail -n 200 "$LOG" >&2 || true
+          exit 1'
+
+          targets=(
+            "root@${PRIMARY_WG_IP}"
+            "root@${PRIMARY_PUBLIC_IP}"
+            "root@primary"
+            "primary"
+          )
+
+          selected=""
+          for target in "${targets[@]}"; do
+            echo "Trying trusted route: ${target}"
+            if ssh \
+              -o BatchMode=yes \
+              -o ConnectTimeout=8 \
+              -o ConnectionAttempts=1 \
+              -o ServerAliveInterval=5 \
+              -o ServerAliveCountMax=2 \
+              -o StrictHostKeyChecking=accept-new \
+              "$target" "$remote_script"; then
+              selected="$target"
+              break
+            fi
+          done
+
+          if [[ -z "$selected" ]]; then
+            echo "No trusted Home-to-Primary root SSH certificate route succeeded." >&2
+            exit 1
+          fi
+          echo "HTTPS permission granted and edge started through ${selected}."
+
+      - name: Verify public HTTPS from Home
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          curl --fail --silent --show-error --max-time 20 \
+            "https://${PROSMET_DOMAIN}/api/health" | tee /tmp/prosmet-public-health.json
+          grep -q '"ok":true' /tmp/prosmet-public-health.json
+          curl --fail --silent --show-error --head --max-time 20 \
+            "https://${PROSMET_DOMAIN}/" | tee /tmp/prosmet-public-headers.txt
+          grep -Eqi '^strict-transport-security:.*max-age=31536000' /tmp/prosmet-public-headers.txt
