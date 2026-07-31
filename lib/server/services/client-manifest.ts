@@ -26,6 +26,12 @@ export async function saveClientManifest(tenantId: string, raw: unknown): Promis
      ON CONFLICT (tenant_id) DO UPDATE SET manifest_json = EXCLUDED.manifest_json, updated_at = NOW()`,
     [tenantId, JSON.stringify(manifest)]
   );
-  await writeAuditEvent(tenantId, "client_manifest_updated", { modules: manifest.modules, version: manifest.version });
+  await writeAuditEvent({
+    tenantId,
+    action: "client_manifest_updated",
+    entityType: "client_manifest",
+    entityId: tenantId,
+    details: { modules: manifest.modules, version: manifest.version }
+  });
   return loadClientManifest(tenantId);
 }
