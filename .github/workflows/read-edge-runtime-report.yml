@@ -1,0 +1,108 @@
+name: Read Prosmet Edge Runtime Report
+
+on:
+  push:
+    branches: [ops/read-edge-runtime-report]
+    paths:
+      - ".github/workflows/read-edge-runtime-report.yml"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: prosmet-read-edge-runtime-report
+  cancel-in-progress: true
+
+jobs:
+  read:
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 10
+    steps:
+      - name: Read persisted safe report
+        id: report
+        shell: bash
+        run: |
+          set +e
+          report="$HOME/.prosmet/edge-diagnostics/report.txt"
+          output="$HOME/.prosmet/edge-diagnostics/report-public.txt"
+          mkdir -p "$(dirname "$output")"
+          : > "$output"
+          chmod 0600 "$output"
+
+          if [ -s "$report" ]; then
+            cat "$report" > "$output"
+          else
+            {
+              echo "report_missing=true"
+              echo "runner=$RUNNER_NAME"
+              echo "user=$(id -un)"
+              echo "uid=$(id -u)"
+              echo "low_port_start=$(cat /proc/sys/net/ipv4/ip_unprivileged_port_start 2>/dev/null || echo unknown)"
+              echo "sudo_noninteractive=$(sudo -n true >/dev/null 2>&1 && echo true || echo false)"
+              echo "docker_access=$(docker info >/dev/null 2>&1 && echo true || echo false)"
+              echo "cloudflared_processes=$(pgrep -xc cloudflared 2>/dev/null || echo 0)"
+            } > "$output"
+          fi
+
+          cert_count="$(sed -n 's/^account_certificates=//p' "$output" | tail -n 1)"
+          credential_count="$(sed -n 's/^tunnel_credentials=//p' "$output" | tail -n 1)"
+          config_count="$(sed -n 's/^configs_referencing_kolibriai_online=//p' "$output" | tail -n 1)"
+          public_ip_assigned="$(sed -n 's/^public_ip_assigned=//p' "$output" | tail -n 1)"
+          low_port_start="$(sed -n 's/^low_port_start=//p' "$output" | tail -n 1)"
+          sudo_noninteractive="$(sed -n 's/^sudo_noninteractive=//p' "$output" | tail -n 1)"
+
+          cert_count="${cert_count:-unknown}"
+          credential_count="${credential_count:-unknown}"
+          config_count="${config_count:-unknown}"
+          public_ip_assigned="${public_ip_assigned:-unknown}"
+          low_port_start="${low_port_start:-unknown}"
+          sudo_noninteractive="${sudo_noninteractive:-unknown}"
+
+          echo "cert_count=$cert_count" >> "$GITHUB_OUTPUT"
+          echo "credential_count=$credential_count" >> "$GITHUB_OUTPUT"
+          echo "config_count=$config_count" >> "$GITHUB_OUTPUT"
+          echo "public_ip_assigned=$public_ip_assigned" >> "$GITHUB_OUTPUT"
+          echo "low_port_start=$low_port_start" >> "$GITHUB_OUTPUT"
+          echo "sudo_noninteractive=$sudo_noninteractive" >> "$GITHUB_OUTPUT"
+
+          echo "=== SAFE EDGE REPORT ==="
+          cat "$output"
+          exit 0
+
+      - name: Upload safe report
+        uses: actions/upload-artifact@v4
+        with:
+          name: prosmet-edge-runtime-report-${{ github.run_id }}
+          path: /home/actions-runner/.prosmet/edge-diagnostics/report-public.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish report summary
+        uses: actions/github-script@v7
+        env:
+          CERT_COUNT: ${{ steps.report.outputs.cert_count }}
+          CREDENTIAL_COUNT: ${{ steps.report.outputs.credential_count }}
+          CONFIG_COUNT: ${{ steps.report.outputs.config_count }}
+          PUBLIC_IP_ASSIGNED: ${{ steps.report.outputs.public_ip_assigned }}
+          LOW_PORT_START: ${{ steps.report.outputs.low_port_start }}
+          SUDO_NONINTERACTIVE: ${{ steps.report.outputs.sudo_noninteractive }}
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 1,
+              body: [
+                "EDGE RUNTIME REPORT READ",
+                `Runner: \`${process.env.RUNNER_NAME}\``,
+                `Public IP directly assigned: \`${process.env.PUBLIC_IP_ASSIGNED}\``,
+                `Unprivileged low-port start: \`${process.env.LOW_PORT_START}\``,
+                `Passwordless sudo: \`${process.env.SUDO_NONINTERACTIVE}\``,
+                `Cloudflare account certificates: \`${process.env.CERT_COUNT}\``,
+                `Tunnel credential files: \`${process.env.CREDENTIAL_COUNT}\``,
+                `Configs for kolibriai.online: \`${process.env.CONFIG_COUNT}\``,
+                `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                "No secret values were read or printed."
+              ].join("\n\n")
+            });
