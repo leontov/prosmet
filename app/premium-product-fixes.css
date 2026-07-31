@@ -1,10 +1,12 @@
-.prosmet-premium-thread-row:hover .prosmet-premium-thread-menu,
-.prosmet-premium-thread-menu[aria-expanded="true"] {
-  opacity: 1;
+@media (hover: none) {
+  .prosmet-v2-thread-menu { opacity: 1; }
 }
 
-@media (hover: none) {
-  .prosmet-premium-thread-menu {
-    opacity: 1;
-  }
+@supports not (backdrop-filter: blur(1px)) {
+  .prosmet-v2-topbar,
+  .prosmet-v2-composer-dock,
+  .prosmet-v2-mobile-nav,
+  .prosmet-v2-estimate-topbar,
+  .prosmet-v2-mobile-actionbar,
+  .prosmet-v2-row-sheet-footer { background: #fff; }
 }
