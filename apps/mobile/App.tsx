@@ -1,8 +1,8 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { StatusBar } from "expo-status-bar";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
-import type { Estimate } from "@prosmet/contracts";
+import type { AgentCatalog, Estimate } from "@prosmet/contracts";
 import { RuntimeProvider } from "./src/runtime/RuntimeProvider";
 import { ChatScreen } from "./src/screens/ChatScreen";
 import { EstimateScreen } from "./src/screens/EstimateScreen";
@@ -10,11 +10,11 @@ import { AccountScreen } from "./src/screens/AccountScreen";
 import { SettingsScreen } from "./src/screens/SettingsScreen";
 import { MobileNavigation, type MobileScreen } from "./src/MobileNavigation";
 import { ChevronGlyph, MenuGlyph, VoiceGlyph } from "./src/ReferenceIcons";
-import { demoEstimate } from "./src/data";
 import { theme } from "./src/theme";
 
-const screenTitles: Record<Exclude<MobileScreen, "projects">, string> = {
+const screenTitles: Record<MobileScreen, string> = {
   chat: "Чат",
+  projects: "Смета",
   account: "Профиль",
   settings: "Настройки"
 };
@@ -22,8 +22,21 @@ const screenTitles: Record<Exclude<MobileScreen, "projects">, string> = {
 export default function App() {
   const [screen, setScreen] = useState<MobileScreen>("chat");
   const [menuOpen, setMenuOpen] = useState(false);
-  const [estimate, setEstimate] = useState<Estimate>(demoEstimate);
+  const [attentionCount, setAttentionCount] = useState(0);
+  const [focusRequest, setFocusRequest] = useState(0);
+  const [estimate, setEstimate] = useState<Estimate | null>(null);
   const [estimateOpen, setEstimateOpen] = useState(false);
+
+  const baseUrl = process.env.EXPO_PUBLIC_PROSMET_API_URL || "https://kolibriai.online";
+
+  useEffect(() => {
+    let active = true;
+    fetch(`${baseUrl}/api/agents`)
+      .then((response) => response.ok ? response.json() as Promise<AgentCatalog> : Promise.reject(new Error("agents unavailable")))
+      .then((catalog) => { if (active) setAttentionCount(catalog.configured ? 0 : 1); })
+      .catch(() => { if (active) setAttentionCount(1); });
+    return () => { active = false; };
+  }, [baseUrl]);
 
   const onEstimateReady = useCallback((incoming: Estimate) => {
     setEstimate(incoming);
@@ -35,15 +48,15 @@ export default function App() {
     setMenuOpen(false);
   };
 
-  const showEstimate = estimateOpen || screen === "projects";
-  const title = screenTitles[screen as Exclude<MobileScreen, "projects">];
+  const showEstimate = Boolean(estimate && (estimateOpen || screen === "projects"));
+  const title = screenTitles[screen];
 
   return (
     <SafeAreaProvider>
       <RuntimeProvider onEstimateReady={onEstimateReady}>
         <SafeAreaView style={styles.safeArea} edges={["top", "left", "right"]}>
           <StatusBar style="dark" />
-          {showEstimate ? (
+          {showEstimate && estimate ? (
             <EstimateScreen
               estimate={estimate}
               onChange={setEstimate}
@@ -64,7 +77,7 @@ export default function App() {
                   onPress={() => setMenuOpen(true)}
                 >
                   <MenuGlyph />
-                  <View style={styles.badge}><Text style={styles.badgeText}>1</Text></View>
+                  {attentionCount > 0 ? <View style={styles.badge}><Text style={styles.badgeText}>{attentionCount}</Text></View> : null}
                 </Pressable>
 
                 <Pressable
@@ -80,15 +93,19 @@ export default function App() {
                 <Pressable
                   style={({ pressed }) => [styles.circleButton, pressed && styles.pressed]}
                   accessibilityRole="button"
-                  accessibilityLabel="Голосовой режим"
-                  onPress={() => navigate("chat")}
+                  accessibilityLabel="Перейти к голосовому вводу"
+                  onPress={() => {
+                    navigate("chat");
+                    setFocusRequest((value) => value + 1);
+                  }}
                 >
                   <VoiceGlyph />
                 </Pressable>
               </View>
 
               <View style={styles.content}>
-                {screen === "chat" ? <ChatScreen hasEstimate={Boolean(estimate)} onOpenEstimate={() => setEstimateOpen(true)} /> : null}
+                {screen === "chat" ? <ChatScreen hasEstimate={Boolean(estimate)} onOpenEstimate={() => estimate && setEstimateOpen(true)} focusRequest={focusRequest} /> : null}
+                {screen === "projects" ? <EmptyEstimate onCreate={() => navigate("chat")} /> : null}
                 {screen === "account" ? <AccountScreen /> : null}
                 {screen === "settings" ? <SettingsScreen /> : null}
               </View>
@@ -101,6 +118,18 @@ export default function App() {
         </SafeAreaView>
       </RuntimeProvider>
     </SafeAreaProvider>
+  );
+}
+
+function EmptyEstimate({ onCreate }: { onCreate: () => void }) {
+  return (
+    <View style={styles.emptyEstimate}>
+      <Text style={styles.emptyEstimateTitle}>Смета ещё не создана</Text>
+      <Text style={styles.emptyEstimateText}>Начните реальный диалог с подключённым агентом. Демонстрационная смета удалена из приложения.</Text>
+      <Pressable style={styles.emptyEstimateButton} accessibilityRole="button" onPress={onCreate}>
+        <Text style={styles.emptyEstimateButtonText}>Перейти в чат</Text>
+      </Pressable>
+    </View>
   );
 }
 
@@ -159,5 +188,10 @@ const styles = StyleSheet.create({
   },
   titleUnderline: { borderBottomWidth: 2, borderBottomColor: "#111214", paddingBottom: 4 },
   title: { color: "#111214", fontSize: 23, lineHeight: 28, fontWeight: "800", letterSpacing: -0.8 },
-  content: { flex: 1, minHeight: 0 }
+  content: { flex: 1, minHeight: 0 },
+  emptyEstimate: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 30 },
+  emptyEstimateTitle: { color: theme.text, fontSize: 24, fontWeight: "700", letterSpacing: -0.7, textAlign: "center" },
+  emptyEstimateText: { marginTop: 10, color: theme.muted, fontSize: 15, lineHeight: 23, textAlign: "center" },
+  emptyEstimateButton: { minWidth: 190, minHeight: 50, alignItems: "center", justifyContent: "center", marginTop: 24, borderRadius: 16, backgroundColor: theme.text, paddingHorizontal: 20 },
+  emptyEstimateButtonText: { color: "white", fontSize: 15, fontWeight: "700" }
 });
