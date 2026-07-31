@@ -72,6 +72,7 @@ jobs:
         id: normalize
         run: |
           set -Eeuo pipefail
+          cargo generate-lockfile
           git add \
             components/app/premium-chat-workspace.tsx \
             components/app/premium-prosmet-application.tsx \
