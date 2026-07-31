@@ -1,5 +1,6 @@
 import { z, ZodError } from "zod";
 import { resolveServerIdentity } from "@/lib/server/identity";
+import { assertSuperAdmin, AuthorizationError } from "@/lib/server/auth/roles";
 import {
   deleteProviderConnection,
   listProviderConnections,
@@ -53,7 +54,7 @@ function failure(
       error: providerErrorCode(error),
       message: error instanceof Error ? error.message : fallback
     },
-    { status, headers: headers(identity) }
+    { status: error instanceof AuthorizationError ? 403 : status, headers: headers(identity) }
   );
 }
 
@@ -78,6 +79,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const identity = resolveServerIdentity(request);
   try {
+    await assertSuperAdmin(identity.ownerId);
     const connection = await saveProviderConnection(
       identity.ownerId,
       await request.json()
@@ -98,6 +100,7 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   const identity = resolveServerIdentity(request);
   try {
+    await assertSuperAdmin(identity.ownerId);
     const { id } = IdentifierSchema.parse(await request.json());
     const connection = await selectProviderConnection(identity.ownerId, id);
     return Response.json(
@@ -112,6 +115,7 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   const identity = resolveServerIdentity(request);
   try {
+    await assertSuperAdmin(identity.ownerId);
     const { id } = IdentifierSchema.parse(await request.json());
     const result = await deleteProviderConnection(identity.ownerId, id);
     return Response.json(

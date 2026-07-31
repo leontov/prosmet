@@ -9,6 +9,8 @@ import {
 } from "node:crypto";
 import { z } from "zod";
 import { checkCodexCli } from "@/lib/server/agents/codex-cli";
+import { checkCodexAppServer } from "@/lib/server/agents/codex-app-server";
+import { probeUniversalAgent } from "@/lib/server/agents/universal-protocols";
 import {
   ensureTenant,
   getServerDatabase,
@@ -22,7 +24,10 @@ export const ProviderKindSchema = z.enum([
   "mimo",
   "openai-compatible",
   "ollama",
-  "codex-cli"
+  "codex-cli",
+  "codex-app-server",
+  "a2a",
+  "ag-ui"
 ]);
 
 export const ProviderConnectionInputSchema = z
@@ -37,7 +42,7 @@ export const ProviderConnectionInputSchema = z
     test: z.boolean().optional().default(true)
   })
   .superRefine((value, context) => {
-    if (!["rules", "codex-cli"].includes(value.kind) && !value.baseUrl) {
+    if (!["rules", "codex-cli", "codex-app-server"].includes(value.kind) && !value.baseUrl) {
       context.addIssue({
         code: "custom",
         path: ["baseUrl"],
@@ -170,7 +175,7 @@ function publicConnection(row: ProviderRow): ProviderConnection {
 }
 
 function normalizedBaseUrl(kind: ProviderKind, value: string) {
-  if (kind === "rules" || kind === "codex-cli") return "";
+  if (kind === "rules" || kind === "codex-cli" || kind === "codex-app-server") return "";
   const url = new URL(value);
   if (!['http:', 'https:'].includes(url.protocol)) {
     throw new ProviderConfigurationError(
@@ -215,8 +220,16 @@ async function checkProvider(input: {
     };
   }
   if (input.kind === "codex-cli") return checkCodexCli();
+  if (input.kind === "codex-app-server") return checkCodexAppServer();
 
   const baseUrl = normalizedBaseUrl(input.kind, input.baseUrl);
+  if (input.kind === "a2a" || input.kind === "ag-ui") {
+    return probeUniversalAgent({
+      id: "probe", kind: input.kind, name: input.kind, baseUrl, model: input.model,
+      status: "unchecked", selected: false, hasSecret: Boolean(input.apiKey),
+      lastError: null, lastCheckedAt: null, updatedAt: new Date().toISOString(), apiKey: input.apiKey
+    });
+  }
   const endpoint =
     input.kind === "ollama" ? `${baseUrl}/api/tags` : `${baseUrl}/models`;
   const headers = new Headers({ Accept: "application/json" });

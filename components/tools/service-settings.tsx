@@ -42,7 +42,7 @@ type WorkspaceSnapshot = {
   };
 };
 
-type ProviderKind = "rules" | "mimo" | "openai-compatible" | "ollama" | "codex-cli";
+type ProviderKind = "rules" | "mimo" | "openai-compatible" | "ollama" | "codex-cli" | "codex-app-server" | "a2a" | "ag-ui";
 
 type ProviderConnection = {
   id: string;
@@ -443,7 +443,7 @@ export function ProviderSettingsTool({
 }) {
   const hint = record(args).providerHint;
   const initialKind: ProviderKind =
-    hint === "ollama" || hint === "openai-compatible" || hint === "codex-cli" || hint === "rules"
+    hint === "ollama" || hint === "openai-compatible" || hint === "codex-cli" || hint === "codex-app-server" || hint === "a2a" || hint === "ag-ui" || hint === "rules"
       ? hint
       : "mimo";
   const [connections, setConnections] = useState<ProviderConnection[]>([]);
@@ -594,7 +594,10 @@ export function ProviderSettingsTool({
                 <option value="mimo">MiMo direct API</option>
                 <option value="openai-compatible">OpenAI-compatible API</option>
                 <option value="ollama">Ollama на сервере</option>
-                <option value="codex-cli">Codex CLI · ChatGPT на Primary</option>
+                <option value="codex-app-server">Codex App Server · ChatGPT</option>
+                <option value="codex-cli">Codex Exec · совместимость</option>
+                <option value="a2a">A2A v1 agent</option>
+                <option value="ag-ui">AG-UI agent</option>
                 <option value="rules">Встроенный сметный сервис</option>
               </select>
             </Field>
@@ -606,7 +609,7 @@ export function ProviderSettingsTool({
                 className={inputClass}
               />
             </Field>
-            {form.kind !== "rules" && form.kind !== "codex-cli" ? (
+            {form.kind !== "rules" && form.kind !== "codex-cli" && form.kind !== "codex-app-server" ? (
               <Field label="Server-side endpoint">
                 <input
                   aria-label="Endpoint AI-провайдера"
@@ -826,10 +829,10 @@ function providerDefaults(kind: ProviderKind) {
       selected: true
     };
   }
-  if (kind === "codex-cli") {
+  if (kind === "codex-cli" || kind === "codex-app-server") {
     return {
       kind,
-      name: "Codex CLI · ChatGPT",
+      name: kind === "codex-app-server" ? "Codex App Server · ChatGPT" : "Codex Exec · ChatGPT",
       baseUrl: "",
       model: "",
       apiKey: "",

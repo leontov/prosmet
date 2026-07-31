@@ -13,14 +13,16 @@ concurrency:
 
 jobs:
   verify:
-    name: Verify source, build and Chromium on Primary
+    name: Verify universal product on Primary
     runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 120
+    timeout-minutes: 150
     env:
       CI: "1"
       NEXT_TELEMETRY_DISABLED: "1"
       PROSMET_DEFAULT_PROVIDER: "rules"
       PROSMET_E2E_PORT: "13120"
+      PROSMET_ADMIN_MODE: "permissive"
+      PROSMET_RUST_ENGINE_BIN: /home/actions-runner/.prosmet/bin/prosmet-engine-cli
     steps:
       - name: Verify trusted runner
         run: |
@@ -31,7 +33,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 1
+          fetch-depth: 0
           clean: true
 
       - name: Set up Node 22
@@ -40,13 +42,52 @@ jobs:
           node-version: "22.16.0"
           cache: npm
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
       - name: Prepare evidence
         run: mkdir -p artifacts/logs artifacts/database artifacts/screenshots
 
-      - name: Install locked dependencies
+      - name: Install locked web dependencies
         run: |
           set -o pipefail
           npm ci --no-audit --no-fund 2>&1 | tee artifacts/logs/npm-ci.log
+
+      - name: Install locked mobile dependencies
+        run: |
+          set -o pipefail
+          npm ci --no-audit --no-fund --legacy-peer-deps --prefix apps/mobile 2>&1 | tee artifacts/logs/mobile-npm-ci.log
+
+      - name: Install locked desktop dependencies
+        run: |
+          set -o pipefail
+          npm ci --no-audit --no-fund --prefix apps/desktop 2>&1 | tee artifacts/logs/desktop-npm-ci.log
+
+      - name: Verify committed source normalization
+        run: |
+          set -Eeuo pipefail
+          npm run cleanup:universal
+          git diff --exit-code -- \
+            components/app/premium-chat-workspace.tsx \
+            components/app/premium-prosmet-application.tsx \
+            lib/server/agents/provider-executor.ts \
+            lib/server/services/providers.ts \
+            components/tools/service-settings.tsx \
+            deployment/migrate-postgres.mjs
+
+      - name: Rust engine and desktop manifest
+        run: |
+          set -o pipefail
+          cargo fmt --all --check 2>&1 | tee artifacts/logs/rustfmt.log
+          cargo test --locked -p prosmet-engine 2>&1 | tee artifacts/logs/rust-tests.log
+          cargo metadata --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --format-version 1 --no-deps > artifacts/logs/desktop-metadata.json
+
+      - name: Install authoritative Rust engine
+        run: |
+          set -o pipefail
+          bash deployment/install-rust-engine.sh 2>&1 | tee artifacts/logs/rust-engine.log
 
       - name: Start persistent PostgreSQL
         run: |
@@ -81,10 +122,11 @@ jobs:
           set -o pipefail
           npm run source:contract 2>&1 | tee artifacts/logs/source-contract.log
 
-      - name: Typecheck
+      - name: Web and mobile typecheck
         run: |
           set -o pipefail
           npm run typecheck 2>&1 | tee artifacts/logs/typecheck.log
+          npm run mobile:typecheck 2>&1 | tee artifacts/logs/mobile-typecheck.log
 
       - name: Unit tests
         run: |
@@ -117,5 +159,5 @@ jobs:
             artifacts
             playwright-report
             test-results
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14

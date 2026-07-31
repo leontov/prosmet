@@ -397,6 +397,25 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_prosmet_price_research_evidence_tenant_id
 CREATE INDEX IF NOT EXISTS idx_prosmet_price_research_lookup
   ON prosmet_price_research_evidence(tenant_id, canonical_work_id, unit, region, observed_at DESC);
 
+CREATE TABLE IF NOT EXISTS prosmet_memberships (
+  id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  owner_id TEXT NOT NULL,
+  email TEXT NOT NULL DEFAULT '',
+  role TEXT NOT NULL,
+  active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (tenant_id, owner_id, role)
+);
+CREATE INDEX IF NOT EXISTS idx_prosmet_memberships_owner ON prosmet_memberships(owner_id, active);
+
+CREATE TABLE IF NOT EXISTS prosmet_client_manifests (
+  tenant_id TEXT PRIMARY KEY,
+  manifest_json JSONB NOT NULL DEFAULT '{}'::jsonb,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 COMMIT;
 `;
 
