@@ -19,3 +19,7 @@ Replace the legacy desktop-derived interface with a new assistant-first product 
 - every rendered `input`, `textarea` and `select` has a stable `id` and `name`, including dynamically created assistant fields;
 - desktop and mobile screenshots must visibly differ as intentionally designed products;
 - completion requires exact-main production deployment and live HTTPS desktop/mobile E2E.
+
+## Browser security acceptance
+
+Desktop and mobile Chromium must record zero `securitypolicyviolation` events and zero rendered form controls without both `id` and `name`. The production bundle is rejected before deployment if it contains string-evaluation constructs.
