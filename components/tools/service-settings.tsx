@@ -609,7 +609,7 @@ export function ProviderSettingsTool({
                 className={inputClass}
               />
             </Field>
-            {form.kind !== "rules" && form.kind !== "codex-cli" && form.kind !== "codex-app-server" && form.kind !== "codex-app-server" ? (
+            {form.kind !== "rules" && form.kind !== "codex-cli" && form.kind !== "codex-app-server" ? (
               <Field label="Server-side endpoint">
                 <input
                   aria-label="Endpoint AI-провайдера"

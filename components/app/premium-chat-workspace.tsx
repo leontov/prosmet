@@ -37,7 +37,6 @@ import { useLocalWorkspace } from "@/lib/local/context";
 import type { LocalThread } from "@/lib/local/repository";
 import { cn } from "@/lib/utils";
 import { useClientManifest } from "@/lib/client/use-client-manifest";
-import { useClientManifest } from "@/lib/client/use-client-manifest";
 
 const suggestions = Suggestions([
   {
@@ -77,7 +76,6 @@ const viewLabels: Record<Exclude<WorkspaceView, "chat">, string> = {
 
 export function PremiumChatWorkspace() {
   const workspace = useLocalWorkspace();
-  const { manifest, hasModule } = useClientManifest();
   const { manifest, hasModule } = useClientManifest();
   const [view, setView] = useState<WorkspaceView>("chat");
   const [leftOpen, setLeftOpen] = useState(true);
