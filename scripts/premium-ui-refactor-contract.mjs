@@ -13,6 +13,7 @@ for (const path of [
   "components/app/premium-prosmet-application.tsx",
   "components/app/premium-estimate-workspace-editor.tsx",
   "app/premium-product.css",
+  "app/premium-product-fixes.css",
   "e2e/premium-ui.spec.ts",
   "components/app/form-field-identity-guard.tsx",
   "scripts/csp-bundle-contract.mjs",
@@ -21,12 +22,23 @@ for (const path of [
   try { await access(resolve(root, path)); } catch { failures.push(`missing:${path}`); }
 }
 
+for (const legacyPath of ["app/estimate-workspace.css", "app/premium-foundation.css"]) {
+  try {
+    await access(resolve(root, legacyPath));
+    failures.push(`legacy-file-present:${legacyPath}`);
+  } catch {
+    // Expected: Premium V2 owns the full visual system without inherited V1 CSS.
+  }
+}
+
 const page = await read("app/page.tsx");
 need(page, "PremiumProsmetApplication", "page");
 
 const layout = await read("app/layout.tsx");
 need(layout, 'import "./premium-product.css"', "layout");
 need(layout, 'import "./premium-product-fixes.css"', "layout");
+forbid(layout, 'import "./estimate-workspace.css"', "legacy-layout-imports");
+forbid(layout, 'import "./premium-foundation.css"', "legacy-layout-imports");
 
 const shell = await read("components/app/premium-chat-workspace.tsx");
 for (const token of [
@@ -96,6 +108,9 @@ for (const token of [
 ]) need(styles, token, "premium-v2-styles");
 for (const token of ["PROSMET PREMIUM PRODUCT UI V1", ".prosmet-premium-app-shell", ".prosmet-premium-estimate-paper"]) forbid(styles, token, "legacy-css-removed");
 
+const fixes = await read("app/premium-product-fixes.css");
+need(fixes, ".prosmet-v2-estimate-topbar-actions > .prosmet-v2-primary-action", "single-primary-action");
+
 const fieldGuard = await read("components/app/form-field-identity-guard.tsx");
 for (const token of ["useLayoutEffect", "MutationObserver", "field.name = field.id"]) need(fieldGuard, token, "form-field-identity");
 
@@ -123,6 +138,6 @@ console.log(JSON.stringify({
   shell: "new assistant-first desktop shell plus native mobile bottom navigation",
   estimate: "desktop document workspace plus large mobile estimate cards",
   mobile: "16px+ body copy, 48px+ controls, 96px task cards and 100px estimate rows",
-  legacyVisualShell: "removed",
+  legacyVisualShell: "deleted and forbidden by contract",
   unsupportedCapabilities: "not rendered"
 }, null, 2));
