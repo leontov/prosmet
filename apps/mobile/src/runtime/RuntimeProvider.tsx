@@ -5,13 +5,14 @@ import {
   type ChatModelAdapter
 } from "@assistant-ui/react-native";
 import type { AgentResponse, ApiErrorBody, Estimate } from "@prosmet/contracts";
+import { mobileApiFetch } from "../agent-session";
 
 type Props = { children: ReactNode; onEstimateReady: (estimate: Estimate) => void };
 
 function errorMessage(status: number, body: unknown) {
   const apiError = body as Partial<ApiErrorBody>;
   if (apiError?.error?.message) return apiError.error.message;
-  if (status === 401) return "Требуется токен супер-администратора в настройках мобильного приложения.";
+  if (status === 401) return "Сохраните токен супер-администратора в настройках мобильного приложения.";
   if (status === 409) return "Сначала подключите и активируйте агента в настройках.";
   return `Агент недоступен: HTTP ${status}`;
 }
@@ -19,15 +20,9 @@ function errorMessage(status: number, body: unknown) {
 export function RuntimeProvider({ children, onEstimateReady }: Props) {
   const adapter = useMemo<ChatModelAdapter>(() => ({
     async run({ messages, abortSignal }) {
-      const baseUrl = process.env.EXPO_PUBLIC_PROSMET_API_URL || "https://kolibriai.online";
-      const adminToken = process.env.EXPO_PUBLIC_PROSMET_ADMIN_TOKEN;
       try {
-        const response = await fetch(`${baseUrl}/api/agent`, {
+        const response = await mobileApiFetch("/api/agent", {
           method: "POST",
-          headers: {
-            "content-type": "application/json",
-            ...(adminToken ? { "x-prosmet-admin-token": adminToken } : {})
-          },
           body: JSON.stringify({ messages }),
           signal: abortSignal
         });
