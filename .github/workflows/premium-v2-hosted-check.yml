@@ -1,0 +1,90 @@
+name: Premium V2 hosted verification
+
+on:
+  push:
+    branches: [feature/premium-ui-v2-from-scratch]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: premium-v2-hosted
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      CI: "1"
+      NEXT_TELEMETRY_DISABLED: "1"
+      PROSMET_DEFAULT_PROVIDER: "rules"
+      PROSMET_E2E_PORT: "13130"
+      PROSMET_ADMIN_MODE: "permissive"
+      PROSMET_RUST_ENGINE_BIN: /home/runner/.prosmet/bin/prosmet-engine-cli
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          clean: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.16.0"
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: mkdir -p artifacts/logs artifacts/database artifacts/screenshots
+      - name: Install web dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Install mobile dependencies
+        run: npm ci --no-audit --no-fund --legacy-peer-deps --prefix apps/mobile
+      - name: Install desktop dependencies
+        run: npm ci --no-audit --no-fund --prefix apps/desktop
+      - name: Rust engine
+        run: |
+          set -o pipefail
+          cargo fmt --all --check
+          cargo test --locked -p prosmet-engine
+          bash deployment/install-rust-engine.sh
+      - name: PostgreSQL
+        run: |
+          set -o pipefail
+          bash deployment/provision-postgres.sh 2>&1 | tee artifacts/logs/postgres-provision.log
+          source "$HOME/.prosmet/database.env"
+          echo "::add-mask::$DATABASE_URL"
+          echo "PROSMET_DATABASE_DRIVER=postgres" >> "$GITHUB_ENV"
+          echo "DATABASE_URL=$DATABASE_URL" >> "$GITHUB_ENV"
+          SECRET_FILE="$HOME/.prosmet/provider-master-key"
+          mkdir -p "$HOME/.prosmet"
+          if [ ! -s "$SECRET_FILE" ]; then umask 077; openssl rand -base64 48 > "$SECRET_FILE"; fi
+          PROSMET_PROVIDER_MASTER_KEY="$(tr -d '\r\n' < "$SECRET_FILE")"
+          echo "::add-mask::$PROSMET_PROVIDER_MASTER_KEY"
+          echo "PROSMET_PROVIDER_MASTER_KEY=$PROSMET_PROVIDER_MASTER_KEY" >> "$GITHUB_ENV"
+          node deployment/migrate-postgres.mjs
+      - name: Source contracts
+        run: npm run source:contract
+      - name: Typecheck
+        run: |
+          npm run typecheck
+          npm run mobile:typecheck
+      - name: Unit tests
+        run: npm run test
+      - name: Production build and CSP bundle gate
+        run: npm run build
+      - name: Chromium
+        run: |
+          npx playwright install chromium
+          npm run e2e
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: premium-v2-hosted-${{ github.run_id }}
+          path: |
+            artifacts
+            playwright-report
+            test-results
+          if-no-files-found: warn
+          retention-days: 7
