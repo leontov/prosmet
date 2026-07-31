@@ -1,3 +1,7 @@
+.prosmet-v2-estimate-topbar-actions > .prosmet-v2-primary-action {
+  display: none !important;
+}
+
 @media (hover: none) {
   .prosmet-v2-thread-menu { opacity: 1; }
 }
