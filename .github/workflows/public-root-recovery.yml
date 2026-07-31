@@ -1,0 +1,175 @@
+name: Prosmet Public Root Recovery
+
+on:
+  push:
+    branches: [fix/public-root-404-v2]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prosmet-public-root-recovery
+  cancel-in-progress: true
+
+jobs:
+  recover:
+    name: Reconcile the live Caddy root route
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 20
+    steps:
+      - name: Verify trusted Primary runner
+        run: test "${{ runner.name }}" = "prosmet-primary"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+
+      - name: Prove the local application serves both root and health
+        run: |
+          set -Eeuo pipefail
+          LOCAL_ROOT_STATUS="$(curl --silent --show-error \
+            --output local-root-before.html \
+            --dump-header local-root-before-headers.txt \
+            --write-out '%{http_code}' \
+            http://127.0.0.1:3200/ || true)"
+          test "$LOCAL_ROOT_STATUS" = "200"
+          grep -Fq '<div id="root"></div>' local-root-before.html
+
+          LOCAL_HEALTH_STATUS="$(curl --silent --show-error \
+            --output local-health-before.json \
+            --dump-header local-health-before-headers.txt \
+            --write-out '%{http_code}' \
+            http://127.0.0.1:3200/api/health || true)"
+          test "$LOCAL_HEALTH_STATUS" = "200"
+          grep -q '"ok":true' local-health-before.json
+          grep -q '"ui":"greenfield"' local-health-before.json
+
+      - name: Replace the drifting edge with one all-routes reverse proxy
+        run: |
+          set -Eeuo pipefail
+          PROSMET_EXPECTED_RELEASE_SHA="" \
+            bash deployment/ensure-public-edge.sh kolibriai.online 3200
+          cp "$HOME/.prosmet/caddy/status.json" edge-status.json
+          cp "$HOME/.prosmet/caddy/Caddyfile" edge-Caddyfile
+          cp "$HOME/.prosmet/caddy/public-root-body.html" public-root-after.html
+          cp "$HOME/.prosmet/caddy/public-root-headers.txt" public-root-after-headers.txt
+          cp "$HOME/.prosmet/caddy/public-health-body.txt" public-health-after.json
+          cp "$HOME/.prosmet/caddy/public-health-headers.txt" public-health-after-headers.txt
+
+      - name: Verify persistence after the reload
+        run: |
+          set -Eeuo pipefail
+          sleep 12
+          ROOT_STATUS="$(curl --silent --show-error \
+            --output public-root-delayed.html \
+            --dump-header public-root-delayed-headers.txt \
+            --write-out '%{http_code}' \
+            https://kolibriai.online/ || true)"
+          test "$ROOT_STATUS" = "200"
+          grep -Fq '<div id="root"></div>' public-root-delayed.html
+          grep -Eqi '^strict-transport-security:.*max-age=31536000' public-root-delayed-headers.txt
+
+          HEALTH_STATUS="$(curl --silent --show-error \
+            --output public-health-delayed.json \
+            --dump-header public-health-delayed-headers.txt \
+            --write-out '%{http_code}' \
+            https://kolibriai.online/api/health || true)"
+          test "$HEALTH_STATUS" = "200"
+          grep -q '"ok":true' public-health-delayed.json
+          grep -q '"ui":"greenfield"' public-health-delayed.json
+
+      - name: Upload Primary recovery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prosmet-public-root-primary-${{ github.run_id }}
+          path: |
+            local-root-before.html
+            local-root-before-headers.txt
+            local-health-before.json
+            local-health-before-headers.txt
+            edge-status.json
+            edge-Caddyfile
+            public-root-after.html
+            public-root-after-headers.txt
+            public-health-after.json
+            public-health-after-headers.txt
+            public-root-delayed.html
+            public-root-delayed-headers.txt
+            public-health-delayed.json
+            public-health-delayed-headers.txt
+          if-no-files-found: warn
+          retention-days: 30
+
+  external:
+    name: Verify root and health from outside Primary
+    needs: recover
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check every resolved public IPv4 address
+        run: |
+          set -Eeuo pipefail
+          getent ahostsv4 kolibriai.online | tee external-dns-v4.txt
+          mapfile -t ADDRESSES < <(awk '{print $1}' external-dns-v4.txt | sort -u)
+          test "${#ADDRESSES[@]}" -gt 0
+
+          for address in "${ADDRESSES[@]}"; do
+            safe="${address//./-}"
+            ROOT_STATUS="$(curl --silent --show-error \
+              --retry 8 --retry-delay 3 --retry-all-errors \
+              --resolve "kolibriai.online:443:${address}" \
+              --output "external-root-${safe}.html" \
+              --dump-header "external-root-${safe}-headers.txt" \
+              --write-out '%{http_code}' \
+              https://kolibriai.online/ || true)"
+            test "$ROOT_STATUS" = "200"
+            grep -Fq '<div id="root"></div>' "external-root-${safe}.html"
+
+            HEALTH_STATUS="$(curl --silent --show-error \
+              --retry 8 --retry-delay 3 --retry-all-errors \
+              --resolve "kolibriai.online:443:${address}" \
+              --output "external-health-${safe}.json" \
+              --dump-header "external-health-${safe}-headers.txt" \
+              --write-out '%{http_code}' \
+              https://kolibriai.online/api/health || true)"
+            test "$HEALTH_STATUS" = "200"
+            grep -q '"ok":true' "external-health-${safe}.json"
+            grep -q '"ui":"greenfield"' "external-health-${safe}.json"
+          done
+
+      - name: Delayed public-origin probe
+        run: |
+          set -Eeuo pipefail
+          sleep 20
+          curl --fail --silent --show-error \
+            --retry 6 --retry-delay 3 --retry-all-errors \
+            https://kolibriai.online/ > external-root-delayed.html
+          grep -Fq '<div id="root"></div>' external-root-delayed.html
+          curl --fail --silent --show-error \
+            --retry 6 --retry-delay 3 --retry-all-errors \
+            https://kolibriai.online/api/health > external-health-delayed.json
+          grep -q '"ok":true' external-health-delayed.json
+          grep -q '"ui":"greenfield"' external-health-delayed.json
+
+      - name: Upload external evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prosmet-public-root-external-${{ github.run_id }}
+          path: |
+            external-dns-v4.txt
+            external-root-*.html
+            external-root-*-headers.txt
+            external-health-*.json
+            external-health-*-headers.txt
+          if-no-files-found: warn
+          retention-days: 30
