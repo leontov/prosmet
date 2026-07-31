@@ -15,5 +15,7 @@ Replace the legacy desktop-derived interface with a new assistant-first product 
 - save version, approve and deliver remain separate actions;
 - all current domain logic, PostgreSQL persistence, IndexedDB outbox, Rust calculation, PDF/XLSX and provider adapters remain intact;
 - old Premium Product V1 selectors and layout contract are replaced by V2;
+- production CSP stays strict: no `unsafe-eval`, `eval`, `new Function` or string timers in the shipped bundle;
+- every rendered `input`, `textarea` and `select` has a stable `id` and `name`, including dynamically created assistant fields;
 - desktop and mobile screenshots must visibly differ as intentionally designed products;
 - completion requires exact-main production deployment and live HTTPS desktop/mobile E2E.
