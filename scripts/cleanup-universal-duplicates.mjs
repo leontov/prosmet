@@ -24,6 +24,15 @@ const edits = [
     ]
   },
   {
+    path: "app/api/providers/route.ts",
+    replacements: [
+      [
+        'import { assertSuperAdmin, AuthorizationError } from "@/lib/server/auth/roles";\nimport { assertSuperAdmin, AuthorizationError } from "@/lib/server/auth/roles";',
+        'import { assertSuperAdmin, AuthorizationError } from "@/lib/server/auth/roles";'
+      ]
+    ]
+  },
+  {
     path: "lib/server/agents/provider-executor.ts",
     replacements: [
       [
@@ -33,6 +42,19 @@ const edits = [
       [
         '  if (connection.kind === "codex-app-server") {\n    return runCodexAppServerSemantic({ ...input, model: connection.model, resumeSessionId: input.resumeSessionId });\n  }\n  if (connection.kind === "a2a") return runA2ACompatible(connection, input);\n  if (connection.kind === "ag-ui") return runAgUiCompatible(connection, input);\n  if (connection.kind === "codex-app-server") {\n    return runCodexAppServerSemantic({ ...input, model: connection.model, resumeSessionId: input.resumeSessionId });\n  }\n  if (connection.kind === "a2a") return runA2ACompatible(connection, input);\n  if (connection.kind === "ag-ui") return runAgUiCompatible(connection, input);',
         '  if (connection.kind === "codex-app-server") {\n    return runCodexAppServerSemantic({ ...input, model: connection.model, resumeSessionId: input.resumeSessionId });\n  }\n  if (connection.kind === "a2a") return runA2ACompatible(connection, input);\n  if (connection.kind === "ag-ui") return runAgUiCompatible(connection, input);'
+      ]
+    ]
+  },
+  {
+    path: "lib/server/services/providers.ts",
+    replacements: [
+      [
+        'import { checkCodexAppServer } from "@/lib/server/agents/codex-app-server";\nimport { probeUniversalAgent } from "@/lib/server/agents/universal-protocols";\nimport { checkCodexAppServer } from "@/lib/server/agents/codex-app-server";\nimport { probeUniversalAgent } from "@/lib/server/agents/universal-protocols";',
+        'import { checkCodexAppServer } from "@/lib/server/agents/codex-app-server";\nimport { probeUniversalAgent } from "@/lib/server/agents/universal-protocols";'
+      ],
+      [
+        '  "codex-app-server",\n  "a2a",\n  "ag-ui",\n  "codex-app-server",\n  "a2a",\n  "ag-ui"',
+        '  "codex-app-server",\n  "a2a",\n  "ag-ui"'
       ]
     ]
   },
@@ -111,6 +133,7 @@ CREATE TABLE IF NOT EXISTS prosmet_client_manifests (
 
 let changed = 0;
 for (const edit of edits) {
+  if (!fs.existsSync(edit.path)) continue;
   let source = fs.readFileSync(edit.path, "utf8");
   const original = source;
   for (const [before, after] of edit.replacements) {
