@@ -5,6 +5,7 @@ const root = process.cwd();
 const contractPath = "scripts/greenfield-contract.mjs";
 const required = [
   ".github/workflows/greenfield-deploy.yml",
+  "deployment/ensure-public-edge.sh",
   "apps/web/server.mjs",
   "apps/web/src/app/App.tsx",
   "apps/web/src/mobile-navigation.css",
@@ -98,6 +99,7 @@ const mobileSession = await read("apps/mobile/src/agent-session.ts");
 const playwright = await read("apps/web/playwright.config.ts");
 const e2e = await read("apps/web/e2e/app.spec.ts");
 const deployment = await read(".github/workflows/greenfield-deploy.yml");
+const edgeRecovery = await read("deployment/ensure-public-edge.sh");
 
 if (webApp.includes("mobile-bottom-nav")) failures.push("mobile-web:persistent-bottom-navigation");
 if (nativeApp.includes("BottomNav")) failures.push("mobile-native:persistent-bottom-navigation");
@@ -167,14 +169,23 @@ if (!webEstimate.includes("downloadExcel") || !webEstimate.includes("printEstima
 if (webEstimate.includes('aria-label="Скачать PDF"><') || webEstimate.includes('aria-label="Скачать Excel"><')) failures.push("estimate:inert-export-control-present");
 
 if (!playwright.includes("fixture-agent.mjs")) failures.push("testing:external-http-agent-fixture-not-started");
-if (!e2e.includes("Fixture HTTP Agent") || !e2e.includes("/api/agents") || !e2e.includes("estimate-e2e-agent") && !e2e.includes("Механизированная штукатурка 358 м²")) failures.push("testing:real-agent-end-to-end-missing");
+if (!e2e.includes("Fixture HTTP Agent") || !e2e.includes("/api/agents") || (!e2e.includes("estimate-e2e-agent") && !e2e.includes("Механизированная штукатурка 358 м²"))) failures.push("testing:real-agent-end-to-end-missing");
 
 if (!deployment.includes("env -u RUNNER_TRACKING_ID")) failures.push("deployment:runner-tracking-id-not-removed");
 if (!deployment.includes("post_cleanup_persistence:")) failures.push("deployment:post-cleanup-persistence-job-missing");
 if (!deployment.includes("external_acceptance:")) failures.push("deployment:external-acceptance-job-missing");
 if (!deployment.includes("runs-on: ubuntu-latest")) failures.push("deployment:external-github-hosted-runner-missing");
 if (!deployment.includes("survivedRunnerCleanup")) failures.push("deployment:final-persistence-evidence-missing");
+if (!deployment.includes("ensure-public-edge.sh")) failures.push("deployment:canonical-edge-recovery-not-invoked");
+if (!deployment.includes("canonicalEdgeReloaded")) failures.push("deployment:edge-reconciliation-evidence-missing");
+if (!deployment.includes("allResolvedIpv4Checked")) failures.push("deployment:dns-address-consistency-gate-missing");
 if (deployment.includes('PORT=3200 PROSMET_RELEASE_SHA="$RELEASE_SHA" nohup node server.mjs')) failures.push("deployment:ephemeral-runner-tracked-node-launch");
+
+if (!edgeRecovery.includes("@health path /api/health")) failures.push("edge:explicit-health-route-missing");
+if (!edgeRecovery.includes("http://127.0.0.1:2019/load")) failures.push("edge:caddy-admin-reload-missing");
+if (!edgeRecovery.includes("env -u RUNNER_TRACKING_ID")) failures.push("edge:runner-tracking-id-not-removed");
+if (!edgeRecovery.includes("public-root-not-200")) failures.push("edge:public-root-gate-missing");
+if (!edgeRecovery.includes("public-health-route-not-ready")) failures.push("edge:public-health-gate-missing");
 
 if (failures.length) {
   console.error(JSON.stringify({ status: "FAIL", failures }, null, 2));
@@ -194,5 +205,6 @@ console.log(JSON.stringify({
   agentAdapters: ["OpenAI-compatible", "Ollama", "Codex App Server", "HTTP agent"],
   secrets: "AES-256-GCM server storage and mobile SecureStore",
   productionProcess: "detached from runner cleanup",
-  productionAcceptance: "post-cleanup plus external GitHub-hosted browser verification"
+  publicEdge: "canonical Caddy route is reconciled before and after cleanup",
+  productionAcceptance: "post-cleanup, every IPv4 address, and external GitHub-hosted browser verification"
 }, null, 2));
