@@ -4,7 +4,7 @@ import {
   MessagePrimitive,
   ThreadPrimitive
 } from "@assistant-ui/react-native";
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import { NativeEstimateCard } from "@/src/components/estimate-card";
 
 function UserMessage() {
@@ -79,7 +79,7 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   messages: { flexGrow: 1, paddingHorizontal: 16, paddingTop: 14, paddingBottom: 150 },
   empty: { flex: 1, justifyContent: "center", paddingVertical: 70, gap: 12 },
-  emptyTitle: { fontSize: 27, fontWeight: "650", letterSpacing: -0.6, color: "#171716", textAlign: "center", marginBottom: 2 },
+  emptyTitle: { fontSize: 27, fontWeight: "600", letterSpacing: -0.6, color: "#171716", textAlign: "center", marginBottom: 2 },
   emptyText: { fontSize: 15, lineHeight: 22, color: "#6d6d67", textAlign: "center", marginBottom: 12 },
   suggestion: { borderWidth: StyleSheet.hairlineWidth, borderColor: "#d7d7d2", backgroundColor: "#fbfbfa", borderRadius: 15, paddingHorizontal: 15, paddingVertical: 13 },
   suggestionText: { color: "#30302d", fontSize: 14, lineHeight: 20 },
