@@ -5,13 +5,17 @@ import { NativeThread } from "@/src/components/native-thread";
 import { getApiBase } from "@/src/config";
 
 type Manifest = { productName?: string; organizationName?: string; modules?: string[] };
+type ManifestResponse = { manifest?: Manifest };
 
 export function NativeWorkspace() {
   const [manifest, setManifest] = useState<Manifest>({ productName: "Просметчик" });
   useEffect(() => {
-    void getApiBase().then((base) => fetch(`${base}/api/client-manifest`, { credentials: "include" }))
-      .then((response) => response.ok ? response.json() : null)
-      .then((payload) => payload?.manifest && setManifest(payload.manifest))
+    void getApiBase()
+      .then((base: string) => fetch(`${base}/api/client-manifest`, { credentials: "include" }))
+      .then((response: Response) => response.ok ? response.json() as Promise<ManifestResponse> : null)
+      .then((payload: ManifestResponse | null) => {
+        if (payload?.manifest) setManifest(payload.manifest);
+      })
       .catch(() => undefined);
   }, []);
   return (
@@ -34,7 +38,7 @@ const styles = StyleSheet.create({
   brand: { flexDirection: "row", alignItems: "center", gap: 10 },
   mark: { width: 30, height: 30, borderRadius: 10, backgroundColor: "#232321", alignItems: "center", justifyContent: "center" },
   markText: { color: "#fff", fontWeight: "700", fontSize: 13 },
-  title: { color: "#171716", fontSize: 15, fontWeight: "650" },
+  title: { color: "#171716", fontSize: 15, fontWeight: "600" },
   subtitle: { color: "#85857e", fontSize: 10, marginTop: 1 },
   settings: { width: 38, height: 38, alignItems: "center", justifyContent: "center", borderRadius: 12 },
   settingsText: { color: "#63635e", fontSize: 17, letterSpacing: 1 }
