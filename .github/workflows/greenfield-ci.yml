@@ -15,11 +15,14 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: [self-hosted, prosmet-primary]
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 45
     env:
       CI: "1"
     steps:
+      - name: Verify trusted runner
+        run: test "${{ runner.name }}" = "prosmet-primary"
+
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
