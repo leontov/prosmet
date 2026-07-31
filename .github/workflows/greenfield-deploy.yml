@@ -77,7 +77,7 @@ jobs:
           {"releaseSha":"$RELEASE_SHA","repository":"${{ github.repository }}","event":"${{ github.event_name }}","runId":"${{ github.run_id }}"}
           EOF
 
-      - name: Switch process on port 3200
+      - name: Switch persistent process on port 3200
         run: |
           set -Eeuo pipefail
           if command -v fuser >/dev/null 2>&1; then fuser -k 3200/tcp || true; fi
@@ -88,16 +88,33 @@ jobs:
           sleep 1
           mkdir -p "$HOME/.prosmet-greenfield"
           cd "$RELEASE_DIR"
-          PORT=3200 PROSMET_RELEASE_SHA="$RELEASE_SHA" nohup node server.mjs > "$HOME/.prosmet-greenfield/production.log" 2>&1 &
-          echo $! > "$HOME/.prosmet-greenfield/production.pid"
 
-      - name: Verify local release
+          # The self-hosted runner terminates descendants that retain its tracking
+          # marker during post-job cleanup. Remove that marker before spawning the
+          # production server so it remains alive after the deployment job exits.
+          nohup env -u RUNNER_TRACKING_ID \
+            PORT=3200 \
+            PROSMET_RELEASE_SHA="$RELEASE_SHA" \
+            node server.mjs \
+            </dev/null > "$HOME/.prosmet-greenfield/production.log" 2>&1 &
+          PID=$!
+          disown "$PID" 2>/dev/null || true
+          printf '%s\n' "$PID" > "$HOME/.prosmet-greenfield/production.pid"
+
+          sleep 1
+          kill -0 "$PID"
+          if tr '\0' '\n' < "/proc/$PID/environ" | grep -q '^RUNNER_TRACKING_ID='; then
+            echo "Production process still contains RUNNER_TRACKING_ID" >&2
+            exit 1
+          fi
+
+      - name: Verify immediate local release
         run: |
           set -Eeuo pipefail
           for attempt in $(seq 1 40); do
             HEALTH="$(curl -fsS http://127.0.0.1:3200/api/health || true)"
             if printf '%s' "$HEALTH" | grep -q "$RELEASE_SHA" && printf '%s' "$HEALTH" | grep -q '"ui":"greenfield"'; then
-              printf '%s\n' "$HEALTH" > local-health.json
+              printf '%s\n' "$HEALTH" > local-health-immediate.json
               exit 0
             fi
             sleep 1
@@ -105,15 +122,15 @@ jobs:
           cat "$HOME/.prosmet-greenfield/production.log" || true
           exit 1
 
-      - name: Verify public HTTPS and exact SHA
+      - name: Verify immediate public HTTPS
         run: |
           set -Eeuo pipefail
           for attempt in $(seq 1 40); do
             HEALTH="$(curl -fsS https://kolibriai.online/api/health || true)"
             if printf '%s' "$HEALTH" | grep -q "$RELEASE_SHA" && printf '%s' "$HEALTH" | grep -q '"ui":"greenfield"'; then
-              printf '%s\n' "$HEALTH" > public-health.json
-              curl -fsSI https://kolibriai.online/ > public-headers.txt
-              curl -fsSI http://kolibriai.online/ > public-redirect.txt || true
+              printf '%s\n' "$HEALTH" > public-health-immediate.json
+              curl -fsSI https://kolibriai.online/ > public-headers-immediate.txt
+              curl -fsSI http://kolibriai.online/ > public-redirect-immediate.txt || true
               exit 0
             fi
             sleep 2
@@ -122,27 +139,145 @@ jobs:
           curl -sS https://kolibriai.online/api/health || true
           exit 1
 
-      - name: Live desktop and mobile acceptance
+      - name: Immediate live desktop and mobile acceptance
         env:
           PROSMET_BASE_URL: https://kolibriai.online
         run: npm run e2e
 
-      - name: Write release acceptance summary
+      - name: Upload immediate deployment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prosmet-greenfield-deploy-${{ github.run_id }}
+          path: |
+            local-health-immediate.json
+            public-health-immediate.json
+            public-headers-immediate.txt
+            public-redirect-immediate.txt
+            apps/web/playwright-report
+            apps/web/test-results
+            apps/web/artifacts-*.png
+          if-no-files-found: warn
+          retention-days: 30
+
+  post_cleanup_persistence:
+    name: Verify service survived runner cleanup
+    needs: deploy
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 10
+    env:
+      RELEASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
+    steps:
+      - name: Verify detached process after previous job cleanup
         run: |
+          set -Eeuo pipefail
+          sleep 8
+          PID_FILE="$HOME/.prosmet-greenfield/production.pid"
+          test -s "$PID_FILE"
+          PID="$(cat "$PID_FILE")"
+          kill -0 "$PID"
+
+          if tr '\0' '\n' < "/proc/$PID/environ" | grep -q '^RUNNER_TRACKING_ID='; then
+            echo "Persistent process unexpectedly contains RUNNER_TRACKING_ID" >&2
+            exit 1
+          fi
+
+          ps -o pid=,ppid=,etime=,cmd= -p "$PID" | tee post-cleanup-process.txt
+          tr '\0' '\n' < "/proc/$PID/environ" | sed '/TOKEN\|SECRET\|KEY\|PASSWORD/d' > post-cleanup-environment.txt
+
+          LOCAL_HEALTH="$(curl -fsS http://127.0.0.1:3200/api/health)"
+          PUBLIC_HEALTH="$(curl -fsS https://kolibriai.online/api/health)"
+          printf '%s\n' "$LOCAL_HEALTH" > local-health-post-cleanup.json
+          printf '%s\n' "$PUBLIC_HEALTH" > public-health-post-cleanup.json
+
+          printf '%s' "$LOCAL_HEALTH" | grep -q "$RELEASE_SHA"
+          printf '%s' "$LOCAL_HEALTH" | grep -q '"ui":"greenfield"'
+          printf '%s' "$PUBLIC_HEALTH" | grep -q "$RELEASE_SHA"
+          printf '%s' "$PUBLIC_HEALTH" | grep -q '"ui":"greenfield"'
+          curl -fsSI https://kolibriai.online/ > public-headers-post-cleanup.txt
+
+      - name: Upload post-cleanup persistence evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prosmet-greenfield-persistence-${{ github.run_id }}
+          path: |
+            post-cleanup-process.txt
+            post-cleanup-environment.txt
+            local-health-post-cleanup.json
+            public-health-post-cleanup.json
+            public-headers-post-cleanup.txt
+          if-no-files-found: warn
+          retention-days: 30
+
+  external_acceptance:
+    name: Verify from an external GitHub-hosted runner
+    needs: post_cleanup_persistence
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      CI: "1"
+      RELEASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
+      PROSMET_BASE_URL: https://kolibriai.online
+    steps:
+      - name: Resolve public DNS and verify HTTPS from outside Primary
+        run: |
+          set -Eeuo pipefail
+          getent ahostsv4 kolibriai.online | tee external-dns.txt
+          test -s external-dns.txt
+
+          curl --fail --show-error --silent \
+            --retry 12 --retry-delay 5 --retry-all-errors \
+            https://kolibriai.online/api/health > external-public-health.json
+          grep -q "$RELEASE_SHA" external-public-health.json
+          grep -q '"ui":"greenfield"' external-public-health.json
+          curl -fsSI https://kolibriai.online/ > external-public-headers.txt
+          curl -fsSI http://kolibriai.online/ > external-public-redirect.txt || true
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Verify external checkout SHA
+        run: test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+
+      - name: Install browser acceptance dependencies
+        run: |
+          npm install --workspaces --include-workspace-root --legacy-peer-deps --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: External live desktop and mobile acceptance
+        run: npm run e2e
+
+      - name: Delayed external persistence probe
+        run: |
+          set -Eeuo pipefail
+          sleep 20
+          curl --fail --show-error --silent \
+            --retry 6 --retry-delay 5 --retry-all-errors \
+            https://kolibriai.online/api/health > external-public-health-delayed.json
+          grep -q "$RELEASE_SHA" external-public-health-delayed.json
+          grep -q '"ui":"greenfield"' external-public-health-delayed.json
           cat > production-acceptance.json <<EOF
-          {"status":"PASS","releaseSha":"$RELEASE_SHA","ui":"greenfield","origin":"https://kolibriai.online","desktopChromium":true,"mobileChromium":true,"runId":"${{ github.run_id }}"}
+          {"status":"PASS","releaseSha":"$RELEASE_SHA","ui":"greenfield","origin":"https://kolibriai.online","survivedRunnerCleanup":true,"externalDns":true,"externalHttps":true,"desktopChromium":true,"mobileChromium":true,"runId":"${{ github.run_id }}"}
           EOF
 
-      - name: Upload production evidence
+      - name: Upload final external production evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: prosmet-greenfield-production-${{ github.run_id }}
           path: |
-            local-health.json
-            public-health.json
-            public-headers.txt
-            public-redirect.txt
+            external-dns.txt
+            external-public-health.json
+            external-public-health-delayed.json
+            external-public-headers.txt
+            external-public-redirect.txt
             production-acceptance.json
             apps/web/playwright-report
             apps/web/test-results
