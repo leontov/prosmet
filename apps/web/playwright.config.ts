@@ -44,7 +44,7 @@ const config: PlaywrightTestConfig = {
         timeout: 30_000
       },
       {
-        command: `rm -rf test-results/e2e-config && mkdir -p test-results/e2e-config && PORT=${port} PROSMET_RELEASE_SHA=e2e PROSMET_ADMIN_TOKEN=e2e-admin PROSMET_CONFIG_DIR=$PWD/test-results/e2e-config node server.mjs`,
+        command: `rm -rf test-results/e2e-config && mkdir -p test-results/e2e-config && PORT=${port} PROSMET_RELEASE_SHA=e2e PROSMET_ADMIN_TOKEN=e2e-admin PROSMET_PUBLIC_AGENT_ACCESS=true PROSMET_CONFIG_DIR=$PWD/test-results/e2e-config node server.mjs`,
         url: `http://127.0.0.1:${port}/api/health`,
         reuseExistingServer: false,
         timeout: 30_000
