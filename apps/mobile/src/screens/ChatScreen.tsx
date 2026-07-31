@@ -93,7 +93,7 @@ export function ChatScreen({ hasEstimate, onOpenEstimate }: Props) {
               <MicGlyph />
             </Pressable>
             <ComposerPrimitive.Send style={styles.send} accessibilityLabel="Отправить">
-              <View style={styles.sendGlyph}><VoiceGlyph /></View>
+              <View style={styles.sendGlyph}><VoiceGlyph color="#ffffff" /></View>
             </ComposerPrimitive.Send>
           </ComposerPrimitive.Root>
         </View>
