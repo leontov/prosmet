@@ -21,6 +21,10 @@
     "e2e": "npm run e2e -w @prosmet/web",
     "verify": "node scripts/greenfield-contract.mjs && npm run typecheck && npm run test && npm run build",
     "desktop:metadata": "cargo metadata --manifest-path apps/desktop/src-tauri/Cargo.toml --format-version 1 --no-deps",
-    "format:check": "cargo fmt --all --check"
+    "format:check": "cargo fmt --all --check",
+    "admin:status": "node scripts/prosmet-admin.mjs status",
+    "admin:token": "node scripts/prosmet-admin.mjs show-token",
+    "admin:bootstrap": "node scripts/prosmet-admin.mjs bootstrap",
+    "admin:rotate-token": "node scripts/prosmet-admin.mjs rotate-token"
   }
 }

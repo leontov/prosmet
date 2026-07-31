@@ -39,10 +39,61 @@ export type Estimate = {
   updatedAt: string;
 };
 
+export type AgentKind = "openai-compatible" | "ollama" | "ag-ui" | "a2a" | "codex-app-server";
+
+export type AgentSummary = {
+  id: string;
+  name: string;
+  kind: AgentKind;
+  model: string;
+  enabled: boolean;
+  isDefault: boolean;
+};
+
+export type AdminAgentSummary = AgentSummary & {
+  source: "stored" | "environment";
+  baseUrl: string;
+  endpoint: string;
+  cwd: string;
+  timeoutMs: number;
+  supportsTools: boolean;
+  credentialConfigured: boolean;
+  apiKeyEnv: string;
+  updatedAt: string;
+};
+
+export type AgentCatalog = {
+  configured: boolean;
+  defaultAgentId: string;
+  agents: AgentSummary[];
+};
+
+export type AgentConfigurationInput = {
+  id?: string;
+  name: string;
+  kind: AgentKind;
+  enabled: boolean;
+  makeDefault?: boolean;
+  model?: string;
+  baseUrl?: string;
+  endpoint?: string;
+  systemPrompt?: string;
+  cwd?: string;
+  timeoutMs?: number;
+  temperature?: number;
+  supportsTools?: boolean;
+  apiKey?: string;
+  apiKeyEnv?: string;
+  clearApiKey?: boolean;
+};
+
 export type AgentResponse = {
   text: string;
   artifact?: "estimate";
   estimate?: Estimate;
+  provider?: AgentSummary;
+  latencyMs?: number;
+  usage?: unknown;
 };
 
 export type ClientManifest = {
