@@ -68,10 +68,16 @@ test("the application hydrates and remains interactive", async ({ page }, testIn
     await visibleInspector.getByRole("button", { name: "Закрыть контекст" }).click();
     await expect(visibleInspector).toHaveCount(0);
   } else {
-    await page.getByRole("button", { name: "Открыть меню" }).click();
+    const mobileNavigation = page.locator(".prosmet-v2-mobile-nav");
+    await expect(mobileNavigation).toBeVisible();
+    await expect(mobileNavigation.getByRole("button", { name: "Чаты" })).toBeVisible();
+    await expect(mobileNavigation.getByRole("button", { name: "Сметы" })).toBeVisible();
+
+    await page.getByRole("button", { name: "Открыть историю" }).click();
     await expect(visibleSidebar).toHaveCount(1);
-    await page.getByRole("button", { name: "Скрыть боковую панель" }).click();
+    await page.getByRole("button", { name: "Закрыть историю" }).click();
     await expect(visibleSidebar).toHaveCount(0);
+
     await page.getByRole("button", { name: "Рабочий контекст" }).click();
     await expect(visibleInspector).toHaveCount(1);
     await visibleInspector.getByRole("button", { name: "Закрыть контекст" }).click();
