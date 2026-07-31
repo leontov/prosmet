@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { AgentCatalog } from "@prosmet/contracts";
 import { BotIcon, Settings2Icon } from "lucide-react";
 import {
+  agentRegistryEvent,
   agentSelectionEvent,
   loadAgentCatalog,
   readSelectedAgentId,
@@ -33,10 +34,13 @@ export function AgentSelector({ onConfigure }: { onConfigure: () => void }) {
     };
     void refresh();
     const onSelection = (event: Event) => setSelectedId(String((event as CustomEvent).detail || ""));
+    const onRegistry = () => void refresh();
     window.addEventListener(agentSelectionEvent, onSelection);
+    window.addEventListener(agentRegistryEvent, onRegistry);
     return () => {
       active = false;
       window.removeEventListener(agentSelectionEvent, onSelection);
+      window.removeEventListener(agentRegistryEvent, onRegistry);
     };
   }, []);
 
@@ -62,7 +66,7 @@ export function AgentSelector({ onConfigure }: { onConfigure: () => void }) {
   }
 
   return (
-    <label className="agent-selector" title={selected ? `${selected.kind}${selected.model ? ` · ${selected.model}` : ""}` : "Агент"}>
+    <div className="agent-selector" title={selected ? `${selected.kind}${selected.model ? ` · ${selected.model}` : ""}` : "Агент"}>
       <BotIcon />
       <select
         aria-label="Активный агент"
@@ -78,6 +82,6 @@ export function AgentSelector({ onConfigure }: { onConfigure: () => void }) {
         ))}
       </select>
       <button type="button" aria-label="Настроить агентов" onClick={onConfigure}><Settings2Icon /></button>
-    </label>
+    </div>
   );
 }
