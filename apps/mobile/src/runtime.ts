@@ -3,6 +3,8 @@ import { type ChatModelAdapter, type ChatModelRunResult, useLocalRuntime } from 
 import { getApiBase } from "@/src/config";
 
 type EventRecord = Record<string, unknown>;
+type ReadonlyJSONValue = string | number | boolean | null | ReadonlyJSONObject | readonly ReadonlyJSONValue[];
+type ReadonlyJSONObject = { readonly [key: string]: ReadonlyJSONValue };
 
 type ToolState = {
   toolName: string;
@@ -17,9 +19,12 @@ function textContent(message: { content?: unknown }) {
     .join("\n");
 }
 
-function parsedArgs(argsText: string) {
+function parsedArgs(argsText: string): ReadonlyJSONObject {
   try {
-    return JSON.parse(argsText || "{}") as Record<string, unknown>;
+    const value = JSON.parse(argsText || "{}") as ReadonlyJSONValue;
+    return value && typeof value === "object" && !Array.isArray(value)
+      ? value as ReadonlyJSONObject
+      : {};
   } catch {
     return {};
   }
