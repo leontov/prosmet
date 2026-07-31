@@ -7,6 +7,7 @@ import type {
 
 export const selectedAgentStorageKey = "prosmet-selected-agent";
 export const agentSelectionEvent = "prosmet-agent-selection";
+export const agentRegistryEvent = "prosmet-agent-registry";
 
 type ApiErrorBody = { error?: { code?: string; message?: string } };
 
@@ -26,6 +27,10 @@ async function api<T>(path: string, init: RequestInit = {}, adminToken = ""): Pr
   return response.json() as Promise<T>;
 }
 
+function notifyRegistryChanged() {
+  window.dispatchEvent(new Event(agentRegistryEvent));
+}
+
 export function loadAgentCatalog() {
   return api<AgentCatalog>("/api/agents");
 }
@@ -34,29 +39,35 @@ export function loadAdminAgents(adminToken: string) {
   return api<{ defaultAgentId: string; agents: AdminAgentSummary[]; configPath: string }>("/api/admin/agents", {}, adminToken);
 }
 
-export function saveAgentConfiguration(input: AgentConfigurationInput, adminToken: string) {
+export async function saveAgentConfiguration(input: AgentConfigurationInput, adminToken: string) {
   const path = input.id ? `/api/admin/agents/${encodeURIComponent(input.id)}` : "/api/admin/agents";
-  return api<{ agent: AdminAgentSummary; defaultAgentId: string }>(
+  const result = await api<{ agent: AdminAgentSummary; defaultAgentId: string }>(
     path,
     { method: input.id ? "PUT" : "POST", body: JSON.stringify(input) },
     adminToken
   );
+  notifyRegistryChanged();
+  return result;
 }
 
-export function deleteAgentConfiguration(id: string, adminToken: string) {
-  return api<{ defaultAgentId: string }>(
+export async function deleteAgentConfiguration(id: string, adminToken: string) {
+  const result = await api<{ defaultAgentId: string }>(
     `/api/admin/agents/${encodeURIComponent(id)}`,
     { method: "DELETE" },
     adminToken
   );
+  notifyRegistryChanged();
+  return result;
 }
 
-export function activateAgentConfiguration(id: string, adminToken: string) {
-  return api<{ defaultAgentId: string }>(
+export async function activateAgentConfiguration(id: string, adminToken: string) {
+  const result = await api<{ defaultAgentId: string }>(
     `/api/admin/agents/${encodeURIComponent(id)}/activate`,
     { method: "POST" },
     adminToken
   );
+  notifyRegistryChanged();
+  return result;
 }
 
 export function testAgentConfiguration(id: string, adminToken: string) {
