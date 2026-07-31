@@ -5,7 +5,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: prosmet-pr-${{ github.event.pull_request.number }}
@@ -55,50 +55,34 @@ jobs:
           set -o pipefail
           npm ci --no-audit --no-fund 2>&1 | tee artifacts/logs/npm-ci.log
 
-      - name: Install mobile dependencies
+      - name: Install locked mobile dependencies
         run: |
           set -o pipefail
-          npm install --no-audit --no-fund --legacy-peer-deps --prefix apps/mobile 2>&1 | tee artifacts/logs/mobile-npm-install.log
+          npm ci --no-audit --no-fund --legacy-peer-deps --prefix apps/mobile 2>&1 | tee artifacts/logs/mobile-npm-ci.log
 
-      - name: Install desktop dependencies
+      - name: Install locked desktop dependencies
         run: |
           set -o pipefail
-          npm install --no-audit --no-fund --prefix apps/desktop 2>&1 | tee artifacts/logs/desktop-npm-install.log
+          npm ci --no-audit --no-fund --prefix apps/desktop 2>&1 | tee artifacts/logs/desktop-npm-ci.log
 
-      - name: Clean generated duplicates
-        run: npm run cleanup:universal
-
-      - name: Persist normalized sources and lockfiles
-        id: normalize
+      - name: Verify committed source normalization
         run: |
           set -Eeuo pipefail
-          cargo generate-lockfile
-          git add \
+          npm run cleanup:universal
+          git diff --exit-code -- \
             components/app/premium-chat-workspace.tsx \
             components/app/premium-prosmet-application.tsx \
             lib/server/agents/provider-executor.ts \
             lib/server/services/providers.ts \
             components/tools/service-settings.tsx \
-            deployment/migrate-postgres.mjs \
-            apps/mobile/package-lock.json \
-            apps/desktop/package-lock.json \
-            Cargo.lock
-          if git diff --cached --quiet; then
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-          else
-            git config user.name "prosmet-release-bot"
-            git config user.email "prosmet-release-bot@users.noreply.github.com"
-            git commit -m "fix(universal): persist normalized generated sources"
-            git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
-            echo "changed=true" >> "$GITHUB_OUTPUT"
-          fi
+            deployment/migrate-postgres.mjs
 
       - name: Rust engine and desktop manifest
         run: |
           set -o pipefail
           cargo fmt --all --check 2>&1 | tee artifacts/logs/rustfmt.log
-          npm run engine:test 2>&1 | tee artifacts/logs/rust-tests.log
-          cargo metadata --manifest-path apps/desktop/src-tauri/Cargo.toml --format-version 1 --no-deps > artifacts/logs/desktop-metadata.json
+          cargo test --locked -p prosmet-engine 2>&1 | tee artifacts/logs/rust-tests.log
+          cargo metadata --locked --manifest-path apps/desktop/src-tauri/Cargo.toml --format-version 1 --no-deps > artifacts/logs/desktop-metadata.json
 
       - name: Install authoritative Rust engine
         run: |
