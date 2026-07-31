@@ -16,8 +16,10 @@ const needMatch = (source, pattern, scope, label) => {
 
 for (const path of [
   "deployment/provision-https.sh",
-  "app/premium-foundation.css",
-  "docs/UX_PREMIUM_FOUNDATION_V1.md"
+  "app/premium-product.css",
+  "app/premium-product-fixes.css",
+  "components/chat/premium-prosmet-thread.tsx",
+  "docs/PREMIUM_UI_V2_BRIEF.md"
 ]) {
   try {
     await access(resolve(root, path));
@@ -27,7 +29,10 @@ for (const path of [
 }
 
 const layout = await read("app/layout.tsx");
-need(layout, 'import "./premium-foundation.css"', "layout");
+need(layout, 'import "./premium-product.css"', "layout");
+need(layout, 'import "./premium-product-fixes.css"', "layout");
+forbid(layout, 'import "./premium-foundation.css"', "layout");
+forbid(layout, 'import "./estimate-workspace.css"', "layout");
 need(layout, "https://kolibriai.online", "layout");
 need(layout, "NEXT_PUBLIC_APP_ORIGIN", "layout");
 
@@ -37,18 +42,37 @@ forbid(nextConfig, "Cross-Origin-Opener-Policy", "browser-policy");
 forbid(nextConfig, "'wasm-unsafe-eval'", "browser-policy");
 forbid(nextConfig, "'unsafe-eval'\",\n  \"style-src", "browser-policy");
 
-const premiumCss = await read("app/premium-foundation.css");
+const premiumCss = `${await read("app/premium-product.css")}\n${await read("app/premium-product-fixes.css")}`;
 for (const token of [
-  'button[aria-label="Прочитать вслух"]',
-  'button[aria-label="Хороший ответ"]',
-  'button[aria-label="Плохой ответ"]',
-  ':focus-visible',
-  'aria-label="Режим разработчика"',
+  ":focus-visible",
   "prefers-reduced-motion",
-  "--prosmet-touch-target: 44px",
-  'body[data-prosmet-estimate-open="true"] main'
+  "--prosmet-touch-target: 48px",
+  ".prosmet-v2-mobile-nav",
+  ".prosmet-v2-mobile-row",
+  "env(safe-area-inset-bottom)",
+  ".prosmet-v2-row-sheet-footer"
 ]) {
-  need(premiumCss, token, "premium-css");
+  need(premiumCss, token, "premium-v2-css");
+}
+for (const token of [
+  "PROSMET UX PREMIUM FOUNDATION V1",
+  'body[data-prosmet-estimate-open="true"] main',
+  ".prosmet-premium-app-shell",
+  ".prosmet-premium-estimate-paper"
+]) {
+  forbid(premiumCss, token, "legacy-v1-css");
+}
+
+const thread = await read("components/chat/premium-prosmet-thread.tsx");
+for (const token of [
+  "ActionBarPrimitive.Speak",
+  "FeedbackPositive",
+  "FeedbackNegative",
+  "Прочитать вслух",
+  "Хороший ответ",
+  "Плохой ответ"
+]) {
+  forbid(thread, token, "unsupported-capability-gating");
 }
 
 const identity = await read("lib/server/identity.ts");
@@ -104,12 +128,12 @@ console.log(
   JSON.stringify(
     {
       status: "PASS",
-      contract: "prosmet-ux-premium-foundation-v1",
+      contract: "prosmet-ux-premium-v2",
       origin: "https://kolibriai.online",
       https: "automatic certificate + redirect + HSTS",
-      capabilities: "unsupported speech and feedback hidden",
-      accessibility: "focus-visible + 44px touch policy + reduced motion",
-      adaptive: "single supporting surface on medium windows"
+      capabilities: "unsupported speech and feedback omitted",
+      accessibility: "focus-visible + 48px touch policy + reduced motion",
+      adaptive: "native mobile navigation and large estimate cards"
     },
     null,
     2
