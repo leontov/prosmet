@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { AppView, Estimate } from "@prosmet/contracts";
+import type { AgentCatalog, AppView, Estimate } from "@prosmet/contracts";
 import {
   AudioWaveformIcon,
   ChevronDownIcon,
@@ -20,7 +20,6 @@ import { EstimateEditor } from "../features/estimate/EstimateEditor";
 import { LibraryView } from "../features/library/LibraryView";
 import { AccountView } from "../features/account/AccountView";
 import { SettingsView } from "../features/settings/SettingsView";
-import { demoEstimate } from "../data/demo";
 
 const storageKey = "prosmet-greenfield-estimate";
 
@@ -75,6 +74,7 @@ export function ReferenceApp() {
 function MobileReferenceApplication() {
   const [view, setView] = useState<AppView>("chat");
   const [menuOpen, setMenuOpen] = useState(false);
+  const [attentionCount, setAttentionCount] = useState(0);
   const [estimate, setEstimate] = useState<Estimate | null>(() => typeof window === "undefined" ? null : loadEstimate());
   const [estimateOpen, setEstimateOpen] = useState(false);
 
@@ -83,15 +83,23 @@ function MobileReferenceApplication() {
     window.localStorage.setItem(storageKey, JSON.stringify(estimate));
   }, [estimate]);
 
+  useEffect(() => {
+    let active = true;
+    fetch("/api/agents", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() as Promise<AgentCatalog> : Promise.reject(new Error("agents unavailable")))
+      .then((catalog) => { if (active) setAttentionCount(catalog.configured ? 0 : 1); })
+      .catch(() => { if (active) setAttentionCount(1); });
+    return () => { active = false; };
+  }, []);
+
   const handleEstimateReady = useCallback((incoming: Estimate) => {
     setEstimate(incoming);
     setEstimateOpen(true);
   }, []);
 
   const openEstimate = useCallback(() => {
-    setEstimate((current) => current ?? demoEstimate);
-    setEstimateOpen(true);
-  }, []);
+    if (estimate) setEstimateOpen(true);
+  }, [estimate]);
 
   const navigate = (nextView: AppView) => {
     setView(nextView);
@@ -114,7 +122,7 @@ function MobileReferenceApplication() {
             onClick={() => setMenuOpen(true)}
           >
             <span className="chat-reference-menu-lines" aria-hidden="true"><i /><i /></span>
-            <span className="chat-reference-badge" aria-label="1 уведомление">1</span>
+            {attentionCount > 0 ? <span className="chat-reference-badge" aria-label={`${attentionCount} действие требует внимания`}>{attentionCount}</span> : null}
           </button>
 
           <button type="button" className="chat-reference-title" aria-label="Выбрать раздел" onClick={() => setMenuOpen(true)}>
@@ -128,7 +136,7 @@ function MobileReferenceApplication() {
         </header>
 
         <main className="chat-reference-main">
-          <Workspace view={view} estimate={estimate} onOpenEstimate={openEstimate} />
+          <Workspace view={view} estimate={estimate} onOpenEstimate={openEstimate} onCreate={() => navigate("chat")} />
         </main>
 
         {menuOpen ? (
@@ -165,9 +173,14 @@ function MobileReferenceApplication() {
   );
 }
 
-function Workspace({ view, estimate, onOpenEstimate }: { view: AppView; estimate: Estimate | null; onOpenEstimate: () => void }) {
+function Workspace({ view, estimate, onOpenEstimate, onCreate }: {
+  view: AppView;
+  estimate: Estimate | null;
+  onOpenEstimate: () => void;
+  onCreate: () => void;
+}) {
   if (view === "chat") return <ChatSurface mobile hasEstimate={Boolean(estimate)} onOpenEstimate={onOpenEstimate} />;
   if (view === "account") return <AccountView mobile />;
   if (view === "settings") return <SettingsView mobile />;
-  return <LibraryView view={view} mobile onOpenEstimate={onOpenEstimate} />;
+  return <LibraryView view={view} mobile estimate={estimate} onOpenEstimate={onOpenEstimate} onCreate={onCreate} />;
 }
