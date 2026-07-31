@@ -1,0 +1,57 @@
+name: Stage pdfmake ESM interop fix
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  codemod:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply deterministic interop patch
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python <<'PY'
+          from pathlib import Path
+
+          path = Path('lib/server/exports/estimate.ts')
+          source = path.read_text(encoding='utf-8')
+          old_import = 'import PdfPrinter from "pdfmake";\n'
+          new_import = 'import { createRequire } from "node:module";\n'
+          if source.count(old_import) != 1:
+              raise SystemExit('pdfmake default import anchor missing')
+          source = source.replace(old_import, new_import, 1)
+
+          anchor = 'import { calculateEstimate, type EstimateDraft } from "@/lib/domain/estimate";\n\n'
+          definitions = '''import { calculateEstimate, type EstimateDraft } from "@/lib/domain/estimate";
+
+type PdfKitDocument = {
+  on: {
+    (event: "data", listener: (chunk: Buffer) => void): PdfKitDocument;
+    (event: "end", listener: () => void): PdfKitDocument;
+    (event: "error", listener: (error: Error) => void): PdfKitDocument;
+  };
+  end: () => void;
+};
+
+type PdfPrinterInstance = {
+  createPdfKitDocument: (definition: TDocumentDefinitions) => PdfKitDocument;
+};
+
+type PdfPrinterConstructor = new (fonts: Record<string, unknown>) => PdfPrinterInstance;
+
+const require = createRequire(import.meta.url);
+const PdfPrinter = require("pdfmake") as PdfPrinterConstructor;
+
+'''
+          if source.count(anchor) != 1:
+              raise SystemExit('estimate import anchor missing')
+          source = source.replace(anchor, definitions, 1)
+          path.write_text(source, encoding='utf-8')
+
+          Path('.github/workflows/premium-v2-hardening-codemod.yml').unlink()
+          PY
