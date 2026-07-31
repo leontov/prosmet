@@ -10,6 +10,9 @@ const need = (source, token, scope) => {
 const forbid = (source, token, scope) => {
   if (source.includes(token)) failures.push(`${scope}:forbidden:${token}`);
 };
+const needMatch = (source, pattern, scope, label) => {
+  if (!pattern.test(source)) failures.push(`${scope}:missing:${label}`);
+};
 
 const required = [
   "components/app/premium-prosmet-application.tsx",
@@ -62,9 +65,10 @@ for (const token of [
   "Передать клиенту",
   "Добавить позицию",
   "Добавить раздел",
-  "Технология и подробности расчёта",
+  "Технология и допущения",
   "Скачать PDF",
   "Скачать Excel",
+  "prosmet-v2-estimate-sheet",
   "prosmet-v2-mobile-row",
   "prosmet-v2-mobile-actionbar"
 ]) {
@@ -81,20 +85,23 @@ for (const token of [
 
 const css = `${await read("app/premium-product.css")}\n${await read("app/premium-product-fixes.css")}`;
 for (const token of [
-  '[data-prosmet-supporting-artifact="true"]',
   ".prosmet-v2-estimate-layer",
-  ".prosmet-v2-estimate-sheet",
   ".prosmet-v2-estimate-layout",
   ".prosmet-v2-estimate-summary",
   ".prosmet-v2-mobile-row",
   ".prosmet-v2-mobile-actionbar",
   ".prosmet-v2-row-sheet",
-  "grid-template-columns: minmax(0, 884px) 292px",
   "min-height: 116px",
   "max-width: 720px"
 ]) {
   need(css, token, "responsive-premium-v2-workspace");
 }
+needMatch(
+  css,
+  /grid-template-columns\s*:\s*minmax\(0\s*,\s*884px\)\s+292px\s*;/,
+  "responsive-premium-v2-workspace",
+  "desktop document and summary columns"
+);
 for (const token of [
   'body[data-prosmet-estimate-open="true"] main',
   "--prosmet-chat-width",
