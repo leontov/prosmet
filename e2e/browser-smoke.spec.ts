@@ -75,7 +75,17 @@ test("the application hydrates and remains interactive", async ({ page }, testIn
 
     await page.getByRole("button", { name: "Открыть историю" }).click();
     await expect(visibleSidebar).toHaveCount(1);
-    await page.getByRole("button", { name: "Закрыть историю" }).click();
+
+    const historyScrim = page.getByRole("button", { name: "Закрыть историю" });
+    await expect(historyScrim).toBeVisible();
+    const scrimBox = await historyScrim.boundingBox();
+    expect(scrimBox).not.toBeNull();
+    await historyScrim.click({
+      position: {
+        x: Math.max(1, scrimBox!.width - 8),
+        y: Math.min(32, Math.max(1, scrimBox!.height / 2))
+      }
+    });
     await expect(visibleSidebar).toHaveCount(0);
 
     await page.getByRole("button", { name: "Рабочий контекст" }).click();
