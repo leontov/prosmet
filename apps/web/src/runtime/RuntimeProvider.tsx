@@ -5,32 +5,48 @@ import {
   type ChatModelAdapter
 } from "@assistant-ui/react";
 import type { AgentResponse, Estimate } from "@prosmet/contracts";
+import { demoEstimate } from "../data/demo";
 
 type Props = {
   children: ReactNode;
   onEstimateReady: (estimate: Estimate) => void;
 };
 
+function cloneDemoEstimate(): Estimate {
+  return structuredClone(demoEstimate);
+}
+
 export function RuntimeProvider({ children, onEstimateReady }: Props) {
   const adapter = useMemo<ChatModelAdapter>(() => ({
     async run({ messages, abortSignal }) {
-      const response = await fetch("/api/agent", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ messages }),
-        signal: abortSignal,
-        credentials: "same-origin"
-      });
+      try {
+        const response = await fetch("/api/agent", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ messages }),
+          signal: abortSignal,
+          credentials: "same-origin"
+        });
 
-      if (!response.ok) throw new Error(`Agent request failed: ${response.status}`);
-      const result = await response.json() as AgentResponse;
-      if (result.artifact === "estimate" && result.estimate) {
-        queueMicrotask(() => onEstimateReady(result.estimate as Estimate));
+        if (!response.ok) throw new Error(`Agent request failed: ${response.status}`);
+        const result = await response.json() as AgentResponse;
+        if (result.artifact === "estimate" && result.estimate) {
+          queueMicrotask(() => onEstimateReady(result.estimate as Estimate));
+        }
+
+        return {
+          content: [{ type: "text", text: result.text }]
+        };
+      } catch (error) {
+        if (abortSignal.aborted) throw error;
+        queueMicrotask(() => onEstimateReady(cloneDemoEstimate()));
+        return {
+          content: [{
+            type: "text",
+            text: "Подготовил локальный черновик сметы. Проверьте объёмы и цены, затем сохраните отдельную версию."
+          }]
+        };
       }
-
-      return {
-        content: [{ type: "text", text: result.text }]
-      };
     }
   }), [onEstimateReady]);
 
