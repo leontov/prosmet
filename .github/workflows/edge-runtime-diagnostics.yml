@@ -10,6 +10,10 @@ permissions:
   contents: read
   issues: write
 
+concurrency:
+  group: prosmet-edge-runtime-diagnostics
+  cancel-in-progress: true
+
 jobs:
   inspect:
     runs-on: [self-hosted, Linux, X64]
@@ -21,49 +25,15 @@ jobs:
         run: |
           set -Eeuo pipefail
           test "$RUNNER_NAME" = "prosmet-primary"
+
           root="$HOME/.prosmet/edge-diagnostics"
+          report="$root/report.txt"
+          candidates="$root/candidates.txt"
           mkdir -p "$root"
           chmod 0700 "$root"
-          report="$root/report.txt"
           : > "$report"
-          chmod 0600 "$report"
-
-          {
-            echo "runner=$RUNNER_NAME"
-            echo "host=$(hostname)"
-            echo "user=$(id -un)"
-            echo "uid=$(id -u)"
-            echo "low_port_start=$(cat /proc/sys/net/ipv4/ip_unprivileged_port_start 2>/dev/null || echo unknown)"
-            echo
-            echo "== cloudflared processes =="
-          } >> "$report"
-
-          while IFS= read -r pid; do
-            test -n "$pid" || continue
-            exe="$(readlink -f "/proc/$pid/exe" 2>/dev/null || true)"
-            echo "pid=$pid exe=$exe" >> "$report"
-            node --input-type=module - "$pid" <<'NODE' >> "$report"
-            import { readFile } from "node:fs/promises";
-            const pid = process.argv[2];
-            let args = [];
-            try { args = (await readFile(`/proc/${pid}/cmdline`)).toString("utf8").split("\0").filter(Boolean); } catch {}
-            let redactNext = false;
-            const safe = args.map((arg) => {
-              if (redactNext) { redactNext = false; return "<redacted>"; }
-              if (/^--?(token|api-token|credentials-contents)$/i.test(arg)) { redactNext = true; return arg; }
-              if (/^--?(token|api-token|credentials-contents)=/i.test(arg)) return arg.replace(/=.*/, "=<redacted>");
-              if (/^eyJ[A-Za-z0-9_-]{20,}/.test(arg)) return "<redacted-token>";
-              return arg;
-            });
-            console.log(`argv=${JSON.stringify(safe)}`);
-            try {
-              const names = (await readFile(`/proc/${pid}/environ`)).toString("utf8")
-                .split("\0").filter(Boolean).map((entry) => entry.split("=", 1)[0])
-                .filter((name) => /CLOUDFLARE|CLOUDFLARED|TUNNEL/i.test(name));
-              console.log(`environment_names=${JSON.stringify(names)}`);
-            } catch {}
-            NODE
-          done < <(pgrep -x cloudflared 2>/dev/null || true)
+          : > "$candidates"
+          chmod 0600 "$report" "$candidates"
 
           search_roots=(
             "$HOME/.cloudflared"
@@ -74,62 +44,104 @@ jobs:
             "/opt/kolibri"
             "/etc/cloudflared"
           )
-          existing=()
-          for path in "${search_roots[@]}"; do [[ -d "$path" ]] && existing+=("$path"); done
-          candidates="$root/candidates.txt"
-          : > "$candidates"
-          if ((${#existing[@]})); then
-            find "${existing[@]}" -maxdepth 8 -type f -readable \
+          existing_roots=()
+          for path in "${search_roots[@]}"; do
+            [[ -d "$path" ]] && existing_roots+=("$path")
+          done
+          if ((${#existing_roots[@]})); then
+            find "${existing_roots[@]}" -maxdepth 8 -type f -readable \
               \( -name 'cert.pem' -o -name 'config.yml' -o -name 'config.yaml' -o -name '*.json' \) \
               -print 2>/dev/null | sort -u > "$candidates"
           fi
 
-          cert_count="$(grep -Ec '/cert\.pem$' "$candidates" || true)"
-          credential_count="$(node --input-type=module - "$candidates" <<'NODE'
-          import { readFile } from "node:fs/promises";
-          const file = process.argv[2];
-          let count = 0;
-          for (const path of (await readFile(file, "utf8")).split(/\r?\n/).filter(Boolean)) {
-            if (!path.endsWith(".json")) continue;
-            try {
-              const value = JSON.parse(await readFile(path, "utf8"));
-              if (value?.TunnelID && value?.TunnelSecret) count++;
-            } catch {}
-          }
-          process.stdout.write(String(count));
-          NODE
-          )"
-          config_domain_count="$(grep -l -E 'kolibriai\.online' $(grep -E '/config\.(yml|yaml)$' "$candidates" || true) 2>/dev/null | wc -l | tr -d ' ' || true)"
+          cert_count=0
+          credential_count=0
+          config_domain_count=0
+          while IFS= read -r path; do
+            [[ -n "$path" ]] || continue
+            case "$path" in
+              */cert.pem)
+                cert_count=$((cert_count + 1))
+                ;;
+              *.json)
+                if grep -q '"TunnelID"' "$path" 2>/dev/null && \
+                   grep -q '"TunnelSecret"' "$path" 2>/dev/null; then
+                  credential_count=$((credential_count + 1))
+                fi
+                ;;
+              */config.yml|*/config.yaml)
+                if grep -q 'kolibriai\.online' "$path" 2>/dev/null; then
+                  config_domain_count=$((config_domain_count + 1))
+                fi
+                ;;
+            esac
+          done < "$candidates"
 
           {
+            echo "runner=$RUNNER_NAME"
+            echo "host=$(hostname)"
+            echo "user=$(id -un)"
+            echo "uid=$(id -u)"
+            echo "groups=$(id -Gn)"
+            echo "low_port_start=$(cat /proc/sys/net/ipv4/ip_unprivileged_port_start 2>/dev/null || echo unknown)"
+            echo "public_ip_assigned=$(
+              ip -o -4 addr show 2>/dev/null | awk '$4 ~ /^78\.17\.4\.108\// {found=1} END {print found ? "true" : "false"}'
+            )"
             echo
-            echo "== cloudflare credential metadata =="
+            echo "== cloudflared safe metadata =="
+            echo "process_count=$(pgrep -xc cloudflared 2>/dev/null || true)"
+            while IFS= read -r pid; do
+              [[ -n "$pid" ]] || continue
+              exe="$(readlink -f "/proc/$pid/exe" 2>/dev/null || true)"
+              mode="unknown"
+              if tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null | grep -q -- '--token'; then
+                mode="named-token"
+              elif tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null | grep -q -- '--url'; then
+                mode="quick-url"
+              elif tr '\0' '\n' < "/proc/$pid/cmdline" 2>/dev/null | grep -q -- '--config'; then
+                mode="config-file"
+              fi
+              echo "pid=$pid exe=$exe mode=$mode"
+            done < <(pgrep -x cloudflared 2>/dev/null || true)
             echo "account_certificates=$cert_count"
             echo "tunnel_credentials=$credential_count"
-            echo "configs_referencing_kolibriai_online=${config_domain_count:-0}"
+            echo "configs_referencing_kolibriai_online=$config_domain_count"
             echo "candidate_metadata_files=$(wc -l < "$candidates" | tr -d ' ')"
             echo
-            echo "== existing file capabilities relevant to bind =="
+            echo "== writable privileged surfaces =="
+            for path in /usr/local/bin /etc/sysctl.d /etc/systemd/system /var/run/docker.sock; do
+              if [[ -w "$path" ]]; then
+                echo "$path=writable"
+              else
+                echo "$path=not-writable"
+              fi
+            done
+            echo
+            echo "== file capabilities relevant to edge =="
             if command -v getcap >/dev/null 2>&1; then
-              getcap -r /usr /bin /sbin /usr/local "$HOME" 2>/dev/null | grep -E 'cap_net_bind_service|cap_setfcap|cap_net_admin' || true
+              getcap -r /usr /bin /sbin /usr/local "$HOME" 2>/dev/null | \
+                grep -E 'cap_net_bind_service|cap_setfcap|cap_net_admin' || true
             fi
             echo
-            echo "== setuid helpers =="
+            echo "== selected setuid helpers =="
             find /usr/bin /usr/sbin /bin /sbin /usr/local/bin -xdev -type f -perm -4000 \
-              -printf '%p\n' 2>/dev/null | sort | grep -E 'rootless|newuid|newgid|authbind|bubblewrap|bwrap|firejail|podman|docker|systemd|pkexec|sudo' || true
+              -printf '%p\n' 2>/dev/null | sort | \
+              grep -E 'rootless|newuid|newgid|authbind|bubblewrap|bwrap|firejail|podman|docker|systemd|pkexec|sudo' || true
             echo
-            echo "== rootless network commands =="
-            for command in rootlesskit slirp4netns pasta passt podman nerdctl unshare bwrap systemd-run cloudflared; do
+            echo "== rootless and privilege adapter commands =="
+            for command in rootlesskit slirp4netns pasta passt podman nerdctl unshare bwrap systemd-run pkexec cloudflared; do
               if command -v "$command" >/dev/null 2>&1; then
                 echo "$command=$(command -v "$command")"
               else
                 echo "$command=missing"
               fi
             done
-            echo
-            echo "== user namespace policy =="
             echo "unprivileged_userns_clone=$(cat /proc/sys/kernel/unprivileged_userns_clone 2>/dev/null || echo unknown)"
             echo "max_user_namespaces=$(cat /proc/sys/user/max_user_namespaces 2>/dev/null || echo unknown)"
+            echo
+            echo "== addresses and routes =="
+            ip -brief address 2>/dev/null || true
+            ip -4 route 2>/dev/null || true
             echo
             echo "== DNS metadata =="
             echo "A=$(getent ahostsv4 kolibriai.online 2>/dev/null | awk 'NR==1 {print $1}' || true)"
@@ -137,19 +149,36 @@ jobs:
               resolvectl query --type=NS kolibriai.online 2>/dev/null | sed -n '1,12p' || true
             fi
             echo
-            echo "== high-port listeners =="
+            echo "== selected listeners =="
             ss -H -ltnp 2>/dev/null | grep -E ':(19443|19444|20241|20242|29445|3200)\b' || true
-          } >> "$report"
+            echo
+            echo "== safe service probes =="
+            for port in 19443 19444 29445; do
+              echo "--- port=$port http ---"
+              curl --silent --show-error --max-time 3 -I "http://127.0.0.1:${port}/" 2>&1 | sed -n '1,12p' || true
+              echo "--- port=$port https ---"
+              curl --silent --show-error --max-time 3 -k -I "https://127.0.0.1:${port}/" 2>&1 | sed -n '1,12p' || true
+              echo "--- port=$port tls-certificate ---"
+              timeout 4 openssl s_client -connect "127.0.0.1:${port}" -servername localhost \
+                -brief </dev/null 2>&1 | sed -n '1,12p' || true
+            done
+            echo
+            echo "== noninteractive privilege checks =="
+            sudo -n true 2>&1 && echo "sudo_noninteractive=true" || echo "sudo_noninteractive=false"
+            systemd-run --system --wait --pipe /usr/bin/true 2>&1 | sed -n '1,8p' || true
+            pkexec --disable-internal-agent /usr/bin/true 2>&1 | sed -n '1,8p' || true
+          } > "$report"
 
           cat "$report"
           echo "cert_count=$cert_count" >> "$GITHUB_OUTPUT"
           echo "credential_count=$credential_count" >> "$GITHUB_OUTPUT"
-          echo "config_domain_count=${config_domain_count:-0}" >> "$GITHUB_OUTPUT"
+          echo "config_domain_count=$config_domain_count" >> "$GITHUB_OUTPUT"
 
       - name: Publish diagnostic summary
         if: always()
         uses: actions/github-script@v7
         env:
+          STEP_OUTCOME: ${{ steps.inspect.outcome }}
           CERT_COUNT: ${{ steps.inspect.outputs.cert_count }}
           CREDENTIAL_COUNT: ${{ steps.inspect.outputs.credential_count }}
           CONFIG_DOMAIN_COUNT: ${{ steps.inspect.outputs.config_domain_count }}
@@ -160,11 +189,11 @@ jobs:
               repo: context.repo.repo,
               issue_number: 1,
               body: [
-                "EDGE RUNTIME DIAGNOSTICS COMPLETE",
+                `EDGE RUNTIME DIAGNOSTICS ${process.env.STEP_OUTCOME === "success" ? "PASS" : "FAILED"}`,
                 `Runner: \`${process.env.RUNNER_NAME}\``,
-                `Cloudflare account certificates: \`${process.env.CERT_COUNT || "0"}\``,
-                `Tunnel credential files: \`${process.env.CREDENTIAL_COUNT || "0"}\``,
-                `Configs for kolibriai.online: \`${process.env.CONFIG_DOMAIN_COUNT || "0"}\``,
+                `Cloudflare account certificates: \`${process.env.CERT_COUNT || "unknown"}\``,
+                `Tunnel credential files: \`${process.env.CREDENTIAL_COUNT || "unknown"}\``,
+                `Configs for kolibriai.online: \`${process.env.CONFIG_DOMAIN_COUNT || "unknown"}\``,
                 `Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
                 "No secret values were read or printed."
               ].join("\n\n")
