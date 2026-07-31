@@ -5,7 +5,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: prosmet-pr-${{ github.event.pull_request.number }}
@@ -67,6 +67,30 @@ jobs:
 
       - name: Clean generated duplicates
         run: npm run cleanup:universal
+
+      - name: Persist normalized sources and lockfiles
+        id: normalize
+        run: |
+          set -Eeuo pipefail
+          git add \
+            components/app/premium-chat-workspace.tsx \
+            components/app/premium-prosmet-application.tsx \
+            lib/server/agents/provider-executor.ts \
+            lib/server/services/providers.ts \
+            components/tools/service-settings.tsx \
+            deployment/migrate-postgres.mjs \
+            apps/mobile/package-lock.json \
+            apps/desktop/package-lock.json \
+            Cargo.lock
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            git config user.name "prosmet-release-bot"
+            git config user.email "prosmet-release-bot@users.noreply.github.com"
+            git commit -m "fix(universal): persist normalized generated sources"
+            git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Rust engine and desktop manifest
         run: |
