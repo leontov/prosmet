@@ -4,7 +4,9 @@ import {
   AuiIf,
   ComposerPrimitive,
   MessagePrimitive,
-  ThreadPrimitive
+  ThreadPrimitive,
+  useAui,
+  useAuiState
 } from "@assistant-ui/react-native";
 import { GlobeGlyph, ImageGlyph, MicGlyph, PenGlyph, PlusGlyph, VoiceGlyph } from "../ReferenceIcons";
 import { theme } from "../theme";
@@ -36,12 +38,6 @@ const quickActions: QuickAction[] = [
 ];
 
 export function ChatScreen({ hasEstimate, onOpenEstimate, focusRequest }: Props) {
-  const inputRef = useRef<TextInput | null>(null);
-
-  useEffect(() => {
-    if (focusRequest > 0) inputRef.current?.focus();
-  }, [focusRequest]);
-
   return (
     <View style={styles.screen}>
       <ThreadPrimitive.Root style={styles.thread}>
@@ -85,27 +81,51 @@ export function ChatScreen({ hasEstimate, onOpenEstimate, focusRequest }: Props)
           </ThreadPrimitive.MessagesFlatList>
         </AuiIf>
 
-        <View style={styles.footer}>
-          <ComposerPrimitive.Root style={styles.composer}>
-            <Pressable style={styles.composerUtility} accessibilityRole="button" accessibilityLabel="Добавить запрос" onPress={() => inputRef.current?.focus()}>
-              <PlusGlyph />
-            </Pressable>
-            <ComposerPrimitive.Input
-              ref={inputRef}
-              style={styles.input}
-              placeholder="Спросить Просметчик..."
-              placeholderTextColor="#9a9b9e"
-              multiline
-            />
-            <Pressable style={styles.composerMic} accessibilityRole="button" accessibilityLabel="Голосовой ввод" onPress={() => inputRef.current?.focus()}>
-              <MicGlyph />
-            </Pressable>
-            <ComposerPrimitive.Send style={styles.send} accessibilityLabel="Отправить">
-              <View style={styles.sendGlyph}><VoiceGlyph color="#ffffff" /></View>
-            </ComposerPrimitive.Send>
-          </ComposerPrimitive.Root>
-        </View>
+        <MobileComposer focusRequest={focusRequest} />
       </ThreadPrimitive.Root>
+    </View>
+  );
+}
+
+function MobileComposer({ focusRequest }: { focusRequest: number }) {
+  const inputRef = useRef<TextInput | null>(null);
+  const aui = useAui();
+  const text = useAuiState((state) => state.composer.text);
+
+  useEffect(() => {
+    if (focusRequest > 0) inputRef.current?.focus();
+  }, [focusRequest]);
+
+  const send = () => {
+    if (!text.trim()) return;
+    aui.composer().send();
+  };
+
+  return (
+    <View style={styles.footer}>
+      <ComposerPrimitive.Root style={styles.composer}>
+        <Pressable style={styles.composerUtility} accessibilityRole="button" accessibilityLabel="Добавить запрос" onPress={() => inputRef.current?.focus()}>
+          <PlusGlyph />
+        </Pressable>
+        <TextInput
+          ref={inputRef}
+          style={styles.input}
+          value={text}
+          onChangeText={(value) => aui.composer().setText(value)}
+          onSubmitEditing={send}
+          blurOnSubmit={false}
+          placeholder="Спросить Просметчик..."
+          placeholderTextColor="#9a9b9e"
+          multiline
+          accessibilityLabel="Сообщение Просметчику"
+        />
+        <Pressable style={styles.composerMic} accessibilityRole="button" accessibilityLabel="Голосовой ввод" onPress={() => inputRef.current?.focus()}>
+          <MicGlyph />
+        </Pressable>
+        <ComposerPrimitive.Send style={styles.send} accessibilityLabel="Отправить">
+          <View style={styles.sendGlyph}><VoiceGlyph color="#ffffff" /></View>
+        </ComposerPrimitive.Send>
+      </ComposerPrimitive.Root>
     </View>
   );
 }
