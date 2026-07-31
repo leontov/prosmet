@@ -19,6 +19,7 @@
     "react-native-safe-area-context": "latest"
   },
   "devDependencies": {
+    "@types/node": "latest",
     "@types/react": "latest",
     "typescript": "npm:@typescript/typescript6@^6.0.2"
   }
