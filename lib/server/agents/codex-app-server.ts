@@ -1,7 +1,6 @@
 import "server-only";
 
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { homedir } from "node:os";
 import { createInterface } from "node:readline";
 import {
   parseProviderInterpretation,
@@ -20,15 +19,20 @@ type RpcMessage = {
   error?: { message?: string };
 };
 
-function safeEnvironment() {
+function safeEnvironment(): NodeJS.ProcessEnv {
   const allowed = [
     "PATH", "HOME", "LANG", "LC_ALL", "USER", "LOGNAME", "SHELL", "TERM",
     "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "TMPDIR",
     "OPENAI_API_KEY", "OPENAI_BASE_URL", "CODEX_HOME", "HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY"
   ];
-  return Object.fromEntries(
-    allowed.flatMap((name) => (process.env[name] ? [[name, process.env[name] as string]] : []))
-  );
+  const environment: NodeJS.ProcessEnv = {
+    NODE_ENV: process.env.NODE_ENV ?? "production"
+  };
+  for (const name of allowed) {
+    const value = process.env[name];
+    if (value) environment[name] = value;
+  }
+  return environment;
 }
 
 function textFromItem(item: Record<string, unknown>) {
@@ -58,7 +62,7 @@ class CodexAppServerClient {
       stdio: ["pipe", "pipe", "pipe"],
       shell: false,
       env: safeEnvironment()
-    });
+    }) as ChildProcessWithoutNullStreams;
     createInterface({ input: this.child.stdout }).on("line", (line) => this.handleLine(line));
     this.child.stderr.on("data", (chunk: Buffer) => {
       this.stderr = (this.stderr + chunk.toString("utf8")).slice(-100_000);
@@ -134,7 +138,12 @@ function withTimeout<T>(promise: Promise<T>, signal?: AbortSignal, timeoutMs = 1
 }
 
 export async function checkCodexAppServer() {
-  const child = spawn(CODEX_BIN, ["app-server", "--help"], { stdio: ["ignore", "pipe", "pipe"], shell: false, env: safeEnvironment() });
+  const child = spawn(CODEX_BIN, ["app-server", "--help"], {
+    stdio: ["pipe", "pipe", "pipe"],
+    shell: false,
+    env: safeEnvironment()
+  }) as ChildProcessWithoutNullStreams;
+  child.stdin.end();
   const code = await new Promise<number | null>((resolve, reject) => {
     child.on("error", reject);
     child.on("close", resolve);
