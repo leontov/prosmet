@@ -49,7 +49,7 @@ test("greenfield shell, navigation and estimate editor are native to each viewpo
   await expect(editor).toBeVisible({ timeout: 20_000 });
 
   if (testInfo.project.name === "desktop-chromium") {
-    await expect(editor.getByDisplayValue("Механизированная штукатурка квартиры")).toBeVisible();
+    await expect(editor.locator("#estimate-title")).toHaveValue("Механизированная штукатурка квартиры");
     const desktopEditor = page.getByTestId("desktop-estimate-editor");
     await expect(desktopEditor).toBeVisible();
     await expect(editor.locator(".estimate-summary")).toBeVisible();
