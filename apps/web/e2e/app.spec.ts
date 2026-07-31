@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test";
 
-test("greenfield shell, reference mobile start and estimate editor pass", async ({ page }, testInfo) => {
+const externalOrigin = Boolean(process.env.PROSMET_BASE_URL);
+
+test("greenfield shell, agent registry, reference mobile start and estimate workflow pass", async ({ page }, testInfo) => {
   const violations: string[] = [];
   page.on("console", (message) => {
     if (message.type() === "error") violations.push(`console:${message.text()}`);
@@ -16,16 +18,37 @@ test("greenfield shell, reference mobile start and estimate editor pass", async 
 
   await page.goto("/", { waitUntil: "networkidle" });
 
+  const catalogResponse = await page.request.get("/api/agents");
+  expect(catalogResponse.ok()).toBe(true);
+  const catalog = await catalogResponse.json() as { configured: boolean; defaultAgentId: string; agents: unknown[] };
+  expect(Array.isArray(catalog.agents)).toBe(true);
+
   if (testInfo.project.name === "desktop-chromium") {
     await expect(page.getByText("Просметчик", { exact: true })).toBeVisible();
     await expect(page.getByTestId("desktop-shell")).toBeVisible();
     await expect(page.getByTestId("mobile-shell")).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Что нужно сделать?" })).toBeVisible();
 
-    await page.getByRole("button", { name: /Владислав/ }).click();
+    if (!externalOrigin) {
+      await expect(page.getByRole("combobox", { name: "Активный агент" })).toHaveValue("fixture");
+    }
+
+    await page.getByRole("button", { name: /Кабинет/ }).click();
     await expect(page.getByRole("heading", { name: "Кабинет" })).toBeVisible();
     await page.getByRole("button", { name: "Настройки", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Настройки" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Интеграция агентов" })).toBeVisible();
+
+    if (!externalOrigin) {
+      const unlock = page.locator(".admin-unlock");
+      await unlock.getByPlaceholder("PROSMET_ADMIN_TOKEN").fill("e2e-admin-token");
+      await unlock.getByRole("button", { name: "Открыть", exact: true }).click();
+      const fixture = page.getByRole("article").filter({ hasText: "Fixture Agent" });
+      await expect(fixture).toBeVisible();
+      await fixture.getByRole("button", { name: /Проверить/ }).click();
+      await expect(page.getByText(/PASS · Fixture Agent/)).toBeVisible({ timeout: 20_000 });
+    }
+
     await page.getByRole("button", { name: "Чаты", exact: true }).click();
   } else {
     await expect(page.getByTestId("mobile-shell")).toBeVisible();
@@ -67,6 +90,7 @@ test("greenfield shell, reference mobile start and estimate editor pass", async 
     menu = await openMenu();
     await menu.getByRole("button", { name: /Настройки/ }).click();
     await expect(page.getByRole("heading", { name: "Настройки" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Интеграция агентов" })).toBeVisible();
 
     menu = await openMenu();
     await menu.getByRole("button", { name: /^Чат/ }).click();
@@ -75,6 +99,11 @@ test("greenfield shell, reference mobile start and estimate editor pass", async 
   }
 
   await page.screenshot({ path: `artifacts-shell-${testInfo.project.name}.png`, fullPage: true });
+
+  if (externalOrigin) {
+    expect(violations).toEqual([]);
+    return;
+  }
 
   if (testInfo.project.name === "desktop-chromium") {
     await page.getByRole("button", { name: /Механизированная штукатурка/ }).click();
