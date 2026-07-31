@@ -61,8 +61,17 @@ test("greenfield shell, navigation and estimate editor are native to each viewpo
     await expect(mobileEditor).toBeVisible();
     const card = editor.locator(".mobile-estimate-item").first();
     expect((await card.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(112);
-    const fontSize = await card.locator("input").first().evaluate((element) => parseFloat(getComputedStyle(element).fontSize));
-    expect(fontSize).toBeGreaterThanOrEqual(16);
+    const titleField = card.locator("textarea").first();
+    const titleGeometry = await titleField.evaluate((element) => ({
+      fontSize: parseFloat(getComputedStyle(element).fontSize),
+      scrollWidth: element.scrollWidth,
+      clientWidth: element.clientWidth,
+      scrollHeight: element.scrollHeight,
+      clientHeight: element.clientHeight
+    }));
+    expect(titleGeometry.fontSize).toBeGreaterThanOrEqual(16);
+    expect(titleGeometry.scrollWidth).toBeLessThanOrEqual(titleGeometry.clientWidth + 1);
+    expect(titleGeometry.scrollHeight).toBeLessThanOrEqual(titleGeometry.clientHeight + 1);
     const actionbar = editor.locator(".mobile-estimate-actions");
     expect((await actionbar.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(72);
   }
