@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { AppView, Estimate } from "@prosmet/contracts";
+import type { AppView, Estimate, SystemStatus } from "@prosmet/contracts";
 import {
   BotIcon,
   ChevronRightIcon,
@@ -9,9 +9,7 @@ import {
   FolderKanbanIcon,
   MenuIcon,
   MessageSquareTextIcon,
-  PanelRightIcon,
   PlusIcon,
-  SearchIcon,
   Settings2Icon,
   SparklesIcon,
   TagIcon,
@@ -23,16 +21,22 @@ import { EstimateEditor } from "../features/estimate/EstimateEditor";
 import { LibraryView } from "../features/library/LibraryView";
 import { AccountView } from "../features/account/AccountView";
 import { SettingsView } from "../features/settings/SettingsView";
-import { demoEstimate } from "../data/demo";
+import { fetchSystemStatus } from "../features/agents/agent-api";
 
-const storageKey = "prosmet-greenfield-estimate";
+const workspaceKey = "prosmet-workspace-v1";
+const legacyEstimateKey = "prosmet-greenfield-estimate";
+
+type WorkspaceState = {
+  estimates: Estimate[];
+  activeEstimateId: string | null;
+};
 
 const viewMeta: Record<AppView, { title: string; subtitle: string }> = {
   chat: { title: "Новый чат", subtitle: "Диалог, расчёт и документы" },
   projects: { title: "Объекты", subtitle: "Проекты и рабочие контексты" },
   estimates: { title: "Сметы", subtitle: "Версии и утверждённые расчёты" },
   documents: { title: "Документы", subtitle: "КП, договоры, акты и счета" },
-  catalog: { title: "Каталог цен", subtitle: "Личные и региональные данные" },
+  catalog: { title: "Каталог цен", subtitle: "Цены из сохранённых расчётов" },
   account: { title: "Кабинет", subtitle: "Профиль и организация" },
   settings: { title: "Настройки", subtitle: "Приложение, агенты и данные" }
 };
@@ -49,50 +53,117 @@ function useMediaQuery(query: string) {
   return matches;
 }
 
-function loadEstimate(): Estimate | null {
+function loadWorkspace(): WorkspaceState {
   try {
-    const value = window.localStorage.getItem(storageKey);
-    return value ? JSON.parse(value) as Estimate : null;
-  } catch {
-    return null;
-  }
+    const current = window.localStorage.getItem(workspaceKey);
+    if (current) {
+      const parsed = JSON.parse(current) as Partial<WorkspaceState>;
+      const estimates = Array.isArray(parsed.estimates) ? parsed.estimates : [];
+      const activeEstimateId = typeof parsed.activeEstimateId === "string" ? parsed.activeEstimateId : estimates[0]?.id ?? null;
+      return { estimates, activeEstimateId };
+    }
+
+    const legacy = window.localStorage.getItem(legacyEstimateKey);
+    if (legacy) {
+      const estimate = JSON.parse(legacy) as Estimate;
+      return { estimates: [estimate], activeEstimateId: estimate.id };
+    }
+  } catch {}
+  return { estimates: [], activeEstimateId: null };
+}
+
+function useSystemStatus() {
+  const [status, setStatus] = useState<SystemStatus | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const next = await fetchSystemStatus();
+        if (!cancelled) setStatus(next);
+      } catch {
+        if (!cancelled) setStatus(null);
+      }
+    };
+    void load();
+    window.addEventListener("prosmet:agents-changed", load);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("prosmet:agents-changed", load);
+    };
+  }, []);
+  return status;
 }
 
 export function App() {
   const mobile = useMediaQuery("(max-width: 767px)");
   const [view, setView] = useState<AppView>("chat");
-  const [estimate, setEstimate] = useState<Estimate | null>(() => typeof window === "undefined" ? null : loadEstimate());
+  const [workspace, setWorkspace] = useState<WorkspaceState>(() => typeof window === "undefined" ? { estimates: [], activeEstimateId: null } : loadWorkspace());
   const [estimateOpen, setEstimateOpen] = useState(false);
+  const systemStatus = useSystemStatus();
+
+  const activeEstimate = useMemo(
+    () => workspace.estimates.find((estimate) => estimate.id === workspace.activeEstimateId) ?? null,
+    [workspace]
+  );
 
   useEffect(() => {
-    if (!estimate) return;
-    window.localStorage.setItem(storageKey, JSON.stringify(estimate));
-  }, [estimate]);
+    window.localStorage.setItem(workspaceKey, JSON.stringify(workspace));
+    window.localStorage.removeItem(legacyEstimateKey);
+  }, [workspace]);
 
   const handleEstimateReady = useCallback((incoming: Estimate) => {
-    setEstimate(incoming);
+    setWorkspace((current) => {
+      const index = current.estimates.findIndex((estimate) => estimate.id === incoming.id);
+      const estimates = index < 0
+        ? [incoming, ...current.estimates]
+        : current.estimates.map((estimate, itemIndex) => itemIndex === index ? incoming : estimate);
+      return { estimates, activeEstimateId: incoming.id };
+    });
     setEstimateOpen(true);
   }, []);
 
-  const openEstimate = useCallback(() => {
-    setEstimate((current) => current ?? demoEstimate);
-    setEstimateOpen(true);
+  const updateActiveEstimate = useCallback((incoming: Estimate) => {
+    setWorkspace((current) => ({
+      ...current,
+      estimates: current.estimates.map((estimate) => estimate.id === incoming.id ? incoming : estimate),
+      activeEstimateId: incoming.id
+    }));
   }, []);
+
+  const openEstimate = useCallback((id?: string) => {
+    const targetId = id || workspace.activeEstimateId;
+    if (!targetId || !workspace.estimates.some((estimate) => estimate.id === targetId)) return;
+    setWorkspace((current) => ({ ...current, activeEstimateId: targetId }));
+    setEstimateOpen(true);
+  }, [workspace.activeEstimateId, workspace.estimates]);
 
   return (
     <RuntimeProvider onEstimateReady={handleEstimateReady}>
       <div className="app-root">
         {mobile ? (
-          <MobileShell view={view} onView={setView} estimate={estimate} onOpenEstimate={openEstimate} />
+          <MobileShell
+            view={view}
+            onView={setView}
+            estimates={workspace.estimates}
+            activeEstimate={activeEstimate}
+            onOpenEstimate={openEstimate}
+          />
         ) : (
-          <DesktopShell view={view} onView={setView} estimate={estimate} onOpenEstimate={openEstimate} />
+          <DesktopShell
+            view={view}
+            onView={setView}
+            estimates={workspace.estimates}
+            activeEstimate={activeEstimate}
+            onOpenEstimate={openEstimate}
+            activeAgentName={systemStatus?.activeAgent?.name || null}
+          />
         )}
 
-        {estimateOpen && estimate ? (
+        {estimateOpen && activeEstimate ? (
           <EstimateEditor
             mobile={mobile}
-            estimate={estimate}
-            onChange={setEstimate}
+            estimate={activeEstimate}
+            onChange={updateActiveEstimate}
             onClose={() => setEstimateOpen(false)}
           />
         ) : null}
@@ -104,11 +175,12 @@ export function App() {
 type ShellProps = {
   view: AppView;
   onView: (view: AppView) => void;
-  estimate: Estimate | null;
-  onOpenEstimate: () => void;
+  estimates: Estimate[];
+  activeEstimate: Estimate | null;
+  onOpenEstimate: (id?: string) => void;
 };
 
-function DesktopShell({ view, onView, estimate, onOpenEstimate }: ShellProps) {
+function DesktopShell({ view, onView, estimates, activeEstimate, onOpenEstimate, activeAgentName }: ShellProps & { activeAgentName: string | null }) {
   const navigation = useMemo(() => [
     { id: "chat" as const, label: "Чаты", icon: <MessageSquareTextIcon /> },
     { id: "projects" as const, label: "Объекты", icon: <FolderKanbanIcon /> },
@@ -136,21 +208,19 @@ function DesktopShell({ view, onView, estimate, onOpenEstimate }: ShellProps) {
         </nav>
 
         <div className="sidebar-history">
-          <header><span>Недавние</span><button type="button">Все</button></header>
-          <button type="button" className="history-item active">
-            <span className="history-icon"><MessageSquareTextIcon /></span>
-            <span><strong>Штукатурка квартиры</strong><small>Казань · сегодня</small></span>
-          </button>
-          <button type="button" className="history-item">
-            <span className="history-icon"><MessageSquareTextIcon /></span>
-            <span><strong>Отопление дома</strong><small>Альметьевск · вчера</small></span>
-          </button>
+          <header><span>Сметы</span><button type="button" onClick={() => onView("estimates")}>Все</button></header>
+          {estimates.length ? estimates.slice(0, 5).map((estimate) => (
+            <button type="button" key={estimate.id} className={activeEstimate?.id === estimate.id ? "history-item active" : "history-item"} onClick={() => onOpenEstimate(estimate.id)}>
+              <span className="history-icon"><FileSpreadsheetIcon /></span>
+              <span><strong>{estimate.title}</strong><small>{estimate.region || "Регион не указан"}</small></span>
+            </button>
+          )) : <p className="sidebar-empty">Сохранённых смет пока нет</p>}
         </div>
 
         <div className="sidebar-footer">
           <button type="button" className={view === "account" ? "profile-button active" : "profile-button"} onClick={() => onView("account")}>
             <span className="profile-avatar-small"><CircleUserRoundIcon /></span>
-            <span><strong>Владислав</strong><small>Founder</small></span>
+            <span><strong>Кабинет</strong><small>Профиль и организация</small></span>
           </button>
           <button type="button" className={view === "settings" ? "sidebar-settings active" : "sidebar-settings"} onClick={() => onView("settings")} aria-label="Настройки"><Settings2Icon /></button>
         </div>
@@ -160,14 +230,12 @@ function DesktopShell({ view, onView, estimate, onOpenEstimate }: ShellProps) {
         <header className="desktop-topbar">
           <div><strong>{viewMeta[view].title}</strong><span>{viewMeta[view].subtitle}</span></div>
           <div className="topbar-actions">
-            <label className="topbar-search"><SearchIcon /><input id="global-search" name="global-search" placeholder="Поиск" /></label>
-            <button type="button" className="agent-button"><BotIcon /><span>Codex</span></button>
-            <button type="button" className="icon-button" aria-label="Рабочий контекст"><PanelRightIcon /></button>
+            <button type="button" className="agent-button" onClick={() => onView("settings")}><BotIcon /><span>{activeAgentName || "Агент не подключён"}</span></button>
           </div>
         </header>
 
         <div className="desktop-content">
-          <Workspace view={view} mobile={false} estimate={estimate} onOpenEstimate={onOpenEstimate} />
+          <Workspace view={view} mobile={false} estimates={estimates} activeEstimate={activeEstimate} onView={onView} onOpenEstimate={onOpenEstimate} />
         </div>
       </main>
     </div>
@@ -179,12 +247,12 @@ const mobileNavigation = [
   { id: "projects" as const, label: "Объекты", description: "Проекты и рабочие контексты", icon: <FolderKanbanIcon /> },
   { id: "estimates" as const, label: "Сметы", description: "Версии и утверждённые расчёты", icon: <FileSpreadsheetIcon /> },
   { id: "documents" as const, label: "Документы", description: "КП, договоры, акты и счета", icon: <FileTextIcon /> },
-  { id: "catalog" as const, label: "Каталог цен", description: "Личные и региональные цены", icon: <TagIcon /> },
+  { id: "catalog" as const, label: "Каталог цен", description: "Цены из сохранённых смет", icon: <TagIcon /> },
   { id: "account" as const, label: "Профиль", description: "Кабинет и организация", icon: <CircleUserRoundIcon /> },
   { id: "settings" as const, label: "Настройки", description: "Агенты, данные и безопасность", icon: <Settings2Icon /> }
 ];
 
-function MobileShell({ view, onView, estimate, onOpenEstimate }: ShellProps) {
+function MobileShell({ view, onView, estimates, activeEstimate, onOpenEstimate }: ShellProps) {
   const [menuOpen, setMenuOpen] = useState(false);
 
   const navigate = (nextView: AppView) => {
@@ -211,7 +279,7 @@ function MobileShell({ view, onView, estimate, onOpenEstimate }: ShellProps) {
       </header>
 
       <main className="mobile-main">
-        <Workspace view={view} mobile estimate={estimate} onOpenEstimate={onOpenEstimate} />
+        <Workspace view={view} mobile estimates={estimates} activeEstimate={activeEstimate} onView={onView} onOpenEstimate={onOpenEstimate} />
       </main>
 
       {menuOpen ? (
@@ -238,11 +306,25 @@ function MobileShell({ view, onView, estimate, onOpenEstimate }: ShellProps) {
   );
 }
 
-function Workspace({ view, mobile, estimate, onOpenEstimate }: { view: AppView; mobile: boolean; estimate: Estimate | null; onOpenEstimate: () => void }) {
-  if (view === "chat") return <ChatSurface mobile={mobile} hasEstimate={Boolean(estimate)} onOpenEstimate={onOpenEstimate} />;
+function Workspace({
+  view,
+  mobile,
+  estimates,
+  activeEstimate,
+  onView,
+  onOpenEstimate
+}: {
+  view: AppView;
+  mobile: boolean;
+  estimates: Estimate[];
+  activeEstimate: Estimate | null;
+  onView: (view: AppView) => void;
+  onOpenEstimate: (id?: string) => void;
+}) {
+  if (view === "chat") return <ChatSurface mobile={mobile} hasEstimate={Boolean(activeEstimate)} onOpenEstimate={() => onOpenEstimate(activeEstimate?.id)} />;
   if (view === "account") return <AccountView mobile={mobile} />;
   if (view === "settings") return <SettingsView mobile={mobile} />;
-  return <LibraryView view={view} mobile={mobile} onOpenEstimate={onOpenEstimate} />;
+  return <LibraryView view={view} mobile={mobile} estimates={estimates} onCreate={() => onView("chat")} onOpenEstimate={onOpenEstimate} />;
 }
 
 function NavButton({ active, label, icon, onClick }: { active: boolean; label: string; icon: React.ReactNode; onClick: () => void }) {
