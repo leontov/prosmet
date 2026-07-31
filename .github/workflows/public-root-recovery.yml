@@ -17,46 +17,164 @@ concurrency:
 
 jobs:
   recover:
-    name: Reconcile the live Caddy root route
+    name: Rebuild the local release and reconcile the live edge
     if: >-
       github.event_name != 'pull_request' ||
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 20
+    timeout-minutes: 35
+    env:
+      CI: "1"
     steps:
       - name: Verify trusted Primary runner
         run: test "${{ runner.name }}" = "prosmet-primary"
 
-      - uses: actions/checkout@v4
+      - name: Checkout the hotfix source
+        uses: actions/checkout@v4
         with:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 1
+          fetch-depth: 0
 
-      - name: Prove the local application serves both root and health
+      - name: Preserve the recovery script and select exact main
         run: |
           set -Eeuo pipefail
-          LOCAL_ROOT_STATUS="$(curl --silent --show-error \
-            --output local-root-before.html \
-            --dump-header local-root-before-headers.txt \
-            --write-out '%{http_code}' \
-            http://127.0.0.1:3200/ || true)"
-          test "$LOCAL_ROOT_STATUS" = "200"
-          grep -Fq '<div id="root"></div>' local-root-before.html
+          cp deployment/ensure-public-edge.sh "$RUNNER_TEMP/prosmet-ensure-public-edge.sh"
+          chmod 0755 "$RUNNER_TEMP/prosmet-ensure-public-edge.sh"
 
-          LOCAL_HEALTH_STATUS="$(curl --silent --show-error \
-            --output local-health-before.json \
-            --dump-header local-health-before-headers.txt \
-            --write-out '%{http_code}' \
-            http://127.0.0.1:3200/api/health || true)"
-          test "$LOCAL_HEALTH_STATUS" = "200"
-          grep -q '"ok":true' local-health-before.json
-          grep -q '"ui":"greenfield"' local-health-before.json
+          git fetch --no-tags origin main
+          RELEASE_SHA="$(git rev-parse origin/main)"
+          test -n "$RELEASE_SHA"
+          printf 'RELEASE_SHA=%s\n' "$RELEASE_SHA" >> "$GITHUB_ENV"
+          printf 'RELEASE_INSTANCE=%s\n' "$HOME/.prosmet-greenfield/releases/${RELEASE_SHA}-${GITHUB_RUN_ID}" >> "$GITHUB_ENV"
+          printf 'CONFIG_ROOT=%s\n' "$HOME/.prosmet-greenfield/config" >> "$GITHUB_ENV"
+
+      - name: Capture the broken runtime before repair
+        continue-on-error: true
+        run: |
+          set +e
+          mkdir -p diagnostics-before
+          PID_FILE="$HOME/.prosmet-greenfield/production.pid"
+          if [[ -s "$PID_FILE" ]]; then
+            PID="$(cat "$PID_FILE")"
+            printf '%s\n' "$PID" > diagnostics-before/pid.txt
+            ps -o pid=,ppid=,etime=,cmd= -p "$PID" > diagnostics-before/process.txt 2>&1
+            readlink -f "/proc/$PID/cwd" > diagnostics-before/cwd.txt 2>&1
+            tr '\0' ' ' < "/proc/$PID/cmdline" > diagnostics-before/cmdline.txt 2>/dev/null
+            CWD="$(readlink -f "/proc/$PID/cwd" 2>/dev/null || true)"
+            if [[ -n "$CWD" && -d "$CWD" ]]; then
+              find "$CWD" -maxdepth 3 -printf '%y %p %s bytes\n' | sort > diagnostics-before/release-tree.txt 2>&1
+              cat "$CWD/SHA" > diagnostics-before/release-sha.txt 2>&1
+              cat "$CWD/release.json" > diagnostics-before/release-json.txt 2>&1
+            fi
+          fi
+          curl --silent --show-error \
+            --output diagnostics-before/local-root.html \
+            --dump-header diagnostics-before/local-root-headers.txt \
+            --write-out '%{http_code}\n' \
+            http://127.0.0.1:3200/ > diagnostics-before/local-root-status.txt 2>&1
+          curl --silent --show-error \
+            --output diagnostics-before/local-health.json \
+            --dump-header diagnostics-before/local-health-headers.txt \
+            --write-out '%{http_code}\n' \
+            http://127.0.0.1:3200/api/health > diagnostics-before/local-health-status.txt 2>&1
+          cp "$HOME/.prosmet-greenfield/production.log" diagnostics-before/production.log 2>/dev/null || true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+
+      - name: Build the exact current main release
+        run: |
+          set -Eeuo pipefail
+          git checkout --force "$RELEASE_SHA"
+          git clean -ffdx
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+          npm install --workspaces --include-workspace-root --legacy-peer-deps --no-audit --no-fund
+          npm run typecheck
+          npm run build
+          test -s apps/web/dist/index.html
+          grep -Fq '<div id="root"></div>' apps/web/dist/index.html
+
+      - name: Install an immutable release instance
+        run: |
+          set -Eeuo pipefail
+          rm -rf "$RELEASE_INSTANCE"
+          mkdir -p "$RELEASE_INSTANCE"
+          cp -a apps/web/dist "$RELEASE_INSTANCE/dist"
+          cp apps/web/server.mjs "$RELEASE_INSTANCE/server.mjs"
+          cp "$RUNNER_TEMP/prosmet-ensure-public-edge.sh" "$RELEASE_INSTANCE/ensure-public-edge.sh"
+          chmod 0755 "$RELEASE_INSTANCE/ensure-public-edge.sh"
+          printf '%s\n' "$RELEASE_SHA" > "$RELEASE_INSTANCE/SHA"
+          cat > "$RELEASE_INSTANCE/release.json" <<EOF
+          {"releaseSha":"$RELEASE_SHA","repository":"${{ github.repository }}","runId":"${{ github.run_id }}","recovery":true,"immutableInstance":true}
+          EOF
+          test -s "$RELEASE_INSTANCE/dist/index.html"
+
+      - name: Atomically switch the persistent application process
+        run: |
+          set -Eeuo pipefail
+          if command -v fuser >/dev/null 2>&1; then fuser -k 3200/tcp || true; fi
+          if command -v lsof >/dev/null 2>&1; then
+            PIDS="$(lsof -tiTCP:3200 -sTCP:LISTEN || true)"
+            if [[ -n "$PIDS" ]]; then kill $PIDS || true; fi
+          fi
+          sleep 1
+          mkdir -p "$HOME/.prosmet-greenfield" "$CONFIG_ROOT"
+          chmod 700 "$HOME/.prosmet-greenfield" "$CONFIG_ROOT"
+          cd "$RELEASE_INSTANCE"
+
+          nohup env -u RUNNER_TRACKING_ID \
+            PORT=3200 \
+            PROSMET_RELEASE_SHA="$RELEASE_SHA" \
+            PROSMET_CONFIG_DIR="$CONFIG_ROOT" \
+            PROSMET_PUBLIC_AGENT_ACCESS=true \
+            node server.mjs \
+            </dev/null > "$HOME/.prosmet-greenfield/production.log" 2>&1 &
+          PID=$!
+          disown "$PID" 2>/dev/null || true
+          printf '%s\n' "$PID" > "$HOME/.prosmet-greenfield/production.pid"
+
+          sleep 1
+          kill -0 "$PID"
+          if tr '\0' '\n' < "/proc/$PID/environ" | grep -q '^RUNNER_TRACKING_ID='; then
+            echo "Recovered production process still contains RUNNER_TRACKING_ID" >&2
+            exit 1
+          fi
+
+          ln -sfn "$RELEASE_INSTANCE" "$HOME/.prosmet-greenfield/current.next"
+          mv -Tf "$HOME/.prosmet-greenfield/current.next" "$HOME/.prosmet-greenfield/current"
+
+      - name: Prove the repaired local application root and health
+        run: |
+          set -Eeuo pipefail
+          for attempt in $(seq 1 60); do
+            ROOT_STATUS="$(curl --silent --show-error \
+              --output local-root-after.html \
+              --dump-header local-root-after-headers.txt \
+              --write-out '%{http_code}' \
+              http://127.0.0.1:3200/ || true)"
+            HEALTH_STATUS="$(curl --silent --show-error \
+              --output local-health-after.json \
+              --dump-header local-health-after-headers.txt \
+              --write-out '%{http_code}' \
+              http://127.0.0.1:3200/api/health || true)"
+            if [[ "$ROOT_STATUS" == "200" && "$HEALTH_STATUS" == "200" ]] \
+              && grep -Fq '<div id="root"></div>' local-root-after.html \
+              && grep -q '"ok":true' local-health-after.json \
+              && grep -q '"ui":"greenfield"' local-health-after.json \
+              && grep -q "$RELEASE_SHA" local-health-after.json; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat "$HOME/.prosmet-greenfield/production.log" || true
+          exit 1
 
       - name: Replace the drifting edge with one all-routes reverse proxy
         run: |
           set -Eeuo pipefail
-          PROSMET_EXPECTED_RELEASE_SHA="" \
-            bash deployment/ensure-public-edge.sh kolibriai.online 3200
+          PROSMET_EXPECTED_RELEASE_SHA="$RELEASE_SHA" \
+            bash "$RELEASE_INSTANCE/ensure-public-edge.sh" kolibriai.online 3200
           cp "$HOME/.prosmet/caddy/status.json" edge-status.json
           cp "$HOME/.prosmet/caddy/Caddyfile" edge-Caddyfile
           cp "$HOME/.prosmet/caddy/public-root-body.html" public-root-after.html
@@ -64,10 +182,15 @@ jobs:
           cp "$HOME/.prosmet/caddy/public-health-body.txt" public-health-after.json
           cp "$HOME/.prosmet/caddy/public-health-headers.txt" public-health-after-headers.txt
 
-      - name: Verify persistence after the reload
+      - name: Verify persistence after application and edge replacement
         run: |
           set -Eeuo pipefail
-          sleep 12
+          sleep 15
+          PID="$(cat "$HOME/.prosmet-greenfield/production.pid")"
+          kill -0 "$PID"
+          test "$(readlink -f "/proc/$PID/cwd")" = "$RELEASE_INSTANCE"
+          test -s "$RELEASE_INSTANCE/dist/index.html"
+
           ROOT_STATUS="$(curl --silent --show-error \
             --output public-root-delayed.html \
             --dump-header public-root-delayed-headers.txt \
@@ -85,6 +208,7 @@ jobs:
           test "$HEALTH_STATUS" = "200"
           grep -q '"ok":true' public-health-delayed.json
           grep -q '"ui":"greenfield"' public-health-delayed.json
+          grep -q "$RELEASE_SHA" public-health-delayed.json
 
       - name: Upload Primary recovery evidence
         if: always()
@@ -92,10 +216,11 @@ jobs:
         with:
           name: prosmet-public-root-primary-${{ github.run_id }}
           path: |
-            local-root-before.html
-            local-root-before-headers.txt
-            local-health-before.json
-            local-health-before-headers.txt
+            diagnostics-before
+            local-root-after.html
+            local-root-after-headers.txt
+            local-health-after.json
+            local-health-after-headers.txt
             edge-status.json
             edge-Caddyfile
             public-root-after.html
@@ -113,8 +238,17 @@ jobs:
     name: Verify root and health from outside Primary
     needs: recover
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    env:
+      RELEASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
     steps:
+      - name: Resolve the exact main SHA
+        run: |
+          set -Eeuo pipefail
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            printf 'RELEASE_SHA=%s\n' "${{ github.event.pull_request.base.sha }}" >> "$GITHUB_ENV"
+          fi
+
       - name: Check every resolved public IPv4 address
         run: |
           set -Eeuo pipefail
@@ -133,6 +267,7 @@ jobs:
               https://kolibriai.online/ || true)"
             test "$ROOT_STATUS" = "200"
             grep -Fq '<div id="root"></div>' "external-root-${safe}.html"
+            grep -Eqi '^strict-transport-security:.*max-age=31536000' "external-root-${safe}-headers.txt"
 
             HEALTH_STATUS="$(curl --silent --show-error \
               --retry 8 --retry-delay 3 --retry-all-errors \
@@ -144,12 +279,13 @@ jobs:
             test "$HEALTH_STATUS" = "200"
             grep -q '"ok":true' "external-health-${safe}.json"
             grep -q '"ui":"greenfield"' "external-health-${safe}.json"
+            grep -q "$RELEASE_SHA" "external-health-${safe}.json"
           done
 
       - name: Delayed public-origin probe
         run: |
           set -Eeuo pipefail
-          sleep 20
+          sleep 25
           curl --fail --silent --show-error \
             --retry 6 --retry-delay 3 --retry-all-errors \
             https://kolibriai.online/ > external-root-delayed.html
@@ -159,6 +295,10 @@ jobs:
             https://kolibriai.online/api/health > external-health-delayed.json
           grep -q '"ok":true' external-health-delayed.json
           grep -q '"ui":"greenfield"' external-health-delayed.json
+          grep -q "$RELEASE_SHA" external-health-delayed.json
+          cat > public-root-recovery.json <<EOF
+          {"status":"PASS","releaseSha":"$RELEASE_SHA","origin":"https://kolibriai.online","rootHttp200":true,"rootMarker":true,"healthHttp200":true,"allResolvedIpv4":true,"delayedProbe":true,"runId":"${{ github.run_id }}"}
+          EOF
 
       - name: Upload external evidence
         if: always()
@@ -171,5 +311,6 @@ jobs:
             external-root-*-headers.txt
             external-health-*.json
             external-health-*-headers.txt
+            public-root-recovery.json
           if-no-files-found: warn
           retention-days: 30
