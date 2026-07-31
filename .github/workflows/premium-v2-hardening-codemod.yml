@@ -1,0 +1,338 @@
+name: Apply Premium V2 CSP and form hardening
+
+on:
+  push:
+    branches: [feature/premium-ui-v2-from-scratch]
+    paths:
+      - ".github/workflows/premium-v2-hardening-codemod.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  codemod:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/premium-ui-v2-from-scratch
+          fetch-depth: 0
+      - name: Apply deterministic hardening edits
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python <<'PY'
+          from pathlib import Path
+          import json
+
+          root = Path('.')
+
+          def read(path: str) -> str:
+              return (root / path).read_text(encoding='utf-8')
+
+          def write(path: str, value: str) -> None:
+              (root / path).write_text(value, encoding='utf-8')
+
+          def replace(path: str, old: str, new: str, expected: int = 1) -> None:
+              source = read(path)
+              count = source.count(old)
+              if count != expected:
+                  raise SystemExit(f'{path}: expected {expected} occurrences, found {count}: {old[:100]!r}')
+              write(path, source.replace(old, new))
+
+          # Keep the central source contract aligned with the V2 implementation.
+          replace('scripts/source-contract-v2.mjs', "  'label=\"Чаты\"',", "  'label: \"Чаты\"',")
+          replace('scripts/source-contract-v2.mjs', '  "premium shell keeps the customer surface quiet",', '  "premium V2 shell is a distinct desktop and mobile product",')
+          replace('scripts/source-contract-v2.mjs', '  "premium estimate opens as a clean adaptive document workflow",', '  "premium V2 estimate uses document workspace on desktop and large cards on mobile",')
+          replace('scripts/source-contract-v2.mjs', '  "components/app/premium-prosmet-application.tsx",\n', '  "components/app/premium-prosmet-application.tsx",\n  "components/app/form-field-identity-guard.tsx",\n')
+          replace('scripts/source-contract-v2.mjs', '  "e2e/premium-ui.spec.ts",\n', '  "e2e/premium-ui.spec.ts",\n  "scripts/csp-bundle-contract.mjs",\n')
+          replace('scripts/source-contract-v2.mjs', '  "PremiumEstimateWorkspaceEditor",\n', '  "PremiumEstimateWorkspaceEditor",\n  "FormFieldIdentityGuard",\n')
+          anchor = 'const playwright = await read("playwright.config.ts");\n'
+          security_contract = '''const cspBundleContract = await read("scripts/csp-bundle-contract.mjs");
+          for (const token of ["new Function", "securitypolicyviolation", "setTimeout", "setInterval", ".next/static/chunks"]) {
+            need(cspBundleContract, token, "csp-bundle-contract");
+          }
+
+          const formGuard = await read("components/app/form-field-identity-guard.tsx");
+          for (const token of ["useLayoutEffect", "MutationObserver", "input, textarea, select", "field.name = field.id"]) {
+            need(formGuard, token, "form-field-identity");
+          }
+
+          '''
+          source_contract = read('scripts/source-contract-v2.mjs')
+          if anchor not in source_contract:
+              raise SystemExit('scripts/source-contract-v2.mjs: playwright anchor missing')
+          write('scripts/source-contract-v2.mjs', source_contract.replace(anchor, security_contract + anchor, 1))
+
+          # Direct identities for first-party fields in the V2 shell.
+          replace(
+              'components/app/premium-chat-workspace.tsx',
+              '<input value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Поиск по чатам" placeholder="Найти чат" />',
+              '<input id="prosmet-chat-search" name="prosmet-chat-search" value={query} onChange={(event) => setQuery(event.target.value)} aria-label="Поиск по чатам" placeholder="Найти чат" />'
+          )
+          replace(
+              'components/app/premium-chat-workspace.tsx',
+              '<input autoFocus value={renameValue} onChange={(event) => setRenameValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void saveRename(); }} aria-label="Новое название чата" className="prosmet-v2-dialog-input" />',
+              '<input id="prosmet-chat-rename" name="prosmet-chat-rename" autoFocus value={renameValue} onChange={(event) => setRenameValue(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void saveRename(); }} aria-label="Новое название чата" className="prosmet-v2-dialog-input" />'
+          )
+
+          replace(
+              'components/chat/premium-prosmet-thread.tsx',
+              '<ComposerPrimitive.Input className="prosmet-v2-edit-input" autoFocus />',
+              '<ComposerPrimitive.Input id="prosmet-edit-message" name="prosmet-edit-message" className="prosmet-v2-edit-input" autoFocus />'
+          )
+          replace(
+              'components/chat/premium-prosmet-thread.tsx',
+              '          placeholder="Опишите объект и работы"\n          aria-label="Сообщение Просметчику"',
+              '          id="prosmet-message"\n          name="prosmet-message"\n          placeholder="Опишите объект и работы"\n          aria-label="Сообщение Просметчику"'
+          )
+
+          # Direct identities for the estimate document/editor.
+          replace(
+              'components/app/premium-estimate-workspace-editor.tsx',
+              'import { useMemo, useState, type ReactNode } from "react";',
+              'import { useId, useMemo, useState, type ReactNode } from "react";'
+          )
+          replacements = [
+              ('<textarea aria-label="Название сметы" ', '<textarea id="estimate-title" name="estimate-title" aria-label="Название сметы" '),
+              ('<textarea aria-label={`Название раздела ${section.title}`} ', '<textarea id={`estimate-section-${section.id}`} name={`estimate-section-${section.id}`} aria-label={`Название раздела ${section.title}`} '),
+              ('<input aria-label={`Наименование позиции ${position}`} ', '<input id={`estimate-item-name-${item.id}`} name={`estimate-item-name-${item.id}`} aria-label={`Наименование позиции ${position}`} '),
+              ('<input aria-label={`Единица позиции ${position}`} ', '<input id={`estimate-item-unit-${item.id}`} name={`estimate-item-unit-${item.id}`} aria-label={`Единица позиции ${position}`} '),
+              ('<input aria-label={`Количество позиции ${position}`} ', '<input id={`estimate-item-quantity-${item.id}`} name={`estimate-item-quantity-${item.id}`} aria-label={`Количество позиции ${position}`} '),
+              ('<input aria-label={`Цена позиции ${position}`} ', '<input id={`estimate-item-price-${item.id}`} name={`estimate-item-price-${item.id}`} aria-label={`Цена позиции ${position}`} '),
+              ('<Field label="Наименование" wide><input className="prosmet-v2-input" ', '<Field label="Наименование" wide><input id={`estimate-sheet-name-${item.id}`} name={`estimate-sheet-name-${item.id}`} className="prosmet-v2-input" '),
+              ('<Field label="Количество"><input className="prosmet-v2-input" ', '<Field label="Количество"><input id={`estimate-sheet-quantity-${item.id}`} name={`estimate-sheet-quantity-${item.id}`} className="prosmet-v2-input" '),
+              ('<Field label="Единица"><input className="prosmet-v2-input" ', '<Field label="Единица"><input id={`estimate-sheet-unit-${item.id}`} name={`estimate-sheet-unit-${item.id}`} className="prosmet-v2-input" '),
+              ('<Field label="Цена"><input className="prosmet-v2-input" ', '<Field label="Цена"><input id={`estimate-sheet-price-${item.id}`} name={`estimate-sheet-price-${item.id}`} className="prosmet-v2-input" '),
+              ('<Field label="Тип ресурса"><select className="prosmet-v2-input" ', '<Field label="Тип ресурса"><select id={`estimate-sheet-resource-${item.id}`} name={`estimate-sheet-resource-${item.id}`} className="prosmet-v2-input" '),
+              ('<Field label="Код нормы"><input className="prosmet-v2-input" ', '<Field label="Код нормы"><input id={`estimate-sheet-code-${item.id}`} name={`estimate-sheet-code-${item.id}`} className="prosmet-v2-input" '),
+              ('<Field label="Комментарий" wide><textarea className="prosmet-v2-input" ', '<Field label="Комментарий" wide><textarea id={`estimate-sheet-comment-${item.id}`} name={`estimate-sheet-comment-${item.id}`} className="prosmet-v2-input" '),
+          ]
+          editor = read('components/app/premium-estimate-workspace-editor.tsx')
+          for old, new in replacements:
+              count = editor.count(old)
+              if count != 1:
+                  raise SystemExit(f'premium-estimate-workspace-editor.tsx: expected one occurrence, found {count}: {old!r}')
+              editor = editor.replace(old, new, 1)
+          meta_old = 'function MetaField({ icon, label, value, editable, type = "text", onChange }: { icon: ReactNode; label: string; value: string; editable: boolean; type?: string; onChange: (value: string) => void }) {\n  return ('
+          meta_new = 'function MetaField({ icon, label, value, editable, type = "text", onChange }: { icon: ReactNode; label: string; value: string; editable: boolean; type?: string; onChange: (value: string) => void }) {\n  const fieldId = useId();\n  return ('
+          if meta_old not in editor:
+              raise SystemExit('MetaField anchor missing')
+          editor = editor.replace(meta_old, meta_new, 1)
+          editor = editor.replace('<input aria-label={label} type={type} value={value}', '<input id={fieldId} name={`estimate-meta-${label.toLocaleLowerCase("ru-RU")}`} aria-label={label} type={type} value={value}', 1)
+          percent_old = 'function PercentField({ label, value, amount, currency, editable, onChange }: { label: string; value: number; amount: number; currency: string; editable: boolean; onChange: (value: number) => void }) {\n  return ('
+          percent_new = 'function PercentField({ label, value, amount, currency, editable, onChange }: { label: string; value: number; amount: number; currency: string; editable: boolean; onChange: (value: number) => void }) {\n  const fieldId = useId();\n  return ('
+          if percent_old not in editor:
+              raise SystemExit('PercentField anchor missing')
+          editor = editor.replace(percent_old, percent_new, 1)
+          editor = editor.replace('<input aria-label={`${label}, процентов`} inputMode="decimal"', '<input id={fieldId} name={`estimate-percent-${label.toLocaleLowerCase("ru-RU")}`} aria-label={`${label}, процентов`} inputMode="decimal"', 1)
+          write('components/app/premium-estimate-workspace-editor.tsx', editor)
+
+          # Fallback for fields created inside third-party primitives or legacy secondary views.
+          write('components/app/form-field-identity-guard.tsx', '''"use client";
+
+import { useLayoutEffect } from "react";
+
+let sequence = 0;
+
+function slug(value: string) {
+  return value
+    .toLocaleLowerCase("ru-RU")
+    .replace(/[^a-zа-яё0-9]+/giu, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48) || "field";
+}
+
+function ensureFieldIdentity(root: ParentNode) {
+  const fields = root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(
+    "input, textarea, select"
+  );
+
+  for (const field of fields) {
+    const hint =
+      field.getAttribute("aria-label") ||
+      field.getAttribute("placeholder") ||
+      field.getAttribute("type") ||
+      field.tagName.toLocaleLowerCase("en-US");
+    const identity = field.id || field.name || `prosmet-${slug(hint)}-${++sequence}`;
+    if (!field.id) field.id = identity;
+    if (!field.name) field.name = field.id;
+  }
+}
+
+export function FormFieldIdentityGuard() {
+  useLayoutEffect(() => {
+    ensureFieldIdentity(document);
+    const observer = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.addedNodes) {
+          if (!(node instanceof Element)) continue;
+          if (node.matches("input, textarea, select")) ensureFieldIdentity(node.parentNode ?? document);
+          else ensureFieldIdentity(node);
+        }
+      }
+    });
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
+
+  return null;
+}
+''')
+
+          replace(
+              'components/app/premium-prosmet-application.tsx',
+              'import { PremiumChatWorkspace } from "@/components/app/premium-chat-workspace";\n',
+              'import { PremiumChatWorkspace } from "@/components/app/premium-chat-workspace";\nimport { FormFieldIdentityGuard } from "@/components/app/form-field-identity-guard";\n'
+          )
+          replace(
+              'components/app/premium-prosmet-application.tsx',
+              '    <>\n      <PremiumChatWorkspace />',
+              '    <>\n      <FormFieldIdentityGuard />\n      <PremiumChatWorkspace />'
+          )
+
+          # Reject production JavaScript that requires string evaluation.
+          write('scripts/csp-bundle-contract.mjs', '''import { readdir, readFile } from "node:fs/promises";
+import { join, relative, resolve } from "node:path";
+
+const root = resolve(process.cwd(), ".next/static/chunks");
+const offenders = [];
+const patterns = [
+  { label: "eval", regex: /(^|[^.$\w])eval\s*\(/g },
+  { label: "new Function", regex: /\bnew\s+Function\s*\(/g },
+  { label: "string setTimeout", regex: /\bsetTimeout\s*\(\s*["'`]/g },
+  { label: "string setInterval", regex: /\bsetInterval\s*\(\s*["'`]/g }
+];
+
+async function walk(directory) {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) await walk(path);
+    else if (entry.isFile() && path.endsWith(".js")) {
+      const source = await readFile(path, "utf8");
+      for (const pattern of patterns) {
+        pattern.regex.lastIndex = 0;
+        const match = pattern.regex.exec(source);
+        if (!match) continue;
+        const start = Math.max(0, match.index - 90);
+        const end = Math.min(source.length, match.index + 180);
+        offenders.push({
+          file: relative(process.cwd(), path),
+          pattern: pattern.label,
+          snippet: source.slice(start, end).replace(/\s+/g, " ")
+        });
+      }
+    }
+  }
+}
+
+await walk(root);
+if (offenders.length) {
+  console.error(JSON.stringify({ status: "FAIL", contract: "csp-no-string-evaluation", offenders }, null, 2));
+  process.exit(1);
+}
+
+console.log(JSON.stringify({
+  status: "PASS",
+  contract: "csp-no-string-evaluation",
+  directory: relative(process.cwd(), root),
+  securitypolicyviolation: "covered by Playwright",
+  setTimeout: "function callbacks only",
+  setInterval: "function callbacks only"
+}, null, 2));
+''')
+
+          package_path = root / 'package.json'
+          package = json.loads(package_path.read_text(encoding='utf-8'))
+          package['scripts']['build'] = 'next build && node scripts/csp-bundle-contract.mjs'
+          package_path.write_text(json.dumps(package, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+
+          # Browser acceptance for CSP events and anonymous fields.
+          e2e = read('e2e/premium-ui.spec.ts')
+          import_anchor = 'import { mkdir } from "node:fs/promises";\n\n'
+          helpers = '''type CspViolation = {
+  violatedDirective: string;
+  blockedURI: string;
+  sourceFile: string;
+  lineNumber: number;
+};
+
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    const scope = window as unknown as { __prosmetCspViolations?: CspViolation[] };
+    scope.__prosmetCspViolations = [];
+    document.addEventListener("securitypolicyviolation", (event) => {
+      scope.__prosmetCspViolations?.push({
+        violatedDirective: event.violatedDirective,
+        blockedURI: event.blockedURI,
+        sourceFile: event.sourceFile,
+        lineNumber: event.lineNumber
+      });
+    });
+  });
+});
+
+async function expectSecureInteractiveSurface(page: import("@playwright/test").Page) {
+  const violations = await page.evaluate(() =>
+    (window as unknown as { __prosmetCspViolations?: CspViolation[] }).__prosmetCspViolations ?? []
+  );
+  expect(violations).toEqual([]);
+
+  const anonymousFields = await page
+    .locator("input:not([id]), input:not([name]), textarea:not([id]), textarea:not([name]), select:not([id]), select:not([name])")
+    .evaluateAll((elements) =>
+      Array.from(new Set(elements)).map((element) => ({
+        tag: element.tagName,
+        type: element.getAttribute("type"),
+        label: element.getAttribute("aria-label"),
+        placeholder: element.getAttribute("placeholder")
+      }))
+    );
+  expect(anonymousFields).toEqual([]);
+}
+
+'''
+          if import_anchor not in e2e:
+              raise SystemExit('premium-ui.spec.ts import anchor missing')
+          e2e = e2e.replace(import_anchor, import_anchor + helpers, 1)
+          first_screenshot = '  await page.screenshot({ path: `artifacts/screenshots/premium-shell-${testInfo.project.name}.png`, fullPage: true });'
+          e2e = e2e.replace(first_screenshot, '  await expectSecureInteractiveSurface(page);\n\n' + first_screenshot, 1)
+          second_screenshot = '  await page.screenshot({ path: `artifacts/screenshots/premium-estimate-${testInfo.project.name}.png`, fullPage: true });'
+          e2e = e2e.replace(second_screenshot, '  await expectSecureInteractiveSurface(page);\n\n' + second_screenshot, 1)
+          e2e = e2e.replace('TypeError|ReferenceError|Page crashed', 'TypeError|ReferenceError|EvalError|Content Security Policy|Refused to evaluate|Page crashed')
+          write('e2e/premium-ui.spec.ts', e2e)
+
+          # Extend the dedicated V2 contract with the new security acceptance.
+          premium_contract = read('scripts/premium-ui-refactor-contract.mjs')
+          premium_contract = premium_contract.replace(
+              '  "e2e/premium-ui.spec.ts",\n',
+              '  "e2e/premium-ui.spec.ts",\n  "components/app/form-field-identity-guard.tsx",\n  "scripts/csp-bundle-contract.mjs",\n'
+          )
+          premium_contract = premium_contract.replace(
+              'for (const token of ["distinct desktop and mobile product", "height).toBeGreaterThanOrEqual(88)", "height).toBeGreaterThanOrEqual(100)", "fontSize)).toBeGreaterThanOrEqual(16)", "prosmet-v2-mobile-nav"]) need(e2e, token, "premium-v2-e2e");',
+              'for (const token of ["distinct desktop and mobile product", "height).toBeGreaterThanOrEqual(88)", "height).toBeGreaterThanOrEqual(100)", "fontSize)).toBeGreaterThanOrEqual(16)", "prosmet-v2-mobile-nav", "securitypolicyviolation", "anonymousFields"]) need(e2e, token, "premium-v2-e2e");'
+          )
+          guard_anchor = 'const e2e = await read("e2e/premium-ui.spec.ts");\n'
+          guard_contract = '''const fieldGuard = await read("components/app/form-field-identity-guard.tsx");
+          for (const token of ["useLayoutEffect", "MutationObserver", "field.name = field.id"]) need(fieldGuard, token, "form-field-identity");
+
+          const cspContract = await read("scripts/csp-bundle-contract.mjs");
+          for (const token of ["new Function", "string setTimeout", "string setInterval", ".next/static/chunks"]) need(cspContract, token, "csp-bundle-contract");
+
+          '''
+          if guard_anchor not in premium_contract:
+              raise SystemExit('premium-ui-refactor-contract.mjs e2e anchor missing')
+          premium_contract = premium_contract.replace(guard_anchor, guard_contract + guard_anchor, 1)
+          write('scripts/premium-ui-refactor-contract.mjs', premium_contract)
+
+          # Remove this one-shot workflow from the resulting branch.
+          (root / '.github/workflows/premium-v2-hardening-codemod.yml').unlink()
+          PY
+
+          git config user.name "prosmet-ui-hardening"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git diff --cached --stat
+          git commit -m "fix(ui): harden CSP and form identities"
+          git push origin HEAD:feature/premium-ui-v2-from-scratch
