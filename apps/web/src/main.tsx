@@ -1,9 +1,10 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { App } from "./app/App";
+import { ReferenceApp } from "./app/ReferenceApp";
 import "./styles.css";
 import "./mobile-overrides.css";
 import "./mobile-navigation.css";
+import "./mobile-chat-reference.css";
 import "./agent-integrations.css";
 import "./workspace-real.css";
 
@@ -12,6 +13,6 @@ if (!root) throw new Error("Root element is missing");
 
 createRoot(root).render(
   <StrictMode>
-    <App />
+    <ReferenceApp />
   </StrictMode>
 );
