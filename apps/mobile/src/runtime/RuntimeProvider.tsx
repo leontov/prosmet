@@ -21,19 +21,30 @@ export function RuntimeProvider({ children, onEstimateReady }: Props) {
   const adapter = useMemo<ChatModelAdapter>(() => ({
     async run({ messages, abortSignal }) {
       try {
+        const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
         const response = await mobileApiFetch("/api/agent", {
           method: "POST",
-          body: JSON.stringify({ messages }),
+          body: JSON.stringify({ requestId, messages }),
           signal: abortSignal
         });
         const body = await response.json().catch(() => null);
         if (!response.ok) {
           return { content: [{ type: "text", text: errorMessage(response.status, body) }] };
         }
+
         const result = body as AgentResponse;
-        if (result.artifact === "estimate" && result.estimate) {
-          queueMicrotask(() => onEstimateReady(result.estimate as Estimate));
+        if (result.artifact?.type === "estimate") {
+          const estimateResponse = await mobileApiFetch(`/api/estimates/${encodeURIComponent(result.artifact.id)}`, {
+            method: "GET",
+            signal: abortSignal
+          });
+          const estimateBody = await estimateResponse.json().catch(() => null);
+          if (!estimateResponse.ok) {
+            return { content: [{ type: "text", text: errorMessage(estimateResponse.status, estimateBody) }] };
+          }
+          queueMicrotask(() => onEstimateReady(estimateBody as Estimate));
         }
+
         return { content: [{ type: "text", text: result.text }] };
       } catch (error) {
         if (abortSignal.aborted) throw error;
