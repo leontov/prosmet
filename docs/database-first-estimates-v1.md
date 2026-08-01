@@ -9,3 +9,5 @@ chat request → AI structured estimate → server validation → SQLite transac
 ```
 
 The browser workspace is an offline cache. The server database is the source of truth for generated and edited estimates.
+
+Clarification questions remain conversational. A completed estimate becomes a persisted artifact with agent/request lineage before the editor is opened.
