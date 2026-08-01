@@ -1,0 +1,64 @@
+name: Verify Prosmet Admin Token Once
+
+on:
+  push:
+    branches: [ops/verify-admin-token-once-20260801]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prosmet-admin-token-verify-once
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    if: >-
+      github.event_name == 'push' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 10
+    steps:
+      - name: Verify the persisted token authenticates against the live local API
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          test "${{ runner.name }}" = "prosmet-primary"
+          TOKEN_FILE="$HOME/.prosmet-greenfield/config/admin.token"
+          test -s "$TOKEN_FILE"
+
+          REQUEST_BODY="$(node --input-type=module - "$TOKEN_FILE" <<'NODE'
+          import { readFile } from 'node:fs/promises';
+          const token = (await readFile(process.argv[2], 'utf8')).trim();
+          if (token.length < 24) process.exit(2);
+          process.stdout.write(JSON.stringify({ token }));
+          NODE
+          )"
+
+          STATUS="$(curl --silent --show-error \
+            --output admin-session-response.json \
+            --dump-header admin-session-headers.txt \
+            --write-out '%{http_code}' \
+            --header 'content-type: application/json' \
+            --data "$REQUEST_BODY" \
+            http://127.0.0.1:3200/api/admin/session || true)"
+
+          unset REQUEST_BODY
+          test "$STATUS" = "200"
+          grep -q '"authenticated":true' admin-session-response.json
+          printf '{"status":"PASS","tokenSource":"persisted-server-file","liveLocalApi":true}\n' > admin-token-verification.json
+
+      - name: Upload non-secret verification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: prosmet-admin-token-verification-${{ github.run_id }}
+          path: |
+            admin-token-verification.json
+            admin-session-response.json
+            admin-session-headers.txt
+          if-no-files-found: error
+          retention-days: 1
