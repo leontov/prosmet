@@ -1,10 +1,10 @@
-# One-time workflow: materialize the feature branch, then delete itself from main.
+# One-time workflow used only to materialize the database-first feature branch.
 name: Materialize Database-First Feature Branch Once
 
 on:
-  push:
+  pull_request:
     branches: [main]
-    paths: [.github/workflows/materialize-database-first-branch.yml]
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: write
@@ -15,6 +15,9 @@ concurrency:
 
 jobs:
   materialize:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'ops/trigger-database-first-materializer'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -43,14 +46,3 @@ jobs:
           git add -A
           git commit -m "feat: make AI estimates database-first artifacts"
           git push origin HEAD:feature/database-first-estimates-v1
-
-      - name: Remove this one-time workflow from main
-        run: |
-          set -Eeuo pipefail
-          git fetch origin main
-          git checkout --force main
-          git reset --hard origin/main
-          rm -f .github/workflows/materialize-database-first-branch.yml
-          git add -A
-          git commit -m "ops: remove one-time database-first materializer"
-          git push origin main
