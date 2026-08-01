@@ -1,3 +1,4 @@
+# One-time workflow: materialize the feature branch, then delete itself from main.
 name: Materialize Database-First Feature Branch Once
 
 on:
