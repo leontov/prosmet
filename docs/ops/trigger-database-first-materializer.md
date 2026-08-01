@@ -1,1 +1,1 @@
-This same-repository PR exists only to invoke the one-time database-first feature materializer on the trusted default-branch workflow.
+This same-repository PR invokes the one-time database-first feature materializer. Retry 2 excludes workflow files from the GitHub App push; those paths are updated separately through the repository contents API.
