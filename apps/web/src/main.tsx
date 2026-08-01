@@ -5,6 +5,7 @@ import "./styles.css";
 import "./mobile-overrides.css";
 import "./mobile-navigation.css";
 import "./mobile-chat-reference.css";
+import "./mobile-reference-functional.css";
 import "./agent-integrations.css";
 import "./workspace-real.css";
 
