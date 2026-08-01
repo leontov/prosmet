@@ -41,6 +41,15 @@ jobs:
           await writeFile(path, source, 'utf8');
           NODE
           node scripts/apply-database-first-refactor.mjs
+
+          # GitHub Apps without the workflows permission cannot push workflow-file changes.
+          # Keep those paths unchanged in this generated commit; they are updated separately
+          # through the repository contents API after the product source commit lands.
+          git restore --source=HEAD -- \
+            .github/workflows/greenfield-deploy.yml \
+            .github/workflows/public-root-recovery.yml \
+            .github/workflows/apply-database-first-refactor.yml
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
