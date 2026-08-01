@@ -194,7 +194,7 @@ function MobileComposer() {
       SpeechRecognition?: SpeechRecognitionConstructor;
       webkitSpeechRecognition?: SpeechRecognitionConstructor;
     };
-    const Recognition = speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
+    const Recognition = (speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition) as unknown as SpeechRecognitionConstructor | undefined;
     if (!Recognition) {
       setVoiceError("Голосовой ввод не поддерживается этим браузером");
       inputRef.current?.focus();
@@ -202,11 +202,11 @@ function MobileComposer() {
     }
 
     recognitionRef.current?.stop();
-    const recognition = new Recognition();
+    const recognition = new Recognition() as SpeechRecognitionLike;
     recognition.lang = "ru-RU";
     recognition.continuous = false;
     recognition.interimResults = true;
-    recognition.onresult = (event) => {
+    recognition.onresult = (event: SpeechRecognitionResultEventLike) => {
       let transcript = "";
       for (let index = event.resultIndex; index < event.results.length; index += 1) {
         transcript += event.results[index]?.[0]?.transcript ?? "";
