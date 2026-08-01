@@ -49,7 +49,7 @@ async function openMobileMenu(page: Page) {
   return dialog;
 }
 
-test("greenfield shell uses real agent integration without demo fallbacks", async ({ page }, testInfo) => {
+test("greenfield shell uses real agent integration and the mobile reference layout", async ({ page }, testInfo) => {
   const violations: string[] = [];
   page.on("console", (message) => {
     if (message.type() === "error") violations.push(`console:${message.text()}`);
@@ -71,12 +71,12 @@ test("greenfield shell uses real agent integration without demo fallbacks", asyn
   if (!external) await configureFixtureAgent(page);
 
   await page.goto("/", { waitUntil: "networkidle" });
-  await expect(page.getByText("Просметчик", { exact: true })).toBeVisible();
   await expect(page.getByText("Founder", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Владислав Кочуров", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Дом в Альметьевске", { exact: true })).toHaveCount(0);
 
   if (testInfo.project.name === "desktop-chromium") {
+    await expect(page.getByText("Просметчик", { exact: true })).toBeVisible();
     await expect(page.getByTestId("desktop-shell")).toBeVisible();
     await expect(page.getByTestId("mobile-shell")).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Что нужно сделать?" })).toBeVisible();
@@ -90,8 +90,17 @@ test("greenfield shell uses real agent integration without demo fallbacks", asyn
   } else {
     await expect(page.getByTestId("mobile-shell")).toBeVisible();
     await expect(page.getByTestId("desktop-shell")).toHaveCount(0);
-    await expect(page.getByRole("heading", { name: "Новый расчёт" })).toBeVisible();
+    await expect(page.getByTestId("mobile-reference-start")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Выбрать раздел" })).toContainText("Чат");
+    await expect(page.getByRole("button", { name: "Открыть навигацию" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Голосовой режим" })).toBeVisible();
+    await expect(page.getByText("Создать изображение", { exact: true })).toBeVisible();
+    await expect(page.getByText("Напиши или отредактируй", { exact: true })).toBeVisible();
+    await expect(page.getByText("Искать в интернете", { exact: true })).toBeVisible();
+    await expect(page.locator(".mobile-reference-composer")).toBeVisible();
+    await expect(page.locator("#mobile-message")).toHaveAttribute("placeholder", "Спросить Chat...");
     await expect(page.locator(".mobile-bottom-nav")).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Новый расчёт" })).toHaveCount(0);
 
     let menu = await openMobileMenu(page);
     await menu.getByRole("button", { name: /Настройки/ }).click();
@@ -100,7 +109,7 @@ test("greenfield shell uses real agent integration without demo fallbacks", asyn
 
     menu = await openMobileMenu(page);
     await menu.getByRole("button", { name: /^Чат/ }).click();
-    await expect(page.getByRole("heading", { name: "Новый расчёт" })).toBeVisible();
+    await expect(page.getByTestId("mobile-reference-start")).toBeVisible();
   }
 
   await page.screenshot({ path: `artifacts-shell-${testInfo.project.name}.png`, fullPage: true });
@@ -110,7 +119,13 @@ test("greenfield shell uses real agent integration without demo fallbacks", asyn
     return;
   }
 
-  await page.getByRole("button", { name: /Механизированная штукатурка/ }).click();
+  if (testInfo.project.name === "desktop-chromium") {
+    await page.getByRole("button", { name: /Механизированная штукатурка/ }).click();
+  } else {
+    await page.locator("#mobile-message").fill("Рассчитай механизированную штукатурку 358 м² в Казани");
+    await page.getByRole("button", { name: "Отправить" }).click();
+  }
+
   const editor = page.getByRole("dialog", { name: "Редактор сметы" });
   await expect(editor).toBeVisible({ timeout: 30_000 });
 
