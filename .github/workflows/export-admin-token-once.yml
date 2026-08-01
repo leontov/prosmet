@@ -1,0 +1,65 @@
+name: Export Prosmet Admin Token Once
+
+on:
+  push:
+    branches: [ops/export-admin-token-once-20260801]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prosmet-admin-token-export-once
+  cancel-in-progress: false
+
+jobs:
+  export:
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 10
+    steps:
+      - name: Verify trusted Primary runner
+        run: test "${{ runner.name }}" = "prosmet-primary"
+
+      - name: Encrypt the current super-admin token without logging it
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          TOKEN_FILE="$HOME/.prosmet-greenfield/config/admin.token"
+          test -s "$TOKEN_FILE"
+          test "$(wc -c < "$TOKEN_FILE")" -ge 24
+
+          cat > prosmet-admin-token-public.pem <<'PEM'
+          -----BEGIN PUBLIC KEY-----
+          MIIBojANBgkqhkiG9w0BAQEFAAOCAY8AMIIBigKCAYEAqgL59I8jOEsiu1WFPbYc
+          IN2nY2yK+VHdcfMLmjNLUzmbjeZci0hErM6vBOT1IgIjpmF3t3ySMX2ieC7etiJ0
+          XbjNpkuo92+OOrkMytF+wUm433upQH7F/7ItPKUN97lg2lFLFkLtqydk81O4VesH
+          eFNWwOTEz3X05XAKBa7cH5gm+ohniGefUvz3FmoapP0hcvWhDUzKA8MMwfEy9uNn
+          yp4RqgodNzrg/hIE1BVM+OxBfxRyy4/Y0iUxfhO/pNiOW/uiqJzmTv75TTysXVby
+          equeu+haRKTbjeJHzdPEXC0atsQ9GTGEQffcKIzenf2PGAGXCdVYswy8fHpvrHXd
+          HlbjXeP+lIPFBJRr4USzaMClmVc3LenJ20L+R/wYflW2kfqOoxe1OoW0JfiNk+qQ
+          5ofWdgO1BzTffdqx4zN4T1csIJ3oQJHidqUTZ/BHFl1Np/MV6F/9bXa0RCUztR4p
+          ec/0zkDdcOjj5qTul1eLw4W/xgBzWd3sCQQJtPqP/4l1AgMBAAE=
+          -----END PUBLIC KEY-----
+          PEM
+
+          openssl pkeyutl -encrypt \
+            -pubin \
+            -inkey prosmet-admin-token-public.pem \
+            -in "$TOKEN_FILE" \
+            -out prosmet-admin-token.enc \
+            -pkeyopt rsa_padding_mode:oaep \
+            -pkeyopt rsa_oaep_md:sha256
+
+          sha256sum "$TOKEN_FILE" | awk '{print $1}' > prosmet-admin-token.sha256
+          chmod 600 prosmet-admin-token.enc prosmet-admin-token.sha256
+          rm -f prosmet-admin-token-public.pem
+
+      - name: Upload encrypted one-time token package
+        uses: actions/upload-artifact@v4
+        with:
+          name: prosmet-admin-token-encrypted-once-${{ github.run_id }}
+          path: |
+            prosmet-admin-token.enc
+            prosmet-admin-token.sha256
+          if-no-files-found: error
+          retention-days: 1
