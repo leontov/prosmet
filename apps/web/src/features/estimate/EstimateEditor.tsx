@@ -117,7 +117,7 @@ function DesktopEditor(props: EditorProps) {
     <div className="desktop-estimate-editor" data-testid="desktop-estimate-editor">
       <header className="estimate-topbar">
         <button type="button" className="icon-button" onClick={onClose} aria-label="Закрыть смету"><ArrowLeftIcon /></button>
-        <div className="estimate-topbar-title"><strong>{estimate.title}</strong><span>Версия {estimate.revision} · {statusLabel(estimate.status)} · сохранено локально</span></div>
+        <div className="estimate-topbar-title"><strong>{estimate.title}</strong><span>Версия {estimate.revision} · {statusLabel(estimate.status)} · сохранено в базе данных</span></div>
         <div className="estimate-topbar-actions">
           <button type="button" className="icon-button" aria-label="Печать или PDF" onClick={onPrint}><FileTextIcon /></button>
           <button type="button" className="icon-button" aria-label="Скачать Excel" onClick={onExcel}><FileSpreadsheetIcon /></button>

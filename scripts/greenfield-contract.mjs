@@ -10,6 +10,8 @@ const required = [
   ".github/workflows/public-root-recovery.yml",
   "deployment/ensure-public-edge.sh",
   "apps/web/server.mjs",
+  "apps/web/server/estimate-store.mjs",
+  "apps/web/src/features/estimate/estimate-api.ts",
   "apps/web/src/app/App.tsx",
   "apps/web/src/mobile-navigation.css",
   "apps/web/src/agent-integrations.css",
@@ -165,6 +167,9 @@ if (!server.includes('sandboxPolicy: { type: "readOnly" }')) failures.push("serv
 if (!server.includes("secretCipher")) failures.push("server:encrypted-secret-storage-missing");
 if (!server.includes("timingSafeEqual")) failures.push("server:constant-time-admin-auth-missing");
 if (server.includes("asksEstimate")) failures.push("server:legacy-fake-responder-present");
+for (const token of ["createEstimateStore", "/api/estimates", "/api/capabilities", "estimateStore.saveEstimate", 'database: "sqlite"']) {
+  if (!server.includes(token)) failures.push(`server:database-first-contract-missing:${token}`);
+}
 
 for (const token of ["createAgent", "updateAgent", "deleteAgent", "activateAgent", "testAgent", "loginAdmin"]) {
   if (!webSettings.includes(token)) failures.push(`web-settings:working-action-missing:${token}`);

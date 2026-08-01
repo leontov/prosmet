@@ -13,6 +13,7 @@ import {
 } from "node:crypto";
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
+import { createEstimateStore } from "./server/estimate-store.mjs";
 
 const root = fileURLToPath(new URL("./dist/", import.meta.url));
 const port = Number(process.env.PORT || 3200);
@@ -22,6 +23,33 @@ const registryFile = join(configRoot, "agents.json");
 const registryTempFile = join(configRoot, "agents.json.tmp");
 const keyFile = join(configRoot, "agents.key");
 const adminTokenFile = join(configRoot, "admin.token");
+const estimateDatabaseFile = process.env.PROSMET_DATABASE_PATH || join(configRoot, "prosmet.sqlite");
+const estimateStore = createEstimateStore(estimateDatabaseFile);
+const capabilityManifest = {
+  vertical: "construction-estimates-ru",
+  workflow: ["brief", "technology-card", "price-research", "estimate", "construction-documents"],
+  quickActions: [
+    {
+      id: "create-estimate",
+      title: "Составить смету",
+      prompt: "Составь строительную смету. Сначала уточни недостающие исходные данные, затем сформируй технологическую карту, исследуй актуальные цены и создай редактируемую смету.",
+      artifactType: "estimate"
+    },
+    {
+      id: "calculate-measurements",
+      title: "Рассчитать по замерам",
+      prompt: "Рассчитай объёмы работ и материалов по моим замерам, затем создай смету с ценами, источниками и итогами.",
+      artifactType: "estimate"
+    },
+    {
+      id: "prepare-documents",
+      title: "Подготовить документы",
+      prompt: "На основании сметы подготовь комплект строительных документов: коммерческое предложение, договор, акт и счёт.",
+      artifactType: "document-set"
+    }
+  ],
+  supportedArtifacts: ["estimate", "commercial-proposal", "contract", "ks-2", "ks-3", "invoice"]
+};
 const publicAgentAccess = process.env.PROSMET_PUBLIC_AGENT_ACCESS === "true";
 const maxBodyBytes = 2 * 1024 * 1024;
 
@@ -121,11 +149,14 @@ const estimateSchema = {
 };
 
 const systemInstructions = [
-  "Ты агент универсального приложения Просметчик.",
+  "Ты главный агент-сметчик универсального строительного приложения Просметчик.",
   "Отвечай только одним JSON-объектом с полями text, artifact и estimate.",
   "artifact должен быть null или строкой estimate.",
-  "Если пользователь просит смету и исходных данных достаточно, создай полноценную редактируемую смету по переданной JSON-схеме.",
-  "Если критически важных исходных данных недостаточно, не придумывай значения: задай конкретный вопрос в text, а artifact и estimate оставь null.",
+  "Когда пользователь просит смету, сначала проверь исходные данные и задай только необходимые уточняющие вопросы.",
+  "До формирования сметы составь технологическую карту: этапы, подготовка, материалы, механизмы, контроль качества, охрана труда и условия выполнения.",
+  "После технологической карты подбери актуальные цены для указанного региона, фиксируя в названиях и структуре сметы все необходимые работы, материалы, оборудование и логистику.",
+  "Когда данных достаточно, верни полноценную редактируемую смету по переданной JSON-схеме; сервер сам сохранит её в базе данных и откроет редактор.",
+  "Если критически важных данных недостаточно, не придумывай значения: задай конкретный вопрос в text, а artifact и estimate оставь null.",
   "Все количества, цены и проценты должны быть конечными неотрицательными числами.",
   "Не используй тестовые, демонстрационные или фиктивные объекты."
 ].join(" ");
@@ -932,7 +963,7 @@ async function handleApi(request, response, url) {
       adminAuthenticated,
       bootstrapRequired: !process.env.PROSMET_ADMIN_TOKEN,
       profileConfigured: Boolean(registry.profile?.name || registry.profile?.organization),
-      persistence: "server-encrypted-file"
+      persistence: "sqlite-artifact-store"
     });
   }
 
@@ -981,6 +1012,36 @@ async function handleApi(request, response, url) {
         return registry.profile;
       });
       return sendJson(response, 200, profileForResponse(profile));
+    }
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/capabilities") {
+    return sendJson(response, 200, capabilityManifest);
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/estimates") {
+    return sendJson(response, 200, {
+      estimates: estimateStore.listEstimates("production"),
+      persistence: "sqlite"
+    });
+  }
+
+  const estimateRoute = url.pathname.match(/^\/api\/estimates\/([^/]+)$/);
+  if (estimateRoute) {
+    const estimateId = decodeURIComponent(estimateRoute[1]);
+    if (request.method === "GET") {
+      const estimate = estimateStore.getEstimate(estimateId, "production");
+      if (!estimate) return sendError(response, 404, "ESTIMATE_NOT_FOUND", "Смета не найдена.");
+      return sendJson(response, 200, estimate);
+    }
+    if (request.method === "PUT") {
+      const body = await readJsonBody(request);
+      const estimate = validateEstimate(body.estimate ?? body);
+      if (!estimate || estimate.id !== estimateId) {
+        return sendError(response, 400, "INVALID_ESTIMATE", "Передана некорректная смета.");
+      }
+      const stored = estimateStore.saveEstimate(estimate, { ownerId: "production" });
+      return sendJson(response, 200, stored);
     }
   }
 
@@ -1086,9 +1147,25 @@ async function handleApi(request, response, url) {
     request.once("close", () => {
       if (!request.complete) controller.abort(new Error("Client disconnected"));
     });
+    const requestId = optionalString(body.requestId, 160) || randomUUID();
     const result = await callConfiguredAgent(agent, body.messages, controller.signal);
+    let artifact = null;
+    if (result.artifact === "estimate" && result.estimate) {
+      const stored = estimateStore.saveEstimate(result.estimate, {
+        ownerId: "production",
+        sourceAgentId: agent.id,
+        sourceRequestId: requestId
+      });
+      artifact = {
+        type: "estimate",
+        id: stored.id,
+        revision: stored.revision,
+        database: "sqlite"
+      };
+    }
     return sendJson(response, 200, {
-      ...result,
+      text: artifact ? (result.text || "Смета сформирована и сохранена в базе данных.") : result.text,
+      artifact,
       agent: {
         id: agent.id,
         name: agent.name,
@@ -1176,6 +1253,7 @@ server.listen(port, "127.0.0.1", async () => {
 for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, () => {
     for (const { client } of codexClients.values()) client.close();
+    estimateStore.close();
     server.close(() => process.exit(0));
   });
 }
