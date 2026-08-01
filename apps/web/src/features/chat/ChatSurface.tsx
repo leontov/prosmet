@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AuiIf,
   ComposerPrimitive,
@@ -7,17 +7,15 @@ import {
   useAui,
   useAuiState
 } from "@assistant-ui/react";
+import type { CapabilityManifest, ConstructionQuickAction } from "@prosmet/contracts";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
   AudioWaveformIcon,
   FileSpreadsheetIcon,
-  Globe2Icon,
+  FileTextIcon,
   HammerIcon,
-  HouseIcon,
-  ImageIcon,
   MicIcon,
-  PenLineIcon,
   PlusIcon,
   SparklesIcon,
   XIcon
@@ -47,48 +45,73 @@ type SpeechRecognitionLike = {
 
 type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
 
-const suggestions = [
-  { title: "Смета на ремонт квартиры", prompt: "Составь смету на ремонт квартиры с работами и материалами", icon: <HouseIcon /> },
-  { title: "Механизированная штукатурка", prompt: "Рассчитай механизированную штукатурку 358 м² в Казани", icon: <HammerIcon /> },
-  { title: "Комплект документов", prompt: "Подготовь смету, коммерческое предложение и договор", icon: <FileSpreadsheetIcon /> }
-];
+type ActionView = ConstructionQuickAction & { icon: ReactNode };
 
-const mobileQuickActions = [
+const fallbackActions: ConstructionQuickAction[] = [
   {
-    title: "Создать изображение",
-    prompt: "Создай наглядную визуализацию строительного решения для моего объекта",
-    icon: <ImageIcon />
+    id: "create-estimate",
+    title: "Составить смету",
+    prompt: "Составь строительную смету. Сначала уточни недостающие исходные данные, затем сформируй технологическую карту, исследуй актуальные цены и создай редактируемую смету.",
+    artifactType: "estimate"
   },
   {
-    title: "Напиши или отредактируй",
-    prompt: "Помоги написать или отредактировать документ по моему проекту",
-    icon: <PenLineIcon />
+    id: "calculate-measurements",
+    title: "Рассчитать по замерам",
+    prompt: "Рассчитай объёмы работ и материалов по моим замерам, затем создай смету с ценами, источниками и итогами.",
+    artifactType: "estimate"
   },
   {
-    title: "Искать в интернете",
-    prompt: "Найди в интернете актуальные цены и источники для моей сметы",
-    icon: <Globe2Icon />
+    id: "prepare-documents",
+    title: "Подготовить документы",
+    prompt: "На основании сметы подготовь комплект строительных документов: коммерческое предложение, договор, акт и счёт.",
+    artifactType: "document-set"
   }
 ];
 
-export function ChatSurface({ mobile, hasEstimate, onOpenEstimate }: Props) {
-  return mobile
-    ? <MobileChat hasEstimate={hasEstimate} onOpenEstimate={onOpenEstimate} />
-    : <DesktopChat hasEstimate={hasEstimate} onOpenEstimate={onOpenEstimate} />;
+function actionIcon(id: ConstructionQuickAction["id"]) {
+  if (id === "create-estimate") return <FileSpreadsheetIcon />;
+  if (id === "calculate-measurements") return <HammerIcon />;
+  return <FileTextIcon />;
 }
 
-function DesktopChat({ hasEstimate, onOpenEstimate }: Omit<Props, "mobile">) {
+function useConstructionActions(): ActionView[] {
+  const [actions, setActions] = useState<ConstructionQuickAction[]>(fallbackActions);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/capabilities", { cache: "no-store", credentials: "same-origin" })
+      .then((response) => response.ok ? response.json() as Promise<CapabilityManifest> : Promise.reject(new Error("capabilities unavailable")))
+      .then((manifest) => {
+        if (!cancelled && Array.isArray(manifest.quickActions) && manifest.quickActions.length) {
+          setActions(manifest.quickActions);
+        }
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, []);
+
+  return actions.map((action) => ({ ...action, icon: actionIcon(action.id) }));
+}
+
+export function ChatSurface({ mobile, hasEstimate, onOpenEstimate }: Props) {
+  const actions = useConstructionActions();
+  return mobile
+    ? <MobileChat actions={actions} hasEstimate={hasEstimate} onOpenEstimate={onOpenEstimate} />
+    : <DesktopChat actions={actions} hasEstimate={hasEstimate} onOpenEstimate={onOpenEstimate} />;
+}
+
+function DesktopChat({ actions, hasEstimate, onOpenEstimate }: Omit<Props, "mobile"> & { actions: ActionView[] }) {
   return (
     <ThreadPrimitive.Root className="chat-root desktop-chat" data-testid="desktop-chat">
       <ThreadPrimitive.Viewport turnAnchor="top" className="chat-viewport">
         <AuiIf condition={(state) => state.thread.isEmpty}>
           <div className="desktop-welcome">
             <div className="assistant-mark"><SparklesIcon /></div>
-            <h1>Что нужно сделать?</h1>
-            <p>Опишите объект обычными словами. Подключённый агент подготовит расчёт и откроет результат как редактируемый документ.</p>
+            <h1>Что нужно рассчитать?</h1>
+            <p>Опишите объект обычными словами. Агент соберёт исходные данные, сформирует технологическую карту, проверит цены и сохранит результат в базе как редактируемую смету.</p>
             <div className="desktop-suggestions">
-              {suggestions.map((item) => (
-                <ThreadPrimitive.Suggestion key={item.title} prompt={item.prompt} send className="suggestion-card">
+              {actions.map((item) => (
+                <ThreadPrimitive.Suggestion key={item.id} prompt={item.prompt} send className="suggestion-card">
                   <span className="suggestion-icon">{item.icon}</span>
                   <span><strong>{item.title}</strong><small>{item.prompt}</small></span>
                   <ArrowUpIcon />
@@ -105,7 +128,7 @@ function DesktopChat({ hasEstimate, onOpenEstimate }: Omit<Props, "mobile">) {
           {hasEstimate ? (
             <button type="button" className="artifact-row" onClick={onOpenEstimate}>
               <span><FileSpreadsheetIcon /></span>
-              <span><strong>Рабочая смета готова</strong><small>Открыть документ, изменить позиции и итог</small></span>
+              <span><strong>Смета сохранена в базе</strong><small>Открыть документ, изменить позиции и итог</small></span>
               <b>Открыть</b>
             </button>
           ) : null}
@@ -120,7 +143,7 @@ function DesktopChat({ hasEstimate, onOpenEstimate }: Omit<Props, "mobile">) {
   );
 }
 
-function MobileChat({ hasEstimate, onOpenEstimate }: Omit<Props, "mobile">) {
+function MobileChat({ actions, hasEstimate, onOpenEstimate }: Omit<Props, "mobile"> & { actions: ActionView[] }) {
   return (
     <ThreadPrimitive.Root className="chat-root mobile-chat mobile-reference-chat" data-testid="mobile-chat">
       <ThreadPrimitive.Viewport className="mobile-reference-viewport">
@@ -128,9 +151,9 @@ function MobileChat({ hasEstimate, onOpenEstimate }: Omit<Props, "mobile">) {
           <div className="mobile-reference-empty" data-testid="mobile-reference-start">
             <div className="mobile-reference-space" aria-hidden="true" />
             <div className="mobile-reference-actions" aria-label="Быстрые действия">
-              {mobileQuickActions.map((item) => (
+              {actions.map((item) => (
                 <ThreadPrimitive.Suggestion
-                  key={item.title}
+                  key={item.id}
                   prompt={item.prompt}
                   send
                   className="mobile-reference-action"
@@ -150,14 +173,14 @@ function MobileChat({ hasEstimate, onOpenEstimate }: Omit<Props, "mobile">) {
           {hasEstimate ? (
             <button type="button" className="mobile-artifact" onClick={onOpenEstimate}>
               <span><FileSpreadsheetIcon /></span>
-              <span><strong>Смета готова</strong><small>Открыть и проверить расчёт</small></span>
+              <span><strong>Смета сохранена</strong><small>Открыть редактор и проверить расчёт</small></span>
               <b>Открыть</b>
             </button>
           ) : null}
         </div>
 
         <ThreadPrimitive.ViewportFooter className="mobile-reference-composer-footer">
-          <MobileComposer />
+          <MobileComposer actions={actions} />
         </ThreadPrimitive.ViewportFooter>
       </ThreadPrimitive.Viewport>
     </ThreadPrimitive.Root>
@@ -171,7 +194,7 @@ function DesktopComposer() {
         id="desktop-message"
         name="desktop-message"
         rows={1}
-        placeholder="Опишите объект или задачу"
+        placeholder="Опишите объект, работы и замеры"
         className="composer-input"
       />
       <ComposerPrimitive.Send className="composer-send" aria-label="Отправить"><ArrowUpIcon /></ComposerPrimitive.Send>
@@ -179,7 +202,7 @@ function DesktopComposer() {
   );
 }
 
-function MobileComposer() {
+function MobileComposer({ actions }: { actions: ActionView[] }) {
   const aui = useAui();
   const text = useAuiState((state) => state.composer.text);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -249,8 +272,8 @@ function MobileComposer() {
       {utilityOpen ? (
         <div className="mobile-reference-utility" role="dialog" aria-label="Быстрые действия">
           <button type="button" className="mobile-reference-utility-close" aria-label="Закрыть" onClick={() => setUtilityOpen(false)}><XIcon /></button>
-          {mobileQuickActions.map((item) => (
-            <button key={item.title} type="button" onClick={() => chooseUtility(item.prompt)}>
+          {actions.map((item) => (
+            <button key={item.id} type="button" onClick={() => chooseUtility(item.prompt)}>
               <span>{item.icon}</span>
               <strong>{item.title}</strong>
             </button>
@@ -273,7 +296,7 @@ function MobileComposer() {
           id="mobile-message"
           name="mobile-message"
           rows={1}
-          placeholder="Спросить Chat..."
+          placeholder="Опишите объект и замеры..."
           className="composer-input"
         />
         <button

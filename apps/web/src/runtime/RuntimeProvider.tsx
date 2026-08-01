@@ -5,6 +5,7 @@ import {
   type ChatModelAdapter
 } from "@assistant-ui/react";
 import type { AgentResponse, ApiErrorBody, Estimate } from "@prosmet/contracts";
+import { fetchStoredEstimate } from "../features/estimate/estimate-api";
 
 type Props = {
   children: ReactNode;
@@ -23,10 +24,11 @@ export function RuntimeProvider({ children, onEstimateReady }: Props) {
   const adapter = useMemo<ChatModelAdapter>(() => ({
     async run({ messages, abortSignal }) {
       try {
+        const requestId = crypto.randomUUID();
         const response = await fetch("/api/agent", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ messages }),
+          body: JSON.stringify({ requestId, messages }),
           signal: abortSignal,
           credentials: "same-origin"
         });
@@ -39,8 +41,15 @@ export function RuntimeProvider({ children, onEstimateReady }: Props) {
         }
 
         const result = body as AgentResponse;
-        if (result.artifact === "estimate" && result.estimate) {
-          queueMicrotask(() => onEstimateReady(result.estimate as Estimate));
+        if (result.artifact?.type === "estimate") {
+          const persisted = await fetchStoredEstimate(result.artifact.id);
+          queueMicrotask(() => onEstimateReady(persisted));
+          return {
+            content: [{
+              type: "text",
+              text: result.text || "Смета сохранена в базе данных и открыта в редакторе."
+            }]
+          };
         }
 
         return {

@@ -79,7 +79,7 @@ test("greenfield shell uses real agent integration and the mobile reference layo
     await expect(page.getByText("Просметчик", { exact: true })).toBeVisible();
     await expect(page.getByTestId("desktop-shell")).toBeVisible();
     await expect(page.getByTestId("mobile-shell")).toHaveCount(0);
-    await expect(page.getByRole("heading", { name: "Что нужно сделать?" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Что нужно рассчитать?" })).toBeVisible();
     await page.getByRole("button", { name: "Настройки", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Настройки" })).toBeVisible();
     if (!external) {
@@ -94,11 +94,11 @@ test("greenfield shell uses real agent integration and the mobile reference layo
     await expect(page.getByRole("button", { name: "Выбрать раздел" })).toContainText("Чат");
     await expect(page.getByRole("button", { name: "Открыть навигацию" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Голосовой режим" })).toBeVisible();
-    await expect(page.getByText("Создать изображение", { exact: true })).toBeVisible();
-    await expect(page.getByText("Напиши или отредактируй", { exact: true })).toBeVisible();
-    await expect(page.getByText("Искать в интернете", { exact: true })).toBeVisible();
+    await expect(page.getByText("Составить смету", { exact: true })).toBeVisible();
+    await expect(page.getByText("Рассчитать по замерам", { exact: true })).toBeVisible();
+    await expect(page.getByText("Подготовить документы", { exact: true })).toBeVisible();
     await expect(page.locator(".mobile-reference-composer")).toBeVisible();
-    await expect(page.locator("#mobile-message")).toHaveAttribute("placeholder", "Спросить Chat...");
+    await expect(page.locator("#mobile-message")).toHaveAttribute("placeholder", "Опишите объект и замеры...");
     await expect(page.locator(".mobile-bottom-nav")).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Новый расчёт" })).toHaveCount(0);
 
@@ -120,7 +120,7 @@ test("greenfield shell uses real agent integration and the mobile reference layo
   }
 
   if (testInfo.project.name === "desktop-chromium") {
-    await page.getByRole("button", { name: /Механизированная штукатурка/ }).click();
+    await page.getByRole("button", { name: /Составить смету/ }).click();
   } else {
     await page.locator("#mobile-message").fill("Рассчитай механизированную штукатурку 358 м² в Казани");
     await page.getByRole("button", { name: "Отправить" }).click();
@@ -128,6 +128,12 @@ test("greenfield shell uses real agent integration and the mobile reference layo
 
   const editor = page.getByRole("dialog", { name: "Редактор сметы" });
   await expect(editor).toBeVisible({ timeout: 30_000 });
+
+  const storedResponse = await page.request.get("/api/estimates");
+  expect(storedResponse.ok(), await storedResponse.text()).toBeTruthy();
+  const stored = await storedResponse.json();
+  expect(stored.persistence).toBe("sqlite");
+  expect(stored.estimates.some((estimate: { title: string }) => estimate.title === "Механизированная штукатурка 358 м²")).toBeTruthy();
 
   if (testInfo.project.name === "desktop-chromium") {
     await expect(editor.locator("#estimate-title")).toHaveValue("Механизированная штукатурка 358 м²");
@@ -162,6 +168,7 @@ test("greenfield shell uses real agent integration and the mobile reference layo
   }
 
   await page.screenshot({ path: `artifacts-estimate-${testInfo.project.name}.png`, fullPage: true });
+  await page.evaluate(() => localStorage.removeItem("prosmet-workspace-v1"));
   await page.reload({ waitUntil: "networkidle" });
 
   if (testInfo.project.name === "desktop-chromium") {

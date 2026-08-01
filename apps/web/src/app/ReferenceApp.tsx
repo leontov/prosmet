@@ -20,6 +20,7 @@ import { EstimateEditor } from "../features/estimate/EstimateEditor";
 import { LibraryView } from "../features/library/LibraryView";
 import { AccountView } from "../features/account/AccountView";
 import { SettingsView } from "../features/settings/SettingsView";
+import { listStoredEstimates, persistEstimate } from "../features/estimate/estimate-api";
 
 const workspaceKey = "prosmet-workspace-v1";
 const legacyEstimateKey = "prosmet-greenfield-estimate";
@@ -115,6 +116,25 @@ function MobileReferenceApplication() {
   }, [workspace]);
 
   useEffect(() => {
+    let cancelled = false;
+    void listStoredEstimates()
+      .then(({ estimates }) => {
+        if (cancelled || !estimates.length) return;
+        setWorkspace((current) => {
+          const localById = new Map(current.estimates.map((estimate) => [estimate.id, estimate]));
+          for (const estimate of estimates) localById.set(estimate.id, estimate);
+          const merged = [...localById.values()].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+          const activeEstimateId = current.activeEstimateId && localById.has(current.activeEstimateId)
+            ? current.activeEstimateId
+            : merged[0]?.id ?? null;
+          return { estimates: merged, activeEstimateId };
+        });
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
     let active = true;
     fetch("/api/agents", { cache: "no-store" })
       .then((response) => response.ok
@@ -143,9 +163,20 @@ function MobileReferenceApplication() {
   const updateActiveEstimate = useCallback((incoming: Estimate) => {
     setWorkspace((current) => ({
       ...current,
-      estimates: current.estimates.map((estimate) => estimate.id === incoming.id ? incoming : estimate),
+      estimates: current.estimates.some((estimate) => estimate.id === incoming.id)
+        ? current.estimates.map((estimate) => estimate.id === incoming.id ? incoming : estimate)
+        : [incoming, ...current.estimates],
       activeEstimateId: incoming.id
     }));
+    void persistEstimate(incoming)
+      .then((persisted) => {
+        setWorkspace((current) => ({
+          ...current,
+          estimates: current.estimates.map((estimate) => estimate.id === persisted.id ? persisted : estimate),
+          activeEstimateId: persisted.id
+        }));
+      })
+      .catch((error) => console.error("Failed to persist estimate", error));
   }, []);
 
   const openEstimate = useCallback((id?: string) => {

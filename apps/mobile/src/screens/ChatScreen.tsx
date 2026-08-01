@@ -14,26 +14,26 @@ import { theme } from "../theme";
 type Props = { hasEstimate: boolean; onOpenEstimate: () => void; focusRequest: number };
 
 type QuickAction = {
-  id: "image" | "write" | "search";
+  id: "estimate" | "measure" | "documents";
   title: string;
   prompt: string;
 };
 
 const quickActions: QuickAction[] = [
   {
-    id: "image",
-    title: "Создать изображение",
-    prompt: "Создай наглядную визуализацию строительного решения для моего объекта"
+    id: "estimate",
+    title: "Составить смету",
+    prompt: "Составь строительную смету. Уточни исходные данные, сформируй технологическую карту, исследуй цены и создай редактируемую смету."
   },
   {
-    id: "write",
-    title: "Напиши или отредактируй",
-    prompt: "Помоги написать или отредактировать документ по моему проекту"
+    id: "measure",
+    title: "Рассчитать по замерам",
+    prompt: "Рассчитай объёмы работ и материалов по моим замерам, затем создай смету с ценами и итогами."
   },
   {
-    id: "search",
-    title: "Искать в интернете",
-    prompt: "Найди в интернете актуальные цены и источники для моей сметы"
+    id: "documents",
+    title: "Подготовить документы",
+    prompt: "На основании сметы подготовь коммерческое предложение, договор, акт и счёт."
   }
 ];
 
@@ -131,9 +131,9 @@ function MobileComposer({ focusRequest }: { focusRequest: number }) {
 }
 
 function QuickActionGlyph({ id }: { id: QuickAction["id"] }) {
-  if (id === "image") return <ImageGlyph />;
-  if (id === "write") return <PenGlyph />;
-  return <GlobeGlyph />;
+  if (id === "estimate") return <PenGlyph />;
+  if (id === "measure") return <GlobeGlyph />;
+  return <ImageGlyph />;
 }
 
 function UserMessage() {
