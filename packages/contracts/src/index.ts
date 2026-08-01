@@ -24,6 +24,14 @@ export type EstimateSection = {
   items: EstimateItem[];
 };
 
+export type EstimatePersistence = {
+  database: "sqlite" | "postgresql";
+  ownerId: string;
+  sourceAgentId: string | null;
+  sourceRequestId: string | null;
+  createdAt: string;
+};
+
 export type Estimate = {
   id: string;
   title: string;
@@ -37,6 +45,34 @@ export type Estimate = {
   vatPercent: number;
   sections: EstimateSection[];
   updatedAt: string;
+  persistence?: EstimatePersistence;
+};
+
+export type EstimateArtifactReference = {
+  type: "estimate";
+  id: string;
+  revision: number;
+  database: "sqlite" | "postgresql";
+};
+
+export type ConstructionQuickAction = {
+  id: "create-estimate" | "calculate-measurements" | "prepare-documents";
+  title: string;
+  prompt: string;
+  artifactType: "estimate" | "document-set";
+};
+
+export type CapabilityManifest = {
+  vertical: "construction-estimates-ru";
+  workflow: [
+    "brief",
+    "technology-card",
+    "price-research",
+    "estimate",
+    "construction-documents"
+  ];
+  quickActions: ConstructionQuickAction[];
+  supportedArtifacts: Array<"estimate" | "commercial-proposal" | "contract" | "ks-2" | "ks-3" | "invoice">;
 };
 
 export type AgentProviderKind =
@@ -95,14 +131,18 @@ export type AgentTestResult = {
 
 export type AgentResponse = {
   text: string;
-  artifact?: "estimate";
-  estimate?: Estimate;
+  artifact?: EstimateArtifactReference | null;
   agent?: {
     id: string;
     name: string;
     type: AgentProviderKind;
     model: string | null;
   };
+};
+
+export type EstimateListResponse = {
+  estimates: Estimate[];
+  persistence: "sqlite" | "postgresql";
 };
 
 export type AdminSessionStatus = {
@@ -129,7 +169,7 @@ export type SystemStatus = {
   adminAuthenticated: boolean;
   bootstrapRequired: boolean;
   profileConfigured: boolean;
-  persistence: "server-encrypted-file";
+  persistence: "server-encrypted-file" | "sqlite-artifact-store";
 };
 
 export type ApiErrorBody = {
