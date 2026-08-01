@@ -3,6 +3,9 @@ name: Export Prosmet Admin Token Once
 on:
   push:
     branches: [ops/export-admin-token-once-20260801]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
@@ -13,6 +16,9 @@ concurrency:
 
 jobs:
   export:
+    if: >-
+      github.event_name == 'push' ||
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 10
     steps:
