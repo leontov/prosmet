@@ -1,44 +1,59 @@
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useRef } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import {
   AuiIf,
   ComposerPrimitive,
   MessagePrimitive,
-  ThreadPrimitive
+  ThreadPrimitive,
+  useAui,
+  useAuiState
 } from "@assistant-ui/react-native";
+import { GlobeGlyph, ImageGlyph, MicGlyph, PenGlyph, PlusGlyph, VoiceGlyph } from "../ReferenceIcons";
 import { theme } from "../theme";
 
-type Props = { hasEstimate: boolean; onOpenEstimate: () => void };
+type Props = { hasEstimate: boolean; onOpenEstimate: () => void; focusRequest: number };
 
-const suggestions = [
-  ["Ремонт квартиры", "Составь смету на ремонт квартиры"],
-  ["Штукатурка 358 м²", "Рассчитай механизированную штукатурку 358 м² в Казани"],
-  ["Комплект документов", "Подготовь смету, КП и договор"]
-] as const;
+type QuickAction = {
+  id: "image" | "write" | "search";
+  title: string;
+  prompt: string;
+};
 
-export function ChatScreen({ hasEstimate, onOpenEstimate }: Props) {
+const quickActions: QuickAction[] = [
+  {
+    id: "image",
+    title: "Создать изображение",
+    prompt: "Создай наглядную визуализацию строительного решения для моего объекта"
+  },
+  {
+    id: "write",
+    title: "Напиши или отредактируй",
+    prompt: "Помоги написать или отредактировать документ по моему проекту"
+  },
+  {
+    id: "search",
+    title: "Искать в интернете",
+    prompt: "Найди в интернете актуальные цены и источники для моей сметы"
+  }
+];
+
+export function ChatScreen({ hasEstimate, onOpenEstimate, focusRequest }: Props) {
   return (
     <View style={styles.screen}>
       <ThreadPrimitive.Root style={styles.thread}>
         <AuiIf condition={(state) => state.thread.isEmpty}>
           <ScrollView
             style={styles.emptyScroll}
-            contentContainerStyle={styles.welcome}
+            contentContainerStyle={styles.emptyContent}
             keyboardShouldPersistTaps="handled"
+            testID="native-reference-start"
           >
-            <View style={styles.heroMark}><Text style={styles.heroMarkText}>✦</Text></View>
-            <Text style={styles.title}>Новый расчёт</Text>
-            <Text style={styles.subtitle}>Опишите объект или выберите задачу.</Text>
-            <View style={styles.suggestions}>
-              {suggestions.map(([title, prompt], index) => (
-                <ThreadPrimitive.Suggestion key={title} prompt={prompt} send style={styles.suggestion}>
-                  <View style={styles.suggestionIcon}>
-                    <Text style={styles.suggestionIconText}>{index === 0 ? "⌂" : index === 1 ? "▤" : "□"}</Text>
-                  </View>
-                  <View style={styles.suggestionCopy}>
-                    <Text style={styles.suggestionTitle}>{title}</Text>
-                    <Text style={styles.suggestionText}>{prompt}</Text>
-                  </View>
-                  <Text style={styles.arrow}>↗</Text>
+            <View style={styles.emptySpace} />
+            <View style={styles.quickActions} accessibilityLabel="Быстрые действия">
+              {quickActions.map((item) => (
+                <ThreadPrimitive.Suggestion key={item.id} prompt={item.prompt} send style={styles.quickAction}>
+                  <View style={styles.quickIcon}><QuickActionGlyph id={item.id} /></View>
+                  <Text style={styles.quickText}>{item.title}</Text>
                 </ThreadPrimitive.Suggestion>
               ))}
             </View>
@@ -66,22 +81,59 @@ export function ChatScreen({ hasEstimate, onOpenEstimate }: Props) {
           </ThreadPrimitive.MessagesFlatList>
         </AuiIf>
 
-        <View style={styles.footer}>
-          <ComposerPrimitive.Root style={styles.composer}>
-            <ComposerPrimitive.Input
-              style={styles.input}
-              placeholder="Сообщение Просметчику"
-              placeholderTextColor={theme.faint}
-              multiline
-            />
-            <ComposerPrimitive.Send style={styles.send}>
-              <Text style={styles.sendText}>↑</Text>
-            </ComposerPrimitive.Send>
-          </ComposerPrimitive.Root>
-        </View>
+        <MobileComposer focusRequest={focusRequest} />
       </ThreadPrimitive.Root>
     </View>
   );
+}
+
+function MobileComposer({ focusRequest }: { focusRequest: number }) {
+  const inputRef = useRef<TextInput | null>(null);
+  const aui = useAui();
+  const text = useAuiState((state) => state.composer.text);
+
+  useEffect(() => {
+    if (focusRequest > 0) inputRef.current?.focus();
+  }, [focusRequest]);
+
+  const send = () => {
+    if (!text.trim()) return;
+    aui.composer().send();
+  };
+
+  return (
+    <View style={styles.footer}>
+      <ComposerPrimitive.Root style={styles.composer}>
+        <Pressable style={styles.composerUtility} accessibilityRole="button" accessibilityLabel="Добавить запрос" onPress={() => inputRef.current?.focus()}>
+          <PlusGlyph />
+        </Pressable>
+        <TextInput
+          ref={inputRef}
+          style={styles.input}
+          value={text}
+          onChangeText={(value) => aui.composer().setText(value)}
+          onSubmitEditing={send}
+          blurOnSubmit={false}
+          placeholder="Спросить Chat..."
+          placeholderTextColor="#9a9b9e"
+          multiline
+          accessibilityLabel="Сообщение"
+        />
+        <Pressable style={styles.composerMic} accessibilityRole="button" accessibilityLabel="Голосовой ввод" onPress={() => inputRef.current?.focus()}>
+          <MicGlyph />
+        </Pressable>
+        <ComposerPrimitive.Send style={styles.send} accessibilityLabel="Отправить">
+          <View style={styles.sendGlyph}><VoiceGlyph color="#ffffff" /></View>
+        </ComposerPrimitive.Send>
+      </ComposerPrimitive.Root>
+    </View>
+  );
+}
+
+function QuickActionGlyph({ id }: { id: QuickAction["id"] }) {
+  if (id === "image") return <ImageGlyph />;
+  if (id === "write") return <PenGlyph />;
+  return <GlobeGlyph />;
 }
 
 function UserMessage() {
@@ -105,19 +157,19 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: theme.canvas },
   thread: { flex: 1 },
   emptyScroll: { flex: 1 },
-  welcome: { flexGrow: 1, paddingHorizontal: 16, paddingTop: 26, paddingBottom: 118 },
-  heroMark: { width: 50, height: 50, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: theme.border, borderRadius: 16 },
-  heroMarkText: { color: theme.text, fontSize: 22 },
-  title: { marginTop: 22, color: theme.text, fontSize: 32, lineHeight: 37, fontWeight: "700", letterSpacing: -1.3 },
-  subtitle: { marginTop: 9, color: theme.muted, fontSize: 17, lineHeight: 25 },
-  suggestions: { marginTop: 28, gap: 10 },
-  suggestion: { minHeight: 98, flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderColor: theme.border, borderRadius: 19, backgroundColor: theme.canvas, padding: 13 },
-  suggestionIcon: { width: 48, height: 48, alignItems: "center", justifyContent: "center", borderRadius: 15, backgroundColor: theme.soft },
-  suggestionIconText: { color: theme.muted, fontSize: 20 },
-  suggestionCopy: { flex: 1 },
-  suggestionTitle: { color: theme.text, fontSize: 17, lineHeight: 22, fontWeight: "700" },
-  suggestionText: { marginTop: 5, color: theme.muted, fontSize: 13, lineHeight: 18 },
-  arrow: { color: theme.faint, fontSize: 19 },
+  emptyContent: { flexGrow: 1, justifyContent: "flex-end", paddingHorizontal: 28, paddingBottom: 14 },
+  emptySpace: { minHeight: 250, flex: 1 },
+  quickActions: { gap: 14 },
+  quickAction: {
+    minHeight: 46,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderRadius: 14,
+    paddingVertical: 3
+  },
+  quickIcon: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
+  quickText: { flex: 1, color: "#66676a", fontSize: 18, lineHeight: 23, fontWeight: "600", letterSpacing: -0.35 },
   messageList: { flex: 1 },
   messages: { flexGrow: 1, paddingHorizontal: 14, paddingTop: 20, paddingBottom: 24, gap: 22 },
   userMessage: { alignItems: "flex-end" },
@@ -132,9 +184,27 @@ const styles = StyleSheet.create({
   artifactTitle: { color: theme.text, fontSize: 16, fontWeight: "700" },
   artifactText: { marginTop: 5, color: theme.muted, fontSize: 13 },
   artifactAction: { color: theme.text, fontSize: 12, fontWeight: "700" },
-  footer: { paddingHorizontal: 12, paddingBottom: 14, paddingTop: 10, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border, backgroundColor: theme.canvas },
-  composer: { minHeight: 60, flexDirection: "row", alignItems: "flex-end", gap: 4, borderWidth: 1, borderColor: theme.borderStrong, borderRadius: 22, backgroundColor: theme.canvas, padding: 7 },
-  input: { minHeight: 44, maxHeight: 140, flex: 1, color: theme.text, fontSize: 17, lineHeight: 23, paddingHorizontal: 9, paddingVertical: 10 },
-  send: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: theme.text },
-  sendText: { color: "white", fontSize: 21, fontWeight: "700" }
+  footer: { paddingHorizontal: 16, paddingBottom: 14, paddingTop: 10, backgroundColor: theme.canvas },
+  composer: {
+    minHeight: 62,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 1,
+    borderWidth: 1.4,
+    borderColor: "rgba(17,18,20,0.82)",
+    borderRadius: 34,
+    backgroundColor: theme.canvas,
+    paddingHorizontal: 6,
+    paddingVertical: 5,
+    shadowColor: "#111214",
+    shadowOpacity: 0.11,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 6
+  },
+  composerUtility: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 22 },
+  input: { minHeight: 46, maxHeight: 126, flex: 1, color: "#111214", fontSize: 17, lineHeight: 23, paddingHorizontal: 4, paddingVertical: 10 },
+  composerMic: { width: 42, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 22 },
+  send: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 22, backgroundColor: "#0a84ff" },
+  sendGlyph: { transform: [{ scale: 0.73 }] }
 });
