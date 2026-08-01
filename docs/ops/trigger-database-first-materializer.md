@@ -1,1 +1,1 @@
-This same-repository PR invokes the one-time database-first feature materializer. Retry 2 excludes workflow files from the GitHub App push; those paths are updated separately through the repository contents API.
+This same-repository PR invokes the one-time database-first feature materializer. Retry 3 inlines the SQLite estimate store into `server.mjs`, keeping production deployment self-contained without workflow-file changes.
