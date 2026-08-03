@@ -68,7 +68,7 @@ function emptyAgent(): AgentConfigInput {
     args: ["app-server", "--listen", "stdio://"],
     cwd: "",
     systemPrompt: "",
-    timeoutMs: 120000,
+    timeoutMs: 180000,
     secret: ""
   };
 }
@@ -148,7 +148,7 @@ export function SettingsView({ mobile }: { mobile: boolean }) {
         args: form.type === "codex-app-server" ? (form.args ?? []) : [],
         cwd: form.cwd?.trim() || null,
         systemPrompt: form.systemPrompt?.trim() || null,
-        timeoutMs: form.timeoutMs ?? 120000,
+        timeoutMs: form.timeoutMs ?? 180000,
         ...(form.secret?.trim()
           ? { secret: form.secret.trim() }
           : editingId

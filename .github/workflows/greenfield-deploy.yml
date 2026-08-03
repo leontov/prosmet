@@ -157,10 +157,14 @@ jobs:
           set -Eeuo pipefail
           ADMIN_TOKEN_FILE="$HOME/.prosmet-greenfield/config/admin.token"
           test -s "$ADMIN_TOKEN_FILE"
-          PROSMET_BASE_URL=https://kolibriai.online \
+          if ! PROSMET_BASE_URL=https://kolibriai.online \
             PROSMET_E2E_ADMIN_TOKEN="$(tr -d '\r\n' < "$ADMIN_TOKEN_FILE")" \
             PROSMET_EVIDENCE_DIR="$RELEASE_DIR/production-evidence" \
-            node scripts/capture-production-agent-profile.mjs
+            PROSMET_AGENT_MIN_TIMEOUT_MS=180000 \
+            node scripts/capture-production-agent-profile.mjs; then
+            cp "$RELEASE_DIR/production-evidence/agent-profile.json" agent-profile.json || true
+            exit 1
+          fi
           cp "$RELEASE_DIR/production-evidence/agent-profile.json" agent-profile.json
           PROSMET_BASE_URL=https://kolibriai.online \
             PROSMET_E2E_ADMIN_TOKEN="$(tr -d '\r\n' < "$ADMIN_TOKEN_FILE")" \
