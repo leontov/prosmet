@@ -330,7 +330,7 @@ test("greenfield shell uses real agent integration and the mobile reference layo
   await page.reload({ waitUntil: "networkidle" });
 
   if (testInfo.project.name === "desktop-chromium") {
-    await expect(page.locator(".history-item").filter({ hasText: stored.title })).toBeVisible();
+    await expect(page.locator(".history-item").filter({ hasText: stored.title }).first()).toBeVisible();
   } else {
     const menu = await openMobileMenu(page);
     await menu.getByRole("button", { name: /Сметы/ }).click();
