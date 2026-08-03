@@ -155,6 +155,7 @@ jobs:
       - name: Immediate live desktop and mobile acceptance
         env:
           PROSMET_BASE_URL: https://kolibriai.online
+          PROSMET_CRITICAL_PATH: "false"
         run: npm run e2e
 
       - name: Upload immediate deployment evidence
@@ -307,6 +308,8 @@ jobs:
           npx playwright install --with-deps chromium
 
       - name: External live desktop and mobile acceptance
+        env:
+          PROSMET_EVIDENCE_DIR: ${{ github.workspace }}/production-evidence
         run: npm run e2e
 
       - name: Delayed external persistence probe
@@ -320,9 +323,11 @@ jobs:
           grep -q '"ui":"greenfield"' external-public-health-delayed.json
           curl -fsS https://kolibriai.online/ > external-public-root-delayed.html
           grep -q '<div id="root"></div>' external-public-root-delayed.html
-          cat > production-acceptance.json <<EOF
-          {"status":"PASS","releaseSha":"$RELEASE_SHA","ui":"greenfield","origin":"https://kolibriai.online","survivedRunnerCleanup":true,"canonicalEdgeReloaded":true,"allResolvedIpv4Checked":true,"externalDns":true,"externalHttps":true,"publicRoot":true,"publicHealth":true,"desktopChromium":true,"mobileChromium":true,"runId":"${{ github.run_id }}"}
+          cat > production-evidence/infrastructure.json <<EOF
+          {"survivedRunnerCleanup":true,"canonicalEdgeReloaded":true,"allResolvedIpv4Checked":true,"externalDns":true,"externalHttps":true,"publicRoot":true,"publicHealth":true,"runId":"${{ github.run_id }}"}
           EOF
+          node scripts/verify-production-evidence.mjs production-evidence "$RELEASE_SHA"
+          cp production-evidence/production-critical-path-acceptance.json production-acceptance.json
 
       - name: Upload final external production evidence
         if: always()
@@ -339,6 +344,7 @@ jobs:
             external-public-redirect.txt
             external-public-root-delayed.html
             production-acceptance.json
+            production-evidence/**
             apps/web/playwright-report
             apps/web/test-results
             apps/web/artifacts-*.png

@@ -1,7 +1,76 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Page, type TestInfo } from "@playwright/test";
+import { mkdir, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 
 const external = Boolean(process.env.PROSMET_BASE_URL);
+const verifyCriticalPath = process.env.PROSMET_CRITICAL_PATH !== "false";
 const adminToken = "e2e-admin";
+const productionPrompt = [
+  "Production E2E verification.",
+  "Подготовь готовую редактируемую смету на механизированную штукатурку:",
+  "358 м², слой 15 мм, Казань, Республика Татарстан.",
+  "Не задавай уточняющих вопросов. Верни JSON с artifact estimate и полной сметой."
+].join(" ");
+
+type CriticalPathEvidence = {
+  schemaVersion: 1;
+  scope: "local" | "production";
+  project: string;
+  origin: string;
+  releaseSha: string;
+  generatedAt: string;
+  checks: {
+      health: boolean;
+      browserShell: boolean;
+      activeAgentResponse: boolean;
+      artifactReference: boolean;
+      sqliteArtifact: boolean;
+    persistedRead: boolean;
+    persistedEdit: boolean;
+    reloadRestored: boolean;
+  };
+  artifact?: {
+    id: string;
+    database: string;
+    agentId: string | null;
+    revisionBeforeEdit: number;
+    revisionAfterEdit: number;
+  };
+};
+
+async function writeCriticalPathEvidence(
+  testInfo: TestInfo,
+  evidence: CriticalPathEvidence
+) {
+  const configuredDirectory = process.env.PROSMET_EVIDENCE_DIR;
+  const path = configuredDirectory
+    ? join(configuredDirectory, `production-critical-path-${testInfo.project.name}.json`)
+    : testInfo.outputPath("production-critical-path.json");
+  if (configuredDirectory) await mkdir(configuredDirectory, { recursive: true });
+  await writeFile(path, `${JSON.stringify(evidence, null, 2)}\n`, "utf8");
+  await testInfo.attach("production-critical-path", { path, contentType: "application/json" });
+}
+
+function requireEstimateArtifact(body: unknown) {
+  const result = body as {
+    artifact?: { type?: unknown; id?: unknown; revision?: unknown; database?: unknown } | null;
+    agent?: { id?: unknown } | null;
+  };
+  const artifact = result.artifact;
+  if (
+    !artifact || artifact.type !== "estimate" || typeof artifact.id !== "string" || !artifact.id ||
+    typeof artifact.revision !== "number" || typeof artifact.database !== "string" ||
+    typeof result.agent?.id !== "string" || !result.agent.id
+  ) {
+    throw new Error(`Agent did not return a persisted estimate artifact: ${JSON.stringify(body)}`);
+  }
+  return {
+    id: artifact.id,
+    revision: artifact.revision,
+    database: artifact.database,
+    agentId: result.agent.id
+  };
+}
 
 async function configureFixtureAgent(page: Page) {
   const registryResponse = await page.request.get("/api/agents");
@@ -51,6 +120,24 @@ async function openMobileMenu(page: Page) {
 
 test("greenfield shell uses real agent integration and the mobile reference layout", async ({ page }, testInfo) => {
   const violations: string[] = [];
+  const evidence: CriticalPathEvidence = {
+    schemaVersion: 1,
+    scope: external ? "production" : "local",
+    project: testInfo.project.name,
+    origin: "",
+    releaseSha: "",
+    generatedAt: new Date().toISOString(),
+    checks: {
+      health: false,
+      browserShell: false,
+      activeAgentResponse: false,
+      artifactReference: false,
+      sqliteArtifact: false,
+      persistedRead: false,
+      persistedEdit: false,
+      reloadRestored: false
+    }
+  };
   page.on("console", (message) => {
     if (message.type() === "error") violations.push(`console:${message.text()}`);
   });
@@ -70,7 +157,17 @@ test("greenfield shell uses real agent integration and the mobile reference layo
 
   if (!external) await configureFixtureAgent(page);
 
+  const healthResponse = await page.request.get("/api/health");
+  expect(healthResponse.ok(), await healthResponse.text()).toBeTruthy();
+  const health = await healthResponse.json() as { releaseSha?: unknown; ui?: unknown };
+  expect(health.ui).toBe("greenfield");
+  expect(typeof health.releaseSha).toBe("string");
+  if (process.env.PROSMET_RELEASE_SHA) expect(health.releaseSha).toBe(process.env.PROSMET_RELEASE_SHA);
+  evidence.releaseSha = String(health.releaseSha);
+  evidence.checks.health = true;
+
   await page.goto("/", { waitUntil: "networkidle" });
+  evidence.origin = new URL(page.url()).origin;
   await expect(page.getByText("Founder", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Владислав Кочуров", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Дом в Альметьевске", { exact: true })).toHaveCount(0);
@@ -111,41 +208,60 @@ test("greenfield shell uses real agent integration and the mobile reference layo
     await menu.getByRole("button", { name: /^Чат/ }).click();
     await expect(page.getByTestId("mobile-reference-start")).toBeVisible();
   }
+  evidence.checks.browserShell = true;
 
   await page.screenshot({ path: `artifacts-shell-${testInfo.project.name}.png`, fullPage: true });
 
-  if (external) {
+  if (!verifyCriticalPath) {
     expect(violations).toEqual([]);
     return;
   }
 
-  if (testInfo.project.name === "desktop-chromium") {
-    await page.getByRole("button", { name: /Составить смету/ }).click();
-  } else {
-    await page.locator("#mobile-message").fill("Рассчитай механизированную штукатурку 358 м² в Казани");
-    await page.getByRole("button", { name: "Отправить" }).click();
-  }
+  const agentResponsePromise = page.waitForResponse((response) =>
+    new URL(response.url()).pathname === "/api/agent" && response.request().method() === "POST"
+  );
+  const composer = page.locator(testInfo.project.name === "desktop-chromium" ? "#desktop-message" : "#mobile-message");
+  await composer.fill(productionPrompt);
+  await page.getByRole("button", { name: "Отправить" }).click();
+  const agentResponse = await agentResponsePromise;
+  const agentBody = await agentResponse.json().catch(() => null);
+  expect(agentResponse.ok(), JSON.stringify(agentBody)).toBeTruthy();
+  const artifact = requireEstimateArtifact(agentBody);
+  expect(artifact.database).toBe("sqlite");
+  evidence.checks.activeAgentResponse = true;
+  evidence.checks.artifactReference = true;
+  evidence.checks.sqliteArtifact = true;
 
   const editor = page.getByRole("dialog", { name: "Редактор сметы" });
   await expect(editor).toBeVisible({ timeout: 30_000 });
 
-  const storedResponse = await page.request.get("/api/estimates");
+  const storedResponse = await page.request.get(`/api/estimates/${encodeURIComponent(artifact.id)}`);
   expect(storedResponse.ok(), await storedResponse.text()).toBeTruthy();
   const stored = await storedResponse.json();
-  expect(stored.persistence).toBe("sqlite");
-  expect(stored.estimates.some((estimate: { title: string }) => estimate.title === "Механизированная штукатурка 358 м²")).toBeTruthy();
+  expect(stored.id).toBe(artifact.id);
+  expect(stored.revision).toBe(artifact.revision);
+  const firstItem = stored.sections.flatMap((section: { id: string; items: Array<{ id: string; quantity: number }> }) =>
+    section.items.map((item) => ({ ...item, sectionId: section.id }))
+  )[0];
+  if (!firstItem) throw new Error("Persisted estimate contains no editable items");
+  evidence.checks.persistedRead = true;
+  const changedQuantity = Number(firstItem.quantity) + 1;
 
   if (testInfo.project.name === "desktop-chromium") {
-    await expect(editor.locator("#estimate-title")).toHaveValue("Механизированная штукатурка 358 м²");
+    await expect(editor.locator("#estimate-title")).toHaveValue(stored.title);
     const desktopEditor = page.getByTestId("desktop-estimate-editor");
     await expect(desktopEditor).toBeVisible();
     await expect(editor.locator(".estimate-summary")).toBeVisible();
     expect((await desktopEditor.boundingBox())?.width ?? 0).toBeGreaterThan(1200);
-    await editor.locator("#quantity-work-1").fill("360");
-    await editor.getByRole("button", { name: "Сохранить версию", exact: true }).first().click();
-    await expect(editor.getByText("Версия 2", { exact: false }).first()).toBeVisible();
+    const editResponsePromise = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === `/api/estimates/${encodeURIComponent(artifact.id)}` &&
+      response.request().method() === "PUT"
+    );
+    await editor.locator(`#quantity-${firstItem.id}`).fill(String(changedQuantity));
+    const editResponse = await editResponsePromise;
+    expect(editResponse.ok(), await editResponse.text()).toBeTruthy();
   } else {
-    await expect(editor.getByRole("heading", { name: "Механизированная штукатурка 358 м²" })).toBeVisible();
+    await expect(editor.getByRole("heading", { name: stored.title })).toBeVisible();
     const mobileEditor = page.getByTestId("mobile-estimate-editor");
     await expect(mobileEditor).toBeVisible();
     const card = editor.locator(".mobile-estimate-item").first();
@@ -163,21 +279,52 @@ test("greenfield shell uses real agent integration and the mobile reference layo
     expect(titleGeometry.scrollHeight).toBeLessThanOrEqual(titleGeometry.clientHeight + 1);
     const actionbar = editor.locator(".mobile-estimate-actions");
     expect((await actionbar.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(72);
-    await editor.locator("#mobile-quantity-work-1").fill("360");
-    await editor.getByRole("button", { name: "Сохранить версию", exact: true }).click();
+    const editResponsePromise = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === `/api/estimates/${encodeURIComponent(artifact.id)}` &&
+      response.request().method() === "PUT"
+    );
+    await editor.locator(`#mobile-quantity-${firstItem.id}`).fill(String(changedQuantity));
+    const editResponse = await editResponsePromise;
+    expect(editResponse.ok(), await editResponse.text()).toBeTruthy();
   }
+
+  const saveResponsePromise = page.waitForResponse((response) =>
+    new URL(response.url()).pathname === `/api/estimates/${encodeURIComponent(artifact.id)}` &&
+    response.request().method() === "PUT"
+  );
+  await editor.getByRole("button", { name: "Сохранить версию", exact: true }).first().click();
+  const saveResponse = await saveResponsePromise;
+  expect(saveResponse.ok(), await saveResponse.text()).toBeTruthy();
+  const saved = await saveResponse.json();
+  expect(saved.revision).toBe(artifact.revision + 1);
+  const updatedResponse = await page.request.get(`/api/estimates/${encodeURIComponent(artifact.id)}`);
+  expect(updatedResponse.ok(), await updatedResponse.text()).toBeTruthy();
+  const updated = await updatedResponse.json();
+  expect(updated.revision).toBe(saved.revision);
+  expect(updated.sections.flatMap((section: { items: Array<{ id: string; quantity: number }> }) => section.items)
+    .find((item: { id: string }) => item.id === firstItem.id)?.quantity).toBe(changedQuantity);
+  evidence.checks.persistedEdit = true;
 
   await page.screenshot({ path: `artifacts-estimate-${testInfo.project.name}.png`, fullPage: true });
   await page.evaluate(() => localStorage.removeItem("prosmet-workspace-v1"));
   await page.reload({ waitUntil: "networkidle" });
 
   if (testInfo.project.name === "desktop-chromium") {
-    await expect(page.locator(".history-item").filter({ hasText: "Механизированная штукатурка 358 м²" })).toBeVisible();
+    await expect(page.locator(".history-item").filter({ hasText: stored.title })).toBeVisible();
   } else {
     const menu = await openMobileMenu(page);
     await menu.getByRole("button", { name: /Сметы/ }).click();
-    await expect(page.getByText("Механизированная штукатурка 358 м²", { exact: true })).toBeVisible();
+    await expect(page.getByText(stored.title, { exact: true })).toBeVisible();
   }
+  evidence.checks.reloadRestored = true;
+  evidence.artifact = {
+    id: artifact.id,
+    database: artifact.database,
+    agentId: artifact.agentId,
+    revisionBeforeEdit: artifact.revision,
+    revisionAfterEdit: saved.revision
+  };
+  await writeCriticalPathEvidence(testInfo, evidence);
 
   expect(violations).toEqual([]);
 });
