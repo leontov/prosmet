@@ -30,13 +30,13 @@ jobs:
     env:
       CI: "1"
       RELEASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
-      RELEASE_DIR: $HOME/.prosmet-greenfield/releases/${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
     steps:
       - name: Verify trusted runner and release source
         run: |
           set -Eeuo pipefail
           test "${{ runner.name }}" = "prosmet-primary"
           test -n "$RELEASE_SHA"
+          printf 'RELEASE_DIR=%s\n' "$HOME/.prosmet-greenfield/releases/$RELEASE_SHA" >> "$GITHUB_ENV"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             test "${{ github.event.pull_request.head.ref }}" = "ops/greenfield-production-release"
             test "${{ github.event.pull_request.head.repo.full_name }}" = "${{ github.repository }}"
@@ -201,8 +201,10 @@ jobs:
     timeout-minutes: 15
     env:
       RELEASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
-      RELEASE_DIR: $HOME/.prosmet-greenfield/releases/${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
     steps:
+      - name: Set persistent release directory
+        run: printf 'RELEASE_DIR=%s\n' "$HOME/.prosmet-greenfield/releases/$RELEASE_SHA" >> "$GITHUB_ENV"
+
       - name: Verify detached process and repair edge after previous job cleanup
         run: |
           set -Eeuo pipefail
@@ -365,10 +367,11 @@ jobs:
     timeout-minutes: 15
     env:
       RELEASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
-      RELEASE_DIR: $HOME/.prosmet-greenfield/releases/${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
     steps:
       - name: Verify trusted Primary runner
-        run: test "${{ runner.name }}" = "prosmet-primary"
+        run: |
+          test "${{ runner.name }}" = "prosmet-primary"
+          printf 'RELEASE_DIR=%s\n' "$HOME/.prosmet-greenfield/releases/$RELEASE_SHA" >> "$GITHUB_ENV"
 
       - uses: actions/checkout@v4
         with:
