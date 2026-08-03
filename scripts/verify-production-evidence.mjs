@@ -39,11 +39,20 @@ const entries = await Promise.all(filenames.map(async (filename) => {
 const failures = [];
 const seenProjects = new Set();
 let infrastructure = null;
+let agentProfile = null;
 try {
   infrastructure = JSON.parse(await readFile(join(evidenceDirectory, "infrastructure.json"), "utf8"));
 } catch {
   failures.push("Missing infrastructure evidence");
 }
+try {
+  agentProfile = JSON.parse(await readFile(join(evidenceDirectory, "agent-profile.json"), "utf8"));
+} catch {
+  failures.push("Missing active production agent profile");
+}
+if (agentProfile?.origin !== "https://kolibriai.online") failures.push("Agent profile origin must be canonical production URL");
+if (agentProfile?.activeAgent?.enabled !== true) failures.push("Agent profile has no enabled active agent");
+if (!agentProfile?.activeAgent?.type) failures.push("Agent profile is missing provider type");
 for (const check of requiredInfrastructureChecks) {
   if (infrastructure?.[check] !== true) failures.push(`Missing infrastructure PASS for ${check}`);
 }
@@ -97,6 +106,7 @@ const acceptance = {
     infrastructure: requiredInfrastructureChecks.every((check) => infrastructure?.[check] === true)
   },
   infrastructure,
+  activeAgent: agentProfile?.activeAgent || null,
   evidence: entries.map((entry) => ({
     project: entry.project,
     artifact: entry.artifact,
