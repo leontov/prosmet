@@ -89,7 +89,7 @@ jobs:
           git checkout --force "$RELEASE_SHA"
           git clean -ffdx
           test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
-          npm install --workspaces --include-workspace-root --legacy-peer-deps --no-audit --no-fund
+          npm ci --workspaces --include-workspace-root --legacy-peer-deps --no-audit --no-fund
           npm run typecheck
           npm run build
           test -s apps/web/dist/index.html
