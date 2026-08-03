@@ -404,7 +404,8 @@ const systemInstructions = [
   "Если пользователь явно просит минимальный черновик, верни один раздел и от одной до трёх прозрачных позиций без исследования рынка и технологической карты; это допустимо для начального редактируемого расчёта.",
   "Если критически важных данных недостаточно, не придумывай значения: задай конкретный вопрос в text, а artifact и estimate оставь null.",
   "Все количества, цены и проценты должны быть конечными неотрицательными числами.",
-  "Не используй тестовые, демонстрационные или фиктивные объекты."
+  "Не используй тестовые, демонстрационные или фиктивные объекты.",
+  `Строго соблюдай эту JSON-схему ответа: ${JSON.stringify(estimateSchema)}`
 ].join(" ");
 
 let encryptionKeyPromise;
@@ -866,6 +867,7 @@ async function fetchJson(url, options, timeoutMs, externalSignal) {
 
 async function callOpenAICompatible(agent, messages, signal) {
   const secret = await decryptSecret(agent.secretCipher);
+  const isMimoV25 = /^mimo-v2\.5(?:-|$)/i.test(String(agent.model || "").trim());
   const result = await fetchJson(
     endpointFor(agent.baseUrl, "chat/completions"),
     {
@@ -880,7 +882,12 @@ async function callOpenAICompatible(agent, messages, signal) {
           { role: "system", content: agent.systemPrompt || systemInstructions },
           ...normalizeMessages(messages)
         ],
-        temperature: 0.1
+        temperature: 0.1,
+        ...(isMimoV25 ? {
+          response_format: { type: "json_object" },
+          thinking: { type: "disabled" },
+          max_completion_tokens: 4096
+        } : {})
       })
     },
     agent.timeoutMs,
