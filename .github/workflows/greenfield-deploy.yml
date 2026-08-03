@@ -160,6 +160,11 @@ jobs:
           PROSMET_BASE_URL=https://kolibriai.online \
             PROSMET_E2E_ADMIN_TOKEN="$(tr -d '\r\n' < "$ADMIN_TOKEN_FILE")" \
             PROSMET_EVIDENCE_DIR="$RELEASE_DIR/production-evidence" \
+            node scripts/capture-production-agent-profile.mjs
+          cp "$RELEASE_DIR/production-evidence/agent-profile.json" agent-profile.json
+          PROSMET_BASE_URL=https://kolibriai.online \
+            PROSMET_E2E_ADMIN_TOKEN="$(tr -d '\r\n' < "$ADMIN_TOKEN_FILE")" \
+            PROSMET_EVIDENCE_DIR="$RELEASE_DIR/production-evidence" \
             npm run e2e
 
       - name: Upload immediate deployment evidence
@@ -178,6 +183,7 @@ jobs:
             edge-public-health-immediate.json
             edge-public-health-headers-immediate.txt
             edge-diagnostics-immediate.txt
+            agent-profile.json
             apps/web/playwright-report
             apps/web/test-results
             apps/web/artifacts-*.png
