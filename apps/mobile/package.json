@@ -10,18 +10,18 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@assistant-ui/react-native": "latest",
+    "@assistant-ui/react-native": "0.1.33",
     "@prosmet/contracts": "0.1.0",
     "expo": "~57.0.0",
     "expo-secure-store": "~57.0.0",
-    "expo-status-bar": "latest",
+    "expo-status-bar": "57.0.1",
     "react": "19.2.3",
     "react-native": "0.86.0",
-    "react-native-safe-area-context": "latest"
+    "react-native-safe-area-context": "5.8.0"
   },
   "devDependencies": {
-    "@types/node": "latest",
-    "@types/react": "latest",
+    "@types/node": "26.1.2",
+    "@types/react": "19.2.18",
     "typescript": "npm:@typescript/typescript6@^6.0.2"
   }
 }
