@@ -36,7 +36,7 @@ jobs:
           components: rustfmt
 
       - name: Install clean workspace
-        run: npm install --workspaces --include-workspace-root --legacy-peer-deps --no-audit --no-fund
+        run: npm ci --workspaces --include-workspace-root --legacy-peer-deps --no-audit --no-fund
 
       - name: Greenfield source contract
         run: node scripts/greenfield-contract.mjs
