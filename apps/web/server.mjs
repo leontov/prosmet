@@ -645,7 +645,7 @@ function sanitizeAgent(agent, activeAgentId) {
     args: Array.isArray(agent.args) ? agent.args : [],
     cwd: agent.cwd || null,
     systemPrompt: agent.systemPrompt || null,
-    timeoutMs: Number(agent.timeoutMs) || 120000,
+    timeoutMs: Number(agent.timeoutMs) || 180000,
     hasSecret: Boolean(agent.secretCipher),
     createdAt: agent.createdAt,
     updatedAt: agent.updatedAt
@@ -687,7 +687,7 @@ async function normalizeAgentInput(input, existing = null) {
     args: [],
     cwd: optionalString(input.cwd ?? existing?.cwd, 1000),
     systemPrompt: optionalString(input.systemPrompt ?? existing?.systemPrompt, 12000),
-    timeoutMs: Math.min(600000, Math.max(5000, Number(input.timeoutMs ?? existing?.timeoutMs ?? 120000))),
+    timeoutMs: Math.min(600000, Math.max(5000, Number(input.timeoutMs ?? existing?.timeoutMs ?? 180000))),
     secretCipher: existing?.secretCipher || null,
     createdAt: existing?.createdAt || new Date().toISOString(),
     updatedAt: new Date().toISOString()
