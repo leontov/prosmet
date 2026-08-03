@@ -153,10 +153,14 @@ jobs:
           exit 1
 
       - name: Immediate live desktop and mobile acceptance
-        env:
-          PROSMET_BASE_URL: https://kolibriai.online
-          PROSMET_CRITICAL_PATH: "false"
-        run: npm run e2e
+        run: |
+          set -Eeuo pipefail
+          ADMIN_TOKEN_FILE="$HOME/.prosmet-greenfield/config/admin.token"
+          test -s "$ADMIN_TOKEN_FILE"
+          PROSMET_BASE_URL=https://kolibriai.online \
+            PROSMET_E2E_ADMIN_TOKEN="$(tr -d '\r\n' < "$ADMIN_TOKEN_FILE")" \
+            PROSMET_EVIDENCE_DIR="$RELEASE_DIR/production-evidence" \
+            npm run e2e
 
       - name: Upload immediate deployment evidence
         if: always()
@@ -309,7 +313,7 @@ jobs:
 
       - name: External live desktop and mobile acceptance
         env:
-          PROSMET_EVIDENCE_DIR: ${{ github.workspace }}/production-evidence
+          PROSMET_CRITICAL_PATH: "false"
         run: npm run e2e
 
       - name: Delayed external persistence probe
@@ -323,11 +327,6 @@ jobs:
           grep -q '"ui":"greenfield"' external-public-health-delayed.json
           curl -fsS https://kolibriai.online/ > external-public-root-delayed.html
           grep -q '<div id="root"></div>' external-public-root-delayed.html
-          cat > production-evidence/infrastructure.json <<EOF
-          {"survivedRunnerCleanup":true,"canonicalEdgeReloaded":true,"allResolvedIpv4Checked":true,"externalDns":true,"externalHttps":true,"publicRoot":true,"publicHealth":true,"runId":"${{ github.run_id }}"}
-          EOF
-          node scripts/verify-production-evidence.mjs production-evidence "$RELEASE_SHA"
-          cp production-evidence/production-critical-path-acceptance.json production-acceptance.json
 
       - name: Upload final external production evidence
         if: always()
@@ -343,10 +342,60 @@ jobs:
             external-public-headers.txt
             external-public-redirect.txt
             external-public-root-delayed.html
-            production-acceptance.json
-            production-evidence/**
             apps/web/playwright-report
             apps/web/test-results
             apps/web/artifacts-*.png
+          if-no-files-found: warn
+          retention-days: 30
+
+  production_acceptance:
+    name: Verify authenticated production critical path evidence
+    needs: external_acceptance
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 15
+    env:
+      RELEASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
+      RELEASE_DIR: $HOME/.prosmet-greenfield/releases/${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
+    steps:
+      - name: Verify trusted Primary runner
+        run: test "${{ runner.name }}" = "prosmet-primary"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+
+      - name: Aggregate authenticated critical path and external edge evidence
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+          EVIDENCE_DIR="$RELEASE_DIR/production-evidence"
+          test -d "$EVIDENCE_DIR"
+          curl -fsS https://kolibriai.online/api/health > final-public-health.json
+          grep -q "$RELEASE_SHA" final-public-health.json
+          grep -q '"ui":"greenfield"' final-public-health.json
+          curl -fsSI https://kolibriai.online/ > final-public-headers.txt
+          grep -Eqi '^strict-transport-security:.*max-age=31536000' final-public-headers.txt
+          cat > "$EVIDENCE_DIR/infrastructure.json" <<EOF
+          {"survivedRunnerCleanup":true,"canonicalEdgeReloaded":true,"allResolvedIpv4Checked":true,"externalDns":true,"externalHttps":true,"publicRoot":true,"publicHealth":true,"runId":"${{ github.run_id }}"}
+          EOF
+          node scripts/verify-production-evidence.mjs "$EVIDENCE_DIR" "$RELEASE_SHA"
+          cp "$EVIDENCE_DIR/production-critical-path-acceptance.json" production-acceptance.json
+          cp -a "$EVIDENCE_DIR" production-evidence
+
+      - name: Upload final production acceptance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prosmet-greenfield-production-${{ github.run_id }}
+          path: |
+            production-acceptance.json
+            final-public-health.json
+            final-public-headers.txt
+            production-evidence/**
           if-no-files-found: warn
           retention-days: 30
