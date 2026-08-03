@@ -5,6 +5,7 @@ import { join } from "node:path";
 const external = Boolean(process.env.PROSMET_BASE_URL);
 const verifyCriticalPath = process.env.PROSMET_CRITICAL_PATH !== "false";
 const adminToken = "e2e-admin";
+const productionAdminToken = process.env.PROSMET_E2E_ADMIN_TOKEN?.trim() || null;
 const productionPrompt = [
   "Production E2E verification.",
   "Подготовь готовую редактируемую смету на механизированную штукатурку:",
@@ -111,6 +112,16 @@ async function configureFixtureAgent(page: Page) {
   expect(loginResponse.ok(), await loginResponse.text()).toBeTruthy();
 }
 
+async function configureProductionAdminSession(page: Page) {
+  if (!productionAdminToken) {
+    throw new Error("PROSMET_E2E_ADMIN_TOKEN is required for the authenticated production critical-path test");
+  }
+  const loginResponse = await page.request.post("/api/admin/session", {
+    data: { token: productionAdminToken }
+  });
+  expect(loginResponse.ok(), await loginResponse.text()).toBeTruthy();
+}
+
 async function openMobileMenu(page: Page) {
   await page.getByRole("button", { name: "Открыть навигацию" }).click();
   const dialog = page.getByRole("dialog", { name: "Навигация" });
@@ -155,7 +166,11 @@ test("greenfield shell uses real agent integration and the mobile reference layo
     }
   });
 
-  if (!external) await configureFixtureAgent(page);
+  if (!external) {
+    await configureFixtureAgent(page);
+  } else if (verifyCriticalPath) {
+    await configureProductionAdminSession(page);
+  }
 
   const healthResponse = await page.request.get("/api/health");
   expect(healthResponse.ok(), await healthResponse.text()).toBeTruthy();
