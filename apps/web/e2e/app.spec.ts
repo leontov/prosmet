@@ -130,6 +130,7 @@ async function openMobileMenu(page: Page) {
 }
 
 test("greenfield shell uses real agent integration and the mobile reference layout", async ({ page }, testInfo) => {
+  if (external && verifyCriticalPath) testInfo.setTimeout(180_000);
   const violations: string[] = [];
   const evidence: CriticalPathEvidence = {
     schemaVersion: 1,
@@ -232,8 +233,9 @@ test("greenfield shell uses real agent integration and the mobile reference layo
     return;
   }
 
-  const agentResponsePromise = page.waitForResponse((response) =>
-    new URL(response.url()).pathname === "/api/agent" && response.request().method() === "POST"
+  const agentResponsePromise = page.waitForResponse(
+    (response) => new URL(response.url()).pathname === "/api/agent" && response.request().method() === "POST",
+    { timeout: 150_000 }
   );
   const composer = page.locator(testInfo.project.name === "desktop-chromium" ? "#desktop-message" : "#mobile-message");
   await composer.fill(productionPrompt);
