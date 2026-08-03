@@ -7,10 +7,9 @@ const verifyCriticalPath = process.env.PROSMET_CRITICAL_PATH !== "false";
 const adminToken = "e2e-admin";
 const productionAdminToken = process.env.PROSMET_E2E_ADMIN_TOKEN?.trim() || null;
 const productionPrompt = [
-  "Production E2E verification.",
-  "Подготовь готовую редактируемую смету на механизированную штукатурку:",
-  "358 м², слой 15 мм, Казань, Республика Татарстан.",
-  "Не задавай уточняющих вопросов. Верни JSON с artifact estimate и полной сметой."
+  "Подготовь минимальный редактируемый черновик сметы на механизированную штукатурку:",
+  "1 м², слой 15 мм, Казань, Республика Татарстан.",
+  "Не задавай вопросов. Верни JSON с artifact estimate, одним разделом и одной прозрачной позицией без исследования рынка и технологической карты."
 ].join(" ");
 
 type CriticalPathEvidence = {
