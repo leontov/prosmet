@@ -59,7 +59,7 @@ jobs:
       - name: Install and verify exact main SHA
         run: |
           set -Eeuo pipefail
-          npm install --workspaces --include-workspace-root --legacy-peer-deps --no-audit --no-fund
+          npm ci --workspaces --include-workspace-root --legacy-peer-deps --no-audit --no-fund
           npm run verify
           npm run desktop:metadata
           npx playwright install chromium
@@ -308,7 +308,7 @@ jobs:
 
       - name: Install browser acceptance dependencies
         run: |
-          npm install --workspaces --include-workspace-root --legacy-peer-deps --no-audit --no-fund
+          npm ci --workspaces --include-workspace-root --legacy-peer-deps --no-audit --no-fund
           npx playwright install --with-deps chromium
 
       - name: External live desktop and mobile acceptance
