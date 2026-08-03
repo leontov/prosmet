@@ -181,6 +181,10 @@ test("greenfield shell uses real agent integration and the mobile reference layo
   evidence.releaseSha = String(health.releaseSha);
   evidence.checks.health = true;
 
+  const faviconResponse = await page.request.get("/favicon.svg");
+  expect(faviconResponse.ok()).toBeTruthy();
+  expect(faviconResponse.headers()["content-type"]).toContain("image/svg+xml");
+
   await page.goto("/", { waitUntil: "networkidle" });
   evidence.origin = new URL(page.url()).origin;
   await expect(page.getByText("Founder", { exact: true })).toHaveCount(0);
