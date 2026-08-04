@@ -1,0 +1,75 @@
+name: Prosmet Production Ledger
+
+on:
+  workflow_run:
+    workflows: ["Prosmet Greenfield Production"]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+concurrency:
+  group: prosmet-production-ledger-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.event.workflow_run.repository.full_name == github.repository &&
+      github.event.workflow_run.head_branch == 'main' &&
+      (
+        github.event.workflow_run.event == 'push' ||
+        github.event.workflow_run.event == 'workflow_dispatch'
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Publish immutable production result to issue 53
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            const jobs = await github.paginate(
+              github.rest.actions.listJobsForWorkflowRun,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                run_id: run.id,
+                per_page: 100
+              }
+            );
+
+            const escaped = (value) => String(value ?? "").replaceAll("|", "\\|");
+            const rows = jobs.length
+              ? jobs.map((job) => `| ${escaped(job.name)} | ${escaped(job.conclusion || job.status)} |`).join("\n")
+              : "| workflow | no jobs returned |";
+            const passed = run.conclusion === "success";
+            const status = passed ? "✅ PRODUCTION PASS" : "❌ PRODUCTION FAIL";
+            const body = [
+              `## ${status}`,
+              "",
+              `- Release SHA: \`${run.head_sha}\``,
+              `- Branch: \`${run.head_branch}\``,
+              `- Event: \`${run.event}\``,
+              `- Workflow run: ${run.html_url}`,
+              `- Completed: \`${run.updated_at}\``,
+              `- Public service: https://kolibriai.online`,
+              `- Health endpoint: https://kolibriai.online/api/health`,
+              "",
+              "| Production job | Result |",
+              "| --- | --- |",
+              rows,
+              "",
+              passed
+                ? `The production workflow accepted exact SHA \`${run.head_sha}\` through local, public HTTPS, post-cleanup, external browser and authenticated critical-path gates.`
+                : `The production workflow did not accept SHA \`${run.head_sha}\`. Inspect the linked run before treating this release as online.`
+            ].join("\n");
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 53,
+              body
+            });
