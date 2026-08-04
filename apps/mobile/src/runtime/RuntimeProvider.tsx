@@ -6,6 +6,7 @@ import {
 } from "@assistant-ui/react-native";
 import type { AgentResponse, ApiErrorBody, Estimate } from "@prosmet/contracts";
 import { mobileApiFetch } from "../agent-session";
+import { recordResponseDuration } from "./response-timing";
 
 type Props = { children: ReactNode; onEstimateReady: (estimate: Estimate) => void };
 
@@ -20,6 +21,7 @@ function errorMessage(status: number, body: unknown) {
 export function RuntimeProvider({ children, onEstimateReady }: Props) {
   const adapter = useMemo<ChatModelAdapter>(() => ({
     async run({ messages, abortSignal }) {
+      const startedAt = Date.now();
       try {
         const requestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
         const response = await mobileApiFetch("/api/agent", {
@@ -56,6 +58,8 @@ export function RuntimeProvider({ children, onEstimateReady }: Props) {
               : "Не удалось выполнить запрос к агенту."
           }]
         };
+      } finally {
+        recordResponseDuration(Date.now() - startedAt);
       }
     }
   }), [onEstimateReady]);
