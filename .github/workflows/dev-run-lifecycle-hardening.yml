@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 concurrency:
   group: prosmet-dev-run-lifecycle-hardening
@@ -61,3 +62,17 @@ jobs:
           git diff --cached --quiet && exit 0
           git commit -m "fix(server): harden lifecycle routing and provider setup"
           git push origin HEAD:feature/construction-lifecycle-v1
+
+      - name: Report result
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 53,
+              body: `LIFECYCLE_HARDENING run=${context.runId} source=${context.sha} status=${process.env.JOB_STATUS}`
+            });
