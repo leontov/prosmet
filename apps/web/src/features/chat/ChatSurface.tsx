@@ -12,12 +12,18 @@ import {
   ArrowDownIcon,
   ArrowUpIcon,
   AudioWaveformIcon,
+  CopyIcon,
   FileSpreadsheetIcon,
   FileTextIcon,
   HammerIcon,
   MicIcon,
+  MoreHorizontalIcon,
   PlusIcon,
+  Share2Icon,
   SparklesIcon,
+  ThumbsDownIcon,
+  ThumbsUpIcon,
+  Volume2Icon,
   XIcon
 } from "lucide-react";
 
@@ -46,6 +52,8 @@ type SpeechRecognitionLike = {
 type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
 
 type ActionView = ConstructionQuickAction & { icon: ReactNode };
+
+let latestResponseTimingMs: number | null = null;
 
 const fallbackActions: ConstructionQuickAction[] = [
   {
@@ -91,6 +99,46 @@ function useConstructionActions(): ActionView[] {
   }, []);
 
   return actions.map((action) => ({ ...action, icon: actionIcon(action.id) }));
+}
+
+function useResponseTiming() {
+  const [durationMs, setDurationMs] = useState<number | null>(latestResponseTimingMs);
+
+  useEffect(() => {
+    const listener = (event: Event) => {
+      const detail = (event as CustomEvent<{ durationMs?: number }>).detail;
+      const next = typeof detail?.durationMs === "number" ? Math.max(0, detail.durationMs) : null;
+      latestResponseTimingMs = next;
+      setDurationMs(next);
+    };
+    window.addEventListener("prosmet:response-timing", listener);
+    return () => window.removeEventListener("prosmet:response-timing", listener);
+  }, []);
+
+  return durationMs;
+}
+
+function formatDuration(durationMs: number) {
+  const seconds = Math.max(1, Math.round(durationMs / 1000));
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  if (!minutes) return `${seconds}s`;
+  return `${minutes}m ${remainder}s`;
+}
+
+async function copyToClipboard(text: string) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  document.execCommand("copy");
+  textarea.remove();
 }
 
 export function ChatSurface({ mobile, hasEstimate, onOpenEstimate }: Props) {
@@ -253,13 +301,25 @@ function MobileComposer({ actions }: { actions: ActionView[] }) {
   }, [aui, text]);
 
   useEffect(() => {
-    const handler = () => startVoice();
-    window.addEventListener("prosmet:start-voice", handler);
+    const startVoiceHandler = () => startVoice();
+    const focusHandler = () => inputRef.current?.focus();
+    const setTextHandler = (event: Event) => {
+      const detail = (event as CustomEvent<{ text?: string; focus?: boolean; send?: boolean }>).detail;
+      aui.composer().setText(detail?.text || "");
+      if (detail?.focus !== false) window.requestAnimationFrame(() => inputRef.current?.focus());
+      if (detail?.send && detail.text?.trim()) window.setTimeout(() => aui.composer().send(), 0);
+    };
+
+    window.addEventListener("prosmet:start-voice", startVoiceHandler);
+    window.addEventListener("prosmet:focus-composer", focusHandler);
+    window.addEventListener("prosmet:set-composer-text", setTextHandler);
     return () => {
-      window.removeEventListener("prosmet:start-voice", handler);
+      window.removeEventListener("prosmet:start-voice", startVoiceHandler);
+      window.removeEventListener("prosmet:focus-composer", focusHandler);
+      window.removeEventListener("prosmet:set-composer-text", setTextHandler);
       recognitionRef.current?.stop();
     };
-  }, [startVoice]);
+  }, [aui, startVoice]);
 
   const chooseUtility = (prompt: string) => {
     aui.composer().setText(prompt);
@@ -324,10 +384,60 @@ function UserMessage() {
 }
 
 function AssistantMessage() {
+  const copyRef = useRef<HTMLDivElement | null>(null);
+  const durationMs = useResponseTiming();
+  const [feedback, setFeedback] = useState<"up" | "down" | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+
+  const text = () => copyRef.current?.innerText.trim() || "";
+
+  const copy = async () => {
+    const value = text();
+    if (value) await copyToClipboard(value);
+    setMoreOpen(false);
+  };
+
+  const speak = () => {
+    const value = text();
+    if (!value || !("speechSynthesis" in window)) return;
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(value);
+    utterance.lang = "ru-RU";
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const share = async () => {
+    const value = text();
+    if (!value) return;
+    if (navigator.share) {
+      await navigator.share({ title: "Ответ ProSmet", text: value }).catch(() => undefined);
+    } else {
+      await copyToClipboard(value);
+    }
+    setMoreOpen(false);
+  };
+
   return (
     <MessagePrimitive.Root className="message assistant-message">
       <div className="assistant-avatar"><SparklesIcon /></div>
-      <div className="assistant-copy"><MessagePrimitive.Parts /></div>
+      <div className="assistant-response">
+        {durationMs !== null ? <div className="mobile-response-meta">Обработка заняла {formatDuration(durationMs)}</div> : null}
+        <div ref={copyRef} className="assistant-copy"><MessagePrimitive.Parts /></div>
+        <div className="mobile-assistant-actions" aria-label="Действия с ответом">
+          <button type="button" aria-label="Копировать ответ" onClick={() => void copy()}><CopyIcon /></button>
+          <button type="button" aria-label="Озвучить ответ" onClick={speak}><Volume2Icon /></button>
+          <button type="button" aria-label="Полезный ответ" aria-pressed={feedback === "up"} onClick={() => setFeedback((value) => value === "up" ? null : "up")}><ThumbsUpIcon /></button>
+          <button type="button" aria-label="Неполезный ответ" aria-pressed={feedback === "down"} onClick={() => setFeedback((value) => value === "down" ? null : "down")}><ThumbsDownIcon /></button>
+          <button type="button" aria-label="Поделиться ответом" onClick={() => void share()}><Share2Icon /></button>
+          <button type="button" aria-label="Больше действий с ответом" aria-expanded={moreOpen} onClick={() => setMoreOpen((value) => !value)}><MoreHorizontalIcon /></button>
+          {moreOpen ? (
+            <div className="mobile-assistant-more-menu" role="menu">
+              <button type="button" role="menuitem" onClick={() => void copy()}>Копировать</button>
+              <button type="button" role="menuitem" onClick={() => void share()}>Поделиться</button>
+            </div>
+          ) : null}
+        </div>
+      </div>
     </MessagePrimitive.Root>
   );
 }
