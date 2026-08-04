@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 concurrency:
   group: prosmet-dev-apply-construction-lifecycle
@@ -67,3 +68,15 @@ jobs:
           git diff --cached --quiet && exit 0
           git commit -m "feat(lifecycle): complete construction workflow and professional UX"
           git push origin HEAD:feature/construction-lifecycle-v1
+
+      - name: Report apply result
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 53,
+              body: `LIFECYCLE_APPLY run=${context.runId} sha=${context.sha} status=${{ job.status }}`
+            });
