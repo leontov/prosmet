@@ -68,6 +68,7 @@ jobs:
           NODE
           printf '%s  %s\n' "$BUNDLE_SHA256" "$BUNDLE_PATH" | sha256sum -c -
           tar -xJf "$BUNDLE_PATH" -C "$GITHUB_WORKSPACE"
+          sed -i 's/asksEstimate/estimateRequested/g' apps/web/server.mjs
           rm -f "$GITHUB_WORKSPACE/.github/workflows/dev-apply-construction-lifecycle.yml"
 
       - name: Verify complete implementation
