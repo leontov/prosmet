@@ -20,9 +20,17 @@ function errorMessage(status: number, body: unknown) {
   return `Агент недоступен: HTTP ${status}`;
 }
 
+function emitResponseTiming(startedAt: number, aborted: boolean) {
+  if (aborted || typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent("prosmet:response-timing", {
+    detail: { durationMs: Math.max(0, Date.now() - startedAt) }
+  }));
+}
+
 export function RuntimeProvider({ children, onEstimateReady }: Props) {
   const adapter = useMemo<ChatModelAdapter>(() => ({
     async run({ messages, abortSignal }) {
+      const startedAt = Date.now();
       try {
         const requestId = crypto.randomUUID();
         const response = await fetch("/api/agent", {
@@ -65,6 +73,8 @@ export function RuntimeProvider({ children, onEstimateReady }: Props) {
               : "Не удалось выполнить запрос к агенту."
           }]
         };
+      } finally {
+        emitResponseTiming(startedAt, abortSignal.aborted);
       }
     }
   }), [onEstimateReady]);

@@ -1,0 +1,16 @@
+@media (max-width: 767px) {
+  .prosmet-mobile-stage .mobile-settings > .section-title h1,
+  .prosmet-mobile-stage .mobile-account > .section-title h1 {
+    display: none;
+  }
+
+  .prosmet-mobile-stage .mobile-settings > .section-title,
+  .prosmet-mobile-stage .mobile-account > .section-title {
+    padding-top: 22px;
+  }
+
+  .prosmet-mobile-stage .mobile-settings > .section-title p,
+  .prosmet-mobile-stage .mobile-account > .section-title p {
+    margin-top: 0;
+  }
+}
