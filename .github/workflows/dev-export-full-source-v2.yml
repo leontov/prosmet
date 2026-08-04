@@ -1,0 +1,43 @@
+name: Prosmet Dev Export Full Source V2
+
+on:
+  push:
+    branches: [feature/product-lifecycle-v2]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prosmet-dev-export-full-source-v2
+  cancel-in-progress: true
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Pack repository source
+        run: |
+          set -Eeuo pipefail
+          tar \
+            --exclude=.git \
+            --exclude=node_modules \
+            --exclude=target \
+            --exclude='apps/*/dist' \
+            --exclude='apps/web/playwright-report' \
+            --exclude='apps/web/test-results' \
+            -czf "$RUNNER_TEMP/prosmet-full-source-v2.tgz" .
+          sha256sum "$RUNNER_TEMP/prosmet-full-source-v2.tgz" > "$RUNNER_TEMP/prosmet-full-source-v2.tgz.sha256"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prosmet-full-source-v2-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/prosmet-full-source-v2.tgz
+            ${{ runner.temp }}/prosmet-full-source-v2.tgz.sha256
+          retention-days: 2
