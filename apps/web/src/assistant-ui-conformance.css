@@ -1,0 +1,165 @@
+:root {
+  --prosmet-ui-canvas: #ffffff;
+  --prosmet-ui-soft: #f1f1f2;
+  --prosmet-ui-sidebar: #f4f4f5;
+  --prosmet-ui-text: #111214;
+  --prosmet-ui-muted: #66676a;
+  --prosmet-ui-faint: #9a9b9e;
+  --prosmet-ui-border: rgba(17, 18, 20, .12);
+  --prosmet-ui-border-strong: rgba(17, 18, 20, .78);
+  --prosmet-ui-blue: #0a84ff;
+}
+
+.action-copy-complete {
+  display: none;
+}
+
+[data-copied] > .action-copy-default {
+  display: none;
+}
+
+[data-copied] > .action-copy-complete {
+  display: block;
+}
+
+.desktop-assistant-actions {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  margin-top: 12px;
+  opacity: 0;
+  transition: opacity .15s ease;
+}
+
+.assistant-message:hover .desktop-assistant-actions,
+.desktop-assistant-actions:focus-within,
+.desktop-assistant-actions[data-floating] {
+  opacity: 1;
+}
+
+.desktop-assistant-actions > button,
+.desktop-assistant-actions [data-radix-collection-item],
+.desktop-assistant-actions .assistant-action-more {
+  width: 34px;
+  height: 34px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--prosmet-ui-muted);
+}
+
+.desktop-assistant-actions > button:hover,
+.desktop-assistant-actions .assistant-action-more:hover,
+.desktop-assistant-actions > button[data-submitted] {
+  background: var(--prosmet-ui-soft);
+  color: var(--prosmet-ui-text);
+}
+
+.desktop-assistant-actions svg {
+  width: 17px;
+  height: 17px;
+}
+
+.mobile-assistant-more-menu {
+  z-index: 2200;
+  width: 224px;
+  display: grid;
+  gap: 3px;
+  border: 1px solid var(--prosmet-ui-border);
+  border-radius: 18px;
+  background: var(--prosmet-ui-canvas);
+  padding: 7px;
+  color: var(--prosmet-ui-text);
+  box-shadow: 0 18px 48px rgba(17, 18, 20, .16);
+}
+
+.assistant-action-menu-item {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  padding: 0 12px;
+  color: var(--prosmet-ui-text);
+  text-align: left;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.assistant-action-menu-item:hover,
+.assistant-action-menu-item:focus-visible {
+  background: var(--prosmet-ui-soft);
+  outline: 0;
+}
+
+.assistant-action-menu-item svg {
+  width: 18px;
+  height: 18px;
+  color: var(--prosmet-ui-muted);
+}
+
+@media (max-width: 767px) {
+  .mobile-assistant-actions {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin: 20px 0 34px;
+  }
+
+  .mobile-assistant-actions > button,
+  .mobile-assistant-actions .assistant-action-more {
+    width: 39px;
+    height: 39px;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: #696a6d;
+  }
+
+  .mobile-assistant-actions > button:active,
+  .mobile-assistant-actions .assistant-action-more:active,
+  .mobile-assistant-actions > button[data-submitted],
+  .mobile-assistant-actions > button[data-active] {
+    background: #e7e7e9;
+    color: var(--prosmet-ui-text);
+  }
+
+  .mobile-assistant-actions svg {
+    width: 21px;
+    height: 21px;
+    stroke-width: 2.1;
+  }
+
+  .mobile-assistant-actions[data-floating] {
+    border: 1px solid var(--prosmet-ui-border);
+    border-radius: 22px;
+    background: rgba(255, 255, 255, .96);
+    padding: 3px;
+    box-shadow: 0 14px 38px rgba(17, 18, 20, .12);
+    backdrop-filter: blur(18px);
+  }
+
+  .mobile-assistant-more-menu {
+    width: min(224px, calc(100vw - 32px));
+  }
+
+  .mobile-reference-microphone[data-active],
+  .mobile-reference-microphone[data-state="active"] {
+    background: rgba(10, 132, 255, .11);
+    color: var(--prosmet-ui-blue);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .desktop-assistant-actions {
+    transition: none;
+  }
+}
