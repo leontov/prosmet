@@ -175,7 +175,7 @@ const styles = StyleSheet.create({
   tabs: { minHeight: 70, alignItems: "center", gap: 18, paddingHorizontal: 16, paddingVertical: 10 },
   tab: { minHeight: 48, alignItems: "center", justifyContent: "center", borderRadius: 25, paddingHorizontal: 17 },
   tabSelected: { backgroundColor: "#f1f1f2" },
-  tabText: { color: "#9a9b9e", fontSize: 20, lineHeight: 25, fontWeight: "750", letterSpacing: -0.45 },
+  tabText: { color: "#9a9b9e", fontSize: 20, lineHeight: 25, fontWeight: "700", letterSpacing: -0.45 },
   tabTextSelected: { color: "#111214" },
   searchLayer: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 34, paddingTop: 10, backgroundColor: "rgba(255,255,255,0.96)" },
   searchDock: {
@@ -194,5 +194,5 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 12 },
     elevation: 5
   },
-  searchInput: { minHeight: 54, flex: 1, color: "#111214", fontSize: 20, lineHeight: 25, fontWeight: "650", paddingVertical: 0 }
+  searchInput: { minHeight: 54, flex: 1, color: "#111214", fontSize: 20, lineHeight: 25, fontWeight: "600", paddingVertical: 0 }
 });
