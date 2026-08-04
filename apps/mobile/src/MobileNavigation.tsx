@@ -245,7 +245,7 @@ const styles = StyleSheet.create({
   primaryRow: { minHeight: 58, flexDirection: "row", alignItems: "center", gap: 17, borderRadius: 16, paddingHorizontal: 8 },
   primaryRowSelected: { backgroundColor: "#f2f2f3" },
   primaryIcon: { width: 38, alignItems: "center", justifyContent: "center" },
-  primaryLabel: { flex: 1, color: "#111214", fontSize: 22, lineHeight: 28, fontWeight: "750", letterSpacing: -0.65 },
+  primaryLabel: { flex: 1, color: "#111214", fontSize: 22, lineHeight: 28, fontWeight: "700", letterSpacing: -0.65 },
   section: { marginTop: 28 },
   sectionTitle: { marginBottom: 12, paddingHorizontal: 6, color: "#111214", fontSize: 22, lineHeight: 28, fontWeight: "800", letterSpacing: -0.65 },
   compactRow: { minHeight: 52, flexDirection: "row", alignItems: "center", gap: 13, borderRadius: 14, paddingHorizontal: 7 },
