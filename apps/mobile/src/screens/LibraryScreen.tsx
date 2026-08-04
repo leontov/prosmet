@@ -156,6 +156,6 @@ const styles = StyleSheet.create({
   emptyText: { marginTop: 9, color: "#8f9094", fontSize: 15, lineHeight: 22, textAlign: "center" },
   sortMenu: { position: "absolute", top: 68, right: 16, zIndex: 20, width: 214, borderWidth: 1, borderColor: "rgba(17,18,20,0.14)", borderRadius: 20, backgroundColor: theme.canvas, padding: 8, shadowColor: "#111214", shadowOpacity: 0.15, shadowRadius: 24, shadowOffset: { width: 0, height: 12 }, elevation: 12 },
   sortRow: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderRadius: 14, paddingHorizontal: 12 },
-  sortText: { color: "#111214", fontSize: 16, fontWeight: "650" },
+  sortText: { color: "#111214", fontSize: 16, fontWeight: "600" },
   sortCheck: { color: "#111214", fontSize: 20, fontWeight: "800" }
 });
