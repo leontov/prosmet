@@ -10,6 +10,7 @@ import "./agent-integrations.css";
 import "./workspace-real.css";
 import "./mobile-native-online.css";
 import "./mobile-online-accessibility.css";
+import "./assistant-ui-conformance.css";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Root element is missing");

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AccessibilityInfo,
   KeyboardAvoidingView,
@@ -8,7 +8,6 @@ import {
   Share,
   StyleSheet,
   Text,
-  TextInput,
   View
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -22,7 +21,6 @@ import {
 } from "@assistant-ui/react-native";
 import { CircleButton, ScreenHeader } from "../MobileChrome";
 import {
-  ChevronGlyph,
   ComposeGlyph,
   CopyGlyph,
   GlobeGlyph,
@@ -37,7 +35,6 @@ import {
   ThumbGlyph,
   VoiceGlyph
 } from "../ReferenceIcons";
-import { formatResponseDuration, readResponseDuration } from "../runtime/response-timing";
 import { theme } from "../theme";
 
 export type PendingPrompt = { id: number; text: string } | null;
@@ -61,6 +58,12 @@ type QuickAction = {
   prompt: string;
 };
 
+type MessageTimingMetadata = {
+  timing?: {
+    totalStreamTime?: number;
+  };
+};
+
 const quickActions: QuickAction[] = [
   {
     id: "estimate",
@@ -78,6 +81,13 @@ const quickActions: QuickAction[] = [
     prompt: "Найди и сопоставь актуальные цены на строительные работы и материалы для моего региона."
   }
 ];
+
+function formatResponseDuration(durationMs: number) {
+  const seconds = Math.max(1, Math.round(durationMs / 1000));
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return minutes ? `${minutes}m ${remainder}s` : `${seconds}s`;
+}
 
 export function ChatScreen({
   hasEstimate,
@@ -171,18 +181,13 @@ export function ChatScreen({
 
 function MobileComposer({ focusRequest, pendingPrompt, onPromptConsumed }: { focusRequest: number; pendingPrompt: PendingPrompt; onPromptConsumed: () => void }) {
   const insets = useSafeAreaInsets();
-  const inputRef = useRef<TextInput | null>(null);
   const aui = useAui();
-  const text = useAuiState((state) => state.composer.text);
-
-  useEffect(() => {
-    if (focusRequest > 0) inputRef.current?.focus();
-  }, [focusRequest]);
+  const [localFocusRequest, setLocalFocusRequest] = useState(0);
+  const shouldFocus = focusRequest > 0 || Boolean(pendingPrompt) || localFocusRequest > 0;
 
   useEffect(() => {
     if (!pendingPrompt) return;
     aui.composer().setText(pendingPrompt.text);
-    inputRef.current?.focus();
     const timer = setTimeout(() => {
       aui.composer().send();
       onPromptConsumed();
@@ -190,28 +195,23 @@ function MobileComposer({ focusRequest, pendingPrompt, onPromptConsumed }: { foc
     return () => clearTimeout(timer);
   }, [aui, onPromptConsumed, pendingPrompt]);
 
-  const send = () => {
-    if (!text.trim()) return;
-    aui.composer().send();
-  };
+  const requestFocus = () => setLocalFocusRequest((value) => value + 1);
 
   return (
     <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
       <ComposerPrimitive.Root style={styles.composer}>
-        <Pressable style={styles.composerUtility} accessibilityRole="button" accessibilityLabel="Добавить запрос" onPress={() => inputRef.current?.focus()}><PlusGlyph /></Pressable>
-        <TextInput
-          ref={inputRef}
+        <Pressable style={styles.composerUtility} accessibilityRole="button" accessibilityLabel="Добавить запрос" onPress={requestFocus}><PlusGlyph /></Pressable>
+        <ComposerPrimitive.Input
+          key={`${focusRequest}:${pendingPrompt?.id ?? 0}:${localFocusRequest}`}
           style={styles.input}
-          value={text}
-          onChangeText={(value) => aui.composer().setText(value)}
-          onSubmitEditing={send}
-          blurOnSubmit={false}
           placeholder="Спросить Chat..."
-          placeholderTextColor="#9a9b9e"
+          placeholderTextColor={theme.faint}
           multiline
+          submitMode="enter"
+          autoFocus={shouldFocus}
           accessibilityLabel="Сообщение"
         />
-        <Pressable style={styles.composerMic} accessibilityRole="button" accessibilityLabel="Голосовой ввод" onPress={() => inputRef.current?.focus()}><MicGlyph /></Pressable>
+        <Pressable style={styles.composerMic} accessibilityRole="button" accessibilityLabel="Голосовой ввод" onPress={requestFocus}><MicGlyph /></Pressable>
         <ComposerPrimitive.Send style={styles.send} accessibilityLabel="Отправить">
           <View style={styles.sendGlyph}><VoiceGlyph color="#ffffff" /></View>
         </ComposerPrimitive.Send>
@@ -246,17 +246,14 @@ function UserMessage() {
 function AssistantMessage() {
   const content = useAuiState((state) => state.message.content);
   const running = useAuiState((state) => state.thread.isRunning);
+  const duration = useAuiState((state) => {
+    const metadata = (state.message as unknown as { metadata?: MessageTimingMetadata }).metadata;
+    const value = metadata?.timing?.totalStreamTime;
+    return typeof value === "number" ? value : null;
+  });
   const text = useMemo(() => messageText(content), [content]);
-  const startedAt = useRef(Date.now());
-  const [duration, setDuration] = useState<number | null>(null);
   const [feedback, setFeedback] = useState<"up" | "down" | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
-
-  useEffect(() => {
-    if (!running && duration === null) {
-      setDuration(Math.max(Date.now() - startedAt.current, readResponseDuration()));
-    }
-  }, [duration, running]);
 
   const copy = async () => {
     const clipboard = (globalThis as unknown as { navigator?: { clipboard?: { writeText?: (value: string) => Promise<void> } } }).navigator?.clipboard;
@@ -269,19 +266,19 @@ function AssistantMessage() {
 
   return (
     <MessagePrimitive.Root style={styles.assistantMessage}>
-      <Text style={styles.processing}>{running && duration === null ? "Обработка…" : `Обработка заняла ${formatResponseDuration(duration || readResponseDuration())}`}</Text>
+      <Text style={styles.processing}>{running && duration === null ? "Обработка…" : `Обработка заняла ${formatResponseDuration(duration ?? 1000)}`}</Text>
       <View style={styles.divider} />
       <Text style={styles.assistantText}>{text}</Text>
       <View style={styles.messageActions}>
         <Pressable accessibilityRole="button" accessibilityLabel="Скопировать ответ" onPress={() => void copy()} style={styles.plainAction}><CopyGlyph /></Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel="Озвучить ответ" onPress={speak} style={styles.plainAction}><SpeakerGlyph /></Pressable>
         <View style={styles.feedbackPill}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Полезный ответ" onPress={() => setFeedback(feedback === "up" ? null : "up")} style={[styles.feedbackAction, feedback === "up" && styles.feedbackSelected]}><ThumbGlyph color={feedback === "up" ? "#111214" : "#66676a"} /></Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel="Неполезный ответ" onPress={() => setFeedback(feedback === "down" ? null : "down")} style={[styles.feedbackAction, feedback === "down" && styles.feedbackSelected]}><ThumbGlyph down color={feedback === "down" ? "#111214" : "#66676a"} /></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Полезный ответ" onPress={() => setFeedback(feedback === "up" ? null : "up")} style={[styles.feedbackAction, feedback === "up" && styles.feedbackSelected]}><ThumbGlyph color={feedback === "up" ? theme.text : theme.muted} /></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Неполезный ответ" onPress={() => setFeedback(feedback === "down" ? null : "down")} style={[styles.feedbackAction, feedback === "down" && styles.feedbackSelected]}><ThumbGlyph down color={feedback === "down" ? theme.text : theme.muted} /></Pressable>
         </View>
         <Pressable accessibilityRole="button" accessibilityLabel="Поделиться ответом" onPress={() => void share()} style={styles.plainAction}><ShareGlyph /></Pressable>
         <View style={styles.moreWrap}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Другие действия с ответом" onPress={() => setMoreOpen((value) => !value)} style={styles.morePill}><MoreGlyph color="#66676a" /></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Другие действия с ответом" onPress={() => setMoreOpen((value) => !value)} style={styles.morePill}><MoreGlyph color={theme.muted} /></Pressable>
           {moreOpen ? <View style={styles.messageMenu}><Pressable onPress={() => void copy()} style={styles.messageMenuRow}><Text style={styles.messageMenuText}>Скопировать</Text></Pressable><Pressable onPress={() => void share()} style={styles.messageMenuRow}><Text style={styles.messageMenuText}>Поделиться</Text></Pressable></View> : null}
         </View>
       </View>
@@ -293,11 +290,11 @@ const styles = StyleSheet.create({
   screen: { flex: 1, position: "relative", backgroundColor: theme.canvas },
   pressed: { opacity: 0.72, transform: [{ scale: 0.98 }] },
   conversationHeader: { minHeight: 74, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, backgroundColor: theme.canvas },
-  headerActions: { width: 130, height: 48, flexDirection: "row", alignItems: "center", borderWidth: 1.2, borderColor: "rgba(17,18,20,0.78)", borderRadius: 25, backgroundColor: theme.canvas, shadowColor: "#111214", shadowOpacity: 0.08, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 4 },
+  headerActions: { width: 130, height: 48, flexDirection: "row", alignItems: "center", borderWidth: 1.2, borderColor: theme.borderStrong, borderRadius: 25, backgroundColor: theme.canvas, shadowColor: theme.text, shadowOpacity: 0.08, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 4 },
   headerAction: { width: 64, height: 46, alignItems: "center", justifyContent: "center", borderRadius: 23 },
-  headerMenu: { position: "absolute", top: 66, right: 16, zIndex: 30, width: 196, borderWidth: 1, borderColor: "rgba(17,18,20,0.12)", borderRadius: 20, backgroundColor: theme.canvas, padding: 8, shadowColor: "#111214", shadowOpacity: 0.14, shadowRadius: 24, shadowOffset: { width: 0, height: 12 }, elevation: 14 },
+  headerMenu: { position: "absolute", top: 66, right: 16, zIndex: 30, width: 196, borderWidth: 1, borderColor: theme.border, borderRadius: 20, backgroundColor: theme.canvas, padding: 8, shadowColor: theme.text, shadowOpacity: 0.14, shadowRadius: 24, shadowOffset: { width: 0, height: 12 }, elevation: 14 },
   headerMenuRow: { minHeight: 48, justifyContent: "center", borderRadius: 14, paddingHorizontal: 12 },
-  headerMenuText: { color: "#111214", fontSize: 16, lineHeight: 21, fontWeight: "600" },
+  headerMenuText: { color: theme.text, fontSize: 16, lineHeight: 21, fontWeight: "600" },
   thread: { flex: 1 },
   emptyScroll: { flex: 1 },
   emptyContent: { flexGrow: 1, justifyContent: "flex-end", paddingHorizontal: 28, paddingBottom: 14 },
@@ -305,16 +302,16 @@ const styles = StyleSheet.create({
   quickActions: { gap: 14 },
   quickAction: { minHeight: 46, flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 14, paddingVertical: 3 },
   quickIcon: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
-  quickText: { flex: 1, color: "#66676a", fontSize: 18, lineHeight: 23, fontWeight: "600", letterSpacing: -0.35 },
+  quickText: { flex: 1, color: theme.muted, fontSize: 18, lineHeight: 23, fontWeight: "600", letterSpacing: -0.35 },
   messageList: { flex: 1 },
   messages: { flexGrow: 1, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 24 },
   userMessage: { alignItems: "flex-end", marginBottom: 38 },
-  userBubble: { maxWidth: "84%", borderRadius: 25, backgroundColor: "#f2f2f3", paddingHorizontal: 16, paddingVertical: 12 },
-  userText: { color: "#111214", fontSize: 18, lineHeight: 25, fontWeight: "600" },
+  userBubble: { maxWidth: "84%", borderRadius: 25, backgroundColor: theme.soft, paddingHorizontal: 16, paddingVertical: 12 },
+  userText: { color: theme.text, fontSize: 18, lineHeight: 25, fontWeight: "600" },
   assistantMessage: { alignItems: "stretch", marginBottom: 28 },
-  processing: { color: "#9b9c9f", fontSize: 17, lineHeight: 24, fontWeight: "600", letterSpacing: -0.3 },
-  divider: { height: StyleSheet.hairlineWidth, marginTop: 18, marginBottom: 22, backgroundColor: "#e3e3e4" },
-  assistantText: { color: "#111214", fontSize: 19, lineHeight: 28, fontWeight: "600", letterSpacing: -0.35 },
+  processing: { color: theme.faint, fontSize: 17, lineHeight: 24, fontWeight: "600", letterSpacing: -0.3 },
+  divider: { height: StyleSheet.hairlineWidth, marginTop: 18, marginBottom: 22, backgroundColor: theme.border },
+  assistantText: { color: theme.text, fontSize: 19, lineHeight: 28, fontWeight: "600", letterSpacing: -0.35 },
   messageActions: { minHeight: 54, flexDirection: "row", alignItems: "center", marginTop: 13 },
   plainAction: { width: 38, height: 48, alignItems: "center", justifyContent: "center", borderRadius: 24, transform: [{ scale: 0.78 }] },
   feedbackPill: { height: 50, flexDirection: "row", alignItems: "center", borderRadius: 25, backgroundColor: "#e8e8e9", paddingHorizontal: 2 },
@@ -322,9 +319,9 @@ const styles = StyleSheet.create({
   feedbackSelected: { backgroundColor: "rgba(255,255,255,0.72)" },
   moreWrap: { position: "relative" },
   morePill: { width: 58, height: 50, alignItems: "center", justifyContent: "center", borderRadius: 25, backgroundColor: "#e8e8e9", transform: [{ scale: 1 }] },
-  messageMenu: { position: "absolute", right: 0, bottom: 58, zIndex: 20, width: 160, borderWidth: 1, borderColor: "rgba(17,18,20,0.12)", borderRadius: 17, backgroundColor: theme.canvas, padding: 6, shadowColor: "#111214", shadowOpacity: 0.14, shadowRadius: 20, shadowOffset: { width: 0, height: 10 }, elevation: 10 },
+  messageMenu: { position: "absolute", right: 0, bottom: 58, zIndex: 20, width: 160, borderWidth: 1, borderColor: theme.border, borderRadius: 17, backgroundColor: theme.canvas, padding: 6, shadowColor: theme.text, shadowOpacity: 0.14, shadowRadius: 20, shadowOffset: { width: 0, height: 10 }, elevation: 10 },
   messageMenuRow: { minHeight: 44, justifyContent: "center", borderRadius: 12, paddingHorizontal: 10 },
-  messageMenuText: { color: "#111214", fontSize: 15, fontWeight: "600" },
+  messageMenuText: { color: theme.text, fontSize: 15, fontWeight: "600" },
   artifact: { minHeight: 96, flexDirection: "row", alignItems: "center", gap: 12, marginTop: 12, borderWidth: 1, borderColor: theme.border, borderRadius: 18, backgroundColor: theme.canvas, padding: 14 },
   artifactIcon: { width: 48, height: 48, overflow: "hidden", borderRadius: 14, backgroundColor: theme.soft, color: theme.text, textAlign: "center", textAlignVertical: "center", fontSize: 20 },
   artifactCopy: { flex: 1 },
@@ -332,10 +329,10 @@ const styles = StyleSheet.create({
   artifactText: { marginTop: 5, color: theme.muted, fontSize: 13 },
   artifactAction: { color: theme.text, fontSize: 12, fontWeight: "700" },
   footer: { paddingHorizontal: 34, paddingTop: 10, backgroundColor: theme.canvas },
-  composer: { minHeight: 58, flexDirection: "row", alignItems: "center", borderWidth: 1.3, borderColor: "rgba(17,18,20,0.82)", borderRadius: 30, backgroundColor: theme.canvas, paddingHorizontal: 5, paddingVertical: 4, shadowColor: "#111214", shadowOpacity: 0.1, shadowRadius: 22, shadowOffset: { width: 0, height: 12 }, elevation: 6 },
+  composer: { minHeight: 58, flexDirection: "row", alignItems: "center", borderWidth: 1.3, borderColor: theme.borderStrong, borderRadius: 30, backgroundColor: theme.canvas, paddingHorizontal: 5, paddingVertical: 4, shadowColor: theme.text, shadowOpacity: 0.1, shadowRadius: 22, shadowOffset: { width: 0, height: 12 }, elevation: 6 },
   composerUtility: { width: 45, height: 48, alignItems: "center", justifyContent: "center", borderRadius: 24 },
-  input: { minHeight: 48, maxHeight: 126, flex: 1, color: "#111214", fontSize: 17, lineHeight: 23, fontWeight: "600", paddingHorizontal: 2, paddingVertical: 10 },
+  input: { minHeight: 48, maxHeight: 126, flex: 1, color: theme.text, fontSize: 17, lineHeight: 23, fontWeight: "600", paddingHorizontal: 2, paddingVertical: 10 },
   composerMic: { width: 42, height: 48, alignItems: "center", justifyContent: "center", borderRadius: 24 },
-  send: { width: 48, height: 48, alignItems: "center", justifyContent: "center", borderRadius: 24, backgroundColor: "#0a84ff" },
+  send: { width: 48, height: 48, alignItems: "center", justifyContent: "center", borderRadius: 24, backgroundColor: theme.blue },
   sendGlyph: { transform: [{ scale: 0.74 }] }
 });

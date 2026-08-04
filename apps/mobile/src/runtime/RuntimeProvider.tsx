@@ -6,7 +6,6 @@ import {
 } from "@assistant-ui/react-native";
 import type { AgentResponse, ApiErrorBody, Estimate } from "@prosmet/contracts";
 import { mobileApiFetch } from "../agent-session";
-import { recordResponseDuration } from "./response-timing";
 
 type Props = { children: ReactNode; onEstimateReady: (estimate: Estimate) => void };
 
@@ -16,6 +15,22 @@ function errorMessage(status: number, body: unknown) {
   if (status === 401) return "Сохраните токен супер-администратора в настройках мобильного приложения.";
   if (status === 409) return "Сначала подключите и активируйте агента в настройках.";
   return `Агент недоступен: HTTP ${status}`;
+}
+
+function timedTextResult(text: string, startedAt: number) {
+  const totalStreamTime = Math.max(0, Date.now() - startedAt);
+  return {
+    content: [{ type: "text" as const, text }],
+    metadata: {
+      timing: {
+        streamStartTime: startedAt,
+        firstTokenTime: totalStreamTime,
+        totalStreamTime,
+        totalChunks: 1,
+        toolCallCount: 0
+      }
+    }
+  };
 }
 
 export function RuntimeProvider({ children, onEstimateReady }: Props) {
@@ -31,7 +46,7 @@ export function RuntimeProvider({ children, onEstimateReady }: Props) {
         });
         const body = await response.json().catch(() => null);
         if (!response.ok) {
-          return { content: [{ type: "text", text: errorMessage(response.status, body) }] };
+          return timedTextResult(errorMessage(response.status, body), startedAt);
         }
 
         const result = body as AgentResponse;
@@ -42,24 +57,20 @@ export function RuntimeProvider({ children, onEstimateReady }: Props) {
           });
           const estimateBody = await estimateResponse.json().catch(() => null);
           if (!estimateResponse.ok) {
-            return { content: [{ type: "text", text: errorMessage(estimateResponse.status, estimateBody) }] };
+            return timedTextResult(errorMessage(estimateResponse.status, estimateBody), startedAt);
           }
           queueMicrotask(() => onEstimateReady(estimateBody as Estimate));
         }
 
-        return { content: [{ type: "text", text: result.text }] };
+        return timedTextResult(result.text, startedAt);
       } catch (error) {
         if (abortSignal.aborted) throw error;
-        return {
-          content: [{
-            type: "text",
-            text: error instanceof Error
-              ? `Не удалось выполнить запрос к агенту: ${error.message}`
-              : "Не удалось выполнить запрос к агенту."
-          }]
-        };
-      } finally {
-        recordResponseDuration(Date.now() - startedAt);
+        return timedTextResult(
+          error instanceof Error
+            ? `Не удалось выполнить запрос к агенту: ${error.message}`
+            : "Не удалось выполнить запрос к агенту.",
+          startedAt
+        );
       }
     }
   }), [onEstimateReady]);
