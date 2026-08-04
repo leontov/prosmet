@@ -1,0 +1,72 @@
+name: Prosmet Dev Sync Mobile Placeholder Contract
+
+on:
+  push:
+    branches: [feature/construction-lifecycle-v1]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: prosmet-dev-sync-mobile-placeholder
+  cancel-in-progress: true
+
+jobs:
+  fix:
+    if: github.event.head_commit.message == 'chore(ci): sync mobile placeholder contract'
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 50
+    env:
+      CI: "1"
+    steps:
+      - name: Verify trusted runner
+        run: test "${{ runner.name }}" = "prosmet-primary"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/construction-lifecycle-v1
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Align the mobile UI contract with the polished composer
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('apps/web/e2e/app.spec.ts')
+          source = path.read_text(encoding='utf-8')
+          old = 'toHaveAttribute("placeholder", "Опишите объект и замеры...")'
+          new = 'toHaveAttribute("placeholder", "Спросить ProSmet…")'
+          if source.count(old) != 1:
+              raise SystemExit(f'Expected one old placeholder assertion, found {source.count(old)}')
+          path.write_text(source.replace(old, new), encoding='utf-8')
+          PY
+          rm -f .github/workflows/dev-sync-mobile-placeholder.yml
+
+      - name: Verify complete product and browser suite
+        run: |
+          set -Eeuo pipefail
+          npm ci --workspaces --include-workspace-root --legacy-peer-deps --no-audit --no-fund
+          npm run verify
+          npm run desktop:metadata
+          npx playwright install chromium
+          npm run e2e
+
+      - name: Commit verified contract
+        run: |
+          set -Eeuo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/web/e2e/app.spec.ts
+          git add -A .github/workflows/dev-sync-mobile-placeholder.yml
+          git diff --cached --quiet && exit 0
+          git commit -m "test(mobile): align composer placeholder contract"
+          git push origin HEAD:feature/construction-lifecycle-v1
