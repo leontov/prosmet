@@ -1,26 +1,32 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
+  ActionBarMorePrimitive,
+  ActionBarPrimitive,
   AuiIf,
   ComposerPrimitive,
   MessagePrimitive,
   ThreadPrimitive,
   useAui,
-  useAuiState
+  useMessageTiming
 } from "@assistant-ui/react";
 import type { CapabilityManifest, ConstructionQuickAction } from "@prosmet/contracts";
 import {
   ArrowDownIcon,
   ArrowUpIcon,
   AudioWaveformIcon,
+  CheckIcon,
   CopyIcon,
+  DownloadIcon,
   FileSpreadsheetIcon,
   FileTextIcon,
   HammerIcon,
   MicIcon,
   MoreHorizontalIcon,
   PlusIcon,
+  RefreshCwIcon,
   Share2Icon,
   SparklesIcon,
+  SquareIcon,
   ThumbsDownIcon,
   ThumbsUpIcon,
   Volume2Icon,
@@ -33,27 +39,7 @@ type Props = {
   onOpenEstimate: () => void;
 };
 
-type SpeechRecognitionResultEventLike = {
-  resultIndex: number;
-  results: ArrayLike<{ isFinal: boolean; 0: { transcript: string } }>;
-};
-
-type SpeechRecognitionLike = {
-  lang: string;
-  continuous: boolean;
-  interimResults: boolean;
-  onresult: ((event: SpeechRecognitionResultEventLike) => void) | null;
-  onerror: (() => void) | null;
-  onend: (() => void) | null;
-  start: () => void;
-  stop: () => void;
-};
-
-type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
-
 type ActionView = ConstructionQuickAction & { icon: ReactNode };
-
-let latestResponseTimingMs: number | null = null;
 
 const fallbackActions: ConstructionQuickAction[] = [
   {
@@ -101,23 +87,6 @@ function useConstructionActions(): ActionView[] {
   return actions.map((action) => ({ ...action, icon: actionIcon(action.id) }));
 }
 
-function useResponseTiming() {
-  const [durationMs, setDurationMs] = useState<number | null>(latestResponseTimingMs);
-
-  useEffect(() => {
-    const listener = (event: Event) => {
-      const detail = (event as CustomEvent<{ durationMs?: number }>).detail;
-      const next = typeof detail?.durationMs === "number" ? Math.max(0, detail.durationMs) : null;
-      latestResponseTimingMs = next;
-      setDurationMs(next);
-    };
-    window.addEventListener("prosmet:response-timing", listener);
-    return () => window.removeEventListener("prosmet:response-timing", listener);
-  }, []);
-
-  return durationMs;
-}
-
 function formatDuration(durationMs: number) {
   const seconds = Math.max(1, Math.round(durationMs / 1000));
   const minutes = Math.floor(seconds / 60);
@@ -126,19 +95,12 @@ function formatDuration(durationMs: number) {
   return `${minutes}m ${remainder}s`;
 }
 
-async function copyToClipboard(text: string) {
-  if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(text);
+async function shareMarkdown(content: string) {
+  if (navigator.share) {
+    await navigator.share({ title: "Ответ ProSmet", text: content }).catch(() => undefined);
     return;
   }
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.style.position = "fixed";
-  textarea.style.opacity = "0";
-  document.body.appendChild(textarea);
-  textarea.select();
-  document.execCommand("copy");
-  textarea.remove();
+  await navigator.clipboard?.writeText(content);
 }
 
 export function ChatSurface({ mobile, hasEstimate, onOpenEstimate }: Props) {
@@ -171,7 +133,7 @@ function DesktopChat({ actions, hasEstimate, onOpenEstimate }: Omit<Props, "mobi
 
         <div className="message-column">
           <ThreadPrimitive.Messages>
-            {({ message }) => message.role === "user" ? <UserMessage /> : <AssistantMessage />}
+            {({ message }) => message.role === "user" ? <UserMessage /> : <AssistantMessage mobile={false} />}
           </ThreadPrimitive.Messages>
           {hasEstimate ? (
             <button type="button" className="artifact-row" onClick={onOpenEstimate}>
@@ -216,7 +178,7 @@ function MobileChat({ actions, hasEstimate, onOpenEstimate }: Omit<Props, "mobil
 
         <div className="mobile-reference-message-column">
           <ThreadPrimitive.Messages>
-            {({ message }) => message.role === "user" ? <UserMessage /> : <AssistantMessage />}
+            {({ message }) => message.role === "user" ? <UserMessage /> : <AssistantMessage mobile />}
           </ThreadPrimitive.Messages>
           {hasEstimate ? (
             <button type="button" className="mobile-artifact" onClick={onOpenEstimate}>
@@ -252,56 +214,10 @@ function DesktopComposer() {
 
 function MobileComposer({ actions }: { actions: ActionView[] }) {
   const aui = useAui();
-  const text = useAuiState((state) => state.composer.text);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const [utilityOpen, setUtilityOpen] = useState(false);
-  const [listening, setListening] = useState(false);
-  const [voiceError, setVoiceError] = useState<string | null>(null);
-
-  const startVoice = useCallback(() => {
-    setVoiceError(null);
-    const speechWindow = window as typeof window & {
-      SpeechRecognition?: SpeechRecognitionConstructor;
-      webkitSpeechRecognition?: SpeechRecognitionConstructor;
-    };
-    const Recognition = (speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition) as unknown as SpeechRecognitionConstructor | undefined;
-    if (!Recognition) {
-      setVoiceError("Голосовой ввод не поддерживается этим браузером");
-      inputRef.current?.focus();
-      return;
-    }
-
-    recognitionRef.current?.stop();
-    const recognition = new Recognition() as SpeechRecognitionLike;
-    recognition.lang = "ru-RU";
-    recognition.continuous = false;
-    recognition.interimResults = true;
-    recognition.onresult = (event: SpeechRecognitionResultEventLike) => {
-      let transcript = "";
-      for (let index = event.resultIndex; index < event.results.length; index += 1) {
-        transcript += event.results[index]?.[0]?.transcript ?? "";
-      }
-      if (transcript.trim()) {
-        const prefix = text.trim() ? `${text.trim()} ` : "";
-        aui.composer().setText(`${prefix}${transcript.trim()}`);
-      }
-    };
-    recognition.onerror = () => {
-      setVoiceError("Не удалось распознать речь");
-      setListening(false);
-    };
-    recognition.onend = () => {
-      setListening(false);
-      inputRef.current?.focus();
-    };
-    recognitionRef.current = recognition;
-    setListening(true);
-    recognition.start();
-  }, [aui, text]);
 
   useEffect(() => {
-    const startVoiceHandler = () => startVoice();
     const focusHandler = () => inputRef.current?.focus();
     const setTextHandler = (event: Event) => {
       const detail = (event as CustomEvent<{ text?: string; focus?: boolean; send?: boolean }>).detail;
@@ -310,22 +226,19 @@ function MobileComposer({ actions }: { actions: ActionView[] }) {
       if (detail?.send && detail.text?.trim()) window.setTimeout(() => aui.composer().send(), 0);
     };
 
-    window.addEventListener("prosmet:start-voice", startVoiceHandler);
     window.addEventListener("prosmet:focus-composer", focusHandler);
     window.addEventListener("prosmet:set-composer-text", setTextHandler);
     return () => {
-      window.removeEventListener("prosmet:start-voice", startVoiceHandler);
       window.removeEventListener("prosmet:focus-composer", focusHandler);
       window.removeEventListener("prosmet:set-composer-text", setTextHandler);
-      recognitionRef.current?.stop();
     };
-  }, [aui, startVoice]);
+  }, [aui]);
 
-  const chooseUtility = (prompt: string) => {
+  const chooseUtility = useCallback((prompt: string) => {
     aui.composer().setText(prompt);
     setUtilityOpen(false);
     window.requestAnimationFrame(() => inputRef.current?.focus());
-  };
+  }, [aui]);
 
   return (
     <div className="mobile-reference-composer-wrap">
@@ -340,8 +253,7 @@ function MobileComposer({ actions }: { actions: ActionView[] }) {
           ))}
         </div>
       ) : null}
-      {voiceError ? <div className="mobile-reference-voice-error" role="status">{voiceError}</div> : null}
-      <ComposerPrimitive.Root className="mobile-reference-composer">
+      <ComposerPrimitive.Root compact className="mobile-reference-composer">
         <button
           type="button"
           className="mobile-reference-plus"
@@ -356,17 +268,20 @@ function MobileComposer({ actions }: { actions: ActionView[] }) {
           id="mobile-message"
           name="mobile-message"
           rows={1}
+          unstable_insertNewlineOnTouchEnter
           placeholder="Опишите объект и замеры..."
           className="composer-input"
         />
-        <button
-          type="button"
-          className={listening ? "mobile-reference-microphone listening" : "mobile-reference-microphone"}
-          aria-label={listening ? "Остановить голосовой ввод" : "Голосовой ввод"}
-          onClick={() => listening ? recognitionRef.current?.stop() : startVoice()}
-        >
-          <MicIcon />
-        </button>
+        <AuiIf condition={(state) => state.composer.dictation == null}>
+          <ComposerPrimitive.Dictate className="mobile-reference-microphone" aria-label="Голосовой ввод">
+            <MicIcon />
+          </ComposerPrimitive.Dictate>
+        </AuiIf>
+        <AuiIf condition={(state) => state.composer.dictation != null}>
+          <ComposerPrimitive.StopDictation className="mobile-reference-microphone listening" aria-label="Остановить голосовой ввод">
+            <SquareIcon />
+          </ComposerPrimitive.StopDictation>
+        </AuiIf>
         <ComposerPrimitive.Send className="mobile-reference-send" aria-label="Отправить">
           <AudioWaveformIcon />
         </ComposerPrimitive.Send>
@@ -383,60 +298,59 @@ function UserMessage() {
   );
 }
 
-function AssistantMessage() {
-  const copyRef = useRef<HTMLDivElement | null>(null);
-  const durationMs = useResponseTiming();
-  const [feedback, setFeedback] = useState<"up" | "down" | null>(null);
-  const [moreOpen, setMoreOpen] = useState(false);
+function MessageTimingLabel() {
+  const timing = useMessageTiming();
+  if (timing?.totalStreamTime === undefined) return null;
+  return <div className="mobile-response-meta">Обработка заняла {formatDuration(timing.totalStreamTime)}</div>;
+}
 
-  const text = () => copyRef.current?.innerText.trim() || "";
+function AssistantActionBar({ mobile }: { mobile: boolean }) {
+  return (
+    <ActionBarPrimitive.Root
+      hideWhenRunning
+      autohide={mobile ? "not-last" : "always"}
+      autohideFloat={mobile ? "single-branch" : "always"}
+      className={mobile ? "mobile-assistant-actions" : "desktop-assistant-actions"}
+      aria-label="Действия с ответом"
+    >
+      <ActionBarPrimitive.Copy copiedDuration={1800} aria-label="Копировать ответ">
+        <CopyIcon className="action-copy-default" />
+        <CheckIcon className="action-copy-complete" />
+      </ActionBarPrimitive.Copy>
+      <AuiIf condition={(state) => state.message.speech == null}>
+        <ActionBarPrimitive.Speak aria-label="Озвучить ответ"><Volume2Icon /></ActionBarPrimitive.Speak>
+      </AuiIf>
+      <AuiIf condition={(state) => state.message.speech != null}>
+        <ActionBarPrimitive.StopSpeaking aria-label="Остановить озвучивание"><SquareIcon /></ActionBarPrimitive.StopSpeaking>
+      </AuiIf>
+      <ActionBarPrimitive.FeedbackPositive aria-label="Полезный ответ"><ThumbsUpIcon /></ActionBarPrimitive.FeedbackPositive>
+      <ActionBarPrimitive.FeedbackNegative aria-label="Неполезный ответ"><ThumbsDownIcon /></ActionBarPrimitive.FeedbackNegative>
+      <ActionBarPrimitive.ExportMarkdown aria-label="Поделиться ответом" onExport={shareMarkdown}><Share2Icon /></ActionBarPrimitive.ExportMarkdown>
+      <ActionBarMorePrimitive.Root>
+        <ActionBarMorePrimitive.Trigger className="assistant-action-more" aria-label="Больше действий с ответом">
+          <MoreHorizontalIcon />
+        </ActionBarMorePrimitive.Trigger>
+        <ActionBarMorePrimitive.Content className="mobile-assistant-more-menu" side="bottom" align="end">
+          <ActionBarMorePrimitive.Item asChild>
+            <ActionBarPrimitive.Reload className="assistant-action-menu-item"><RefreshCwIcon /> Повторить ответ</ActionBarPrimitive.Reload>
+          </ActionBarMorePrimitive.Item>
+          <ActionBarMorePrimitive.Item asChild>
+            <ActionBarPrimitive.ExportMarkdown className="assistant-action-menu-item" filename="prosmet-response.md"><DownloadIcon /> Скачать Markdown</ActionBarPrimitive.ExportMarkdown>
+          </ActionBarMorePrimitive.Item>
+        </ActionBarMorePrimitive.Content>
+      </ActionBarMorePrimitive.Root>
+    </ActionBarPrimitive.Root>
+  );
+}
 
-  const copy = async () => {
-    const value = text();
-    if (value) await copyToClipboard(value);
-    setMoreOpen(false);
-  };
-
-  const speak = () => {
-    const value = text();
-    if (!value || !("speechSynthesis" in window)) return;
-    window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(value);
-    utterance.lang = "ru-RU";
-    window.speechSynthesis.speak(utterance);
-  };
-
-  const share = async () => {
-    const value = text();
-    if (!value) return;
-    if (navigator.share) {
-      await navigator.share({ title: "Ответ ProSmet", text: value }).catch(() => undefined);
-    } else {
-      await copyToClipboard(value);
-    }
-    setMoreOpen(false);
-  };
-
+function AssistantMessage({ mobile }: { mobile: boolean }) {
   return (
     <MessagePrimitive.Root className="message assistant-message">
       <div className="assistant-avatar"><SparklesIcon /></div>
       <div className="assistant-response">
-        {durationMs !== null ? <div className="mobile-response-meta">Обработка заняла {formatDuration(durationMs)}</div> : null}
-        <div ref={copyRef} className="assistant-copy"><MessagePrimitive.Parts /></div>
-        <div className="mobile-assistant-actions" aria-label="Действия с ответом">
-          <button type="button" aria-label="Копировать ответ" onClick={() => void copy()}><CopyIcon /></button>
-          <button type="button" aria-label="Озвучить ответ" onClick={speak}><Volume2Icon /></button>
-          <button type="button" aria-label="Полезный ответ" aria-pressed={feedback === "up"} onClick={() => setFeedback((value) => value === "up" ? null : "up")}><ThumbsUpIcon /></button>
-          <button type="button" aria-label="Неполезный ответ" aria-pressed={feedback === "down"} onClick={() => setFeedback((value) => value === "down" ? null : "down")}><ThumbsDownIcon /></button>
-          <button type="button" aria-label="Поделиться ответом" onClick={() => void share()}><Share2Icon /></button>
-          <button type="button" aria-label="Больше действий с ответом" aria-expanded={moreOpen} onClick={() => setMoreOpen((value) => !value)}><MoreHorizontalIcon /></button>
-          {moreOpen ? (
-            <div className="mobile-assistant-more-menu" role="menu">
-              <button type="button" role="menuitem" onClick={() => void copy()}>Копировать</button>
-              <button type="button" role="menuitem" onClick={() => void share()}>Поделиться</button>
-            </div>
-          ) : null}
-        </div>
+        {mobile ? <MessageTimingLabel /> : null}
+        <div className="assistant-copy"><MessagePrimitive.Parts /></div>
+        <AssistantActionBar mobile={mobile} />
       </div>
     </MessagePrimitive.Root>
   );
