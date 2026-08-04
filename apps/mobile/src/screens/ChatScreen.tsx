@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AccessibilityInfo,
   KeyboardAvoidingView,
@@ -8,7 +8,6 @@ import {
   Share,
   StyleSheet,
   Text,
-  TextInput,
   View
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -182,17 +181,13 @@ export function ChatScreen({
 
 function MobileComposer({ focusRequest, pendingPrompt, onPromptConsumed }: { focusRequest: number; pendingPrompt: PendingPrompt; onPromptConsumed: () => void }) {
   const insets = useSafeAreaInsets();
-  const inputRef = useRef<TextInput | null>(null);
   const aui = useAui();
-
-  useEffect(() => {
-    if (focusRequest > 0) inputRef.current?.focus();
-  }, [focusRequest]);
+  const [localFocusRequest, setLocalFocusRequest] = useState(0);
+  const shouldFocus = focusRequest > 0 || Boolean(pendingPrompt) || localFocusRequest > 0;
 
   useEffect(() => {
     if (!pendingPrompt) return;
     aui.composer().setText(pendingPrompt.text);
-    inputRef.current?.focus();
     const timer = setTimeout(() => {
       aui.composer().send();
       onPromptConsumed();
@@ -200,19 +195,23 @@ function MobileComposer({ focusRequest, pendingPrompt, onPromptConsumed }: { foc
     return () => clearTimeout(timer);
   }, [aui, onPromptConsumed, pendingPrompt]);
 
+  const requestFocus = () => setLocalFocusRequest((value) => value + 1);
+
   return (
     <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
       <ComposerPrimitive.Root style={styles.composer}>
-        <Pressable style={styles.composerUtility} accessibilityRole="button" accessibilityLabel="Добавить запрос" onPress={() => inputRef.current?.focus()}><PlusGlyph /></Pressable>
+        <Pressable style={styles.composerUtility} accessibilityRole="button" accessibilityLabel="Добавить запрос" onPress={requestFocus}><PlusGlyph /></Pressable>
         <ComposerPrimitive.Input
-          ref={inputRef}
+          key={`${focusRequest}:${pendingPrompt?.id ?? 0}:${localFocusRequest}`}
           style={styles.input}
           placeholder="Спросить Chat..."
           placeholderTextColor={theme.faint}
           multiline
+          submitMode="enter"
+          autoFocus={shouldFocus}
           accessibilityLabel="Сообщение"
         />
-        <Pressable style={styles.composerMic} accessibilityRole="button" accessibilityLabel="Голосовой ввод" onPress={() => inputRef.current?.focus()}><MicGlyph /></Pressable>
+        <Pressable style={styles.composerMic} accessibilityRole="button" accessibilityLabel="Голосовой ввод" onPress={requestFocus}><MicGlyph /></Pressable>
         <ComposerPrimitive.Send style={styles.send} accessibilityLabel="Отправить">
           <View style={styles.sendGlyph}><VoiceGlyph color="#ffffff" /></View>
         </ComposerPrimitive.Send>
