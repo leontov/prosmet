@@ -8,6 +8,7 @@ import {
 } from "@assistant-ui/react";
 import type { AgentResponse, ApiErrorBody, Estimate } from "@prosmet/contracts";
 import { fetchStoredEstimate } from "../features/estimate/estimate-api";
+import { feedbackAdapter } from "./feedback-adapter";
 
 type Props = {
   children: ReactNode;
@@ -92,6 +93,7 @@ export function RuntimeProvider({ children, onEstimateReady }: Props) {
 
   const runtime = useLocalRuntime(adapter, {
     adapters: {
+      feedback: feedbackAdapter,
       speech: speechAdapter,
       ...(dictationAdapter ? { dictation: dictationAdapter } : {})
     }
