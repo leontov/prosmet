@@ -19,7 +19,13 @@ jobs:
     timeout-minutes: 55
     env:
       CI: "1"
-      BUNDLE_BASE: https://filebin.net/prosmet-lifecycle-20260804-6d2f8b
+      BUNDLE_SHA256: 9603be1aa100db8663a8aba2a3b85d3f998855312440dad988ae100ac0486ce1
+      BUNDLE_BLOBS: >-
+        da49d9470c38ab3fe6bdcca320000ab4b8853737
+        65d148a1f9ba0607cf52c2d2722cae2a9aec7e7b
+        4455024322623532ff31b2af8e7cc0436ee07e48
+        323494b8a472f008bdbb1e3fbdc144184430c0d6
+        bc810babada34b7a68a394d4f38c1e2c9ff593ea
     steps:
       - name: Verify trusted runner
         run: test "${{ runner.name }}" = "prosmet-primary"
@@ -37,18 +43,31 @@ jobs:
         with:
           components: rustfmt
 
-      - name: Download and verify source bundle
+      - name: Reconstruct and verify source bundle
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -Eeuo pipefail
-          curl --fail --silent --show-error --retry 8 --retry-delay 3 \
-            "$BUNDLE_BASE/prosmet-construction-lifecycle-v1.tgz" \
-            -o "$RUNNER_TEMP/prosmet-construction-lifecycle-v1.tgz"
-          curl --fail --silent --show-error --retry 8 --retry-delay 3 \
-            "$BUNDLE_BASE/prosmet-construction-lifecycle-v1.tgz.sha256" \
-            -o "$RUNNER_TEMP/prosmet-construction-lifecycle-v1.tgz.sha256"
-          cd "$RUNNER_TEMP"
-          sha256sum -c prosmet-construction-lifecycle-v1.tgz.sha256
-          tar -xzf prosmet-construction-lifecycle-v1.tgz -C "$GITHUB_WORKSPACE"
+          export BUNDLE_PATH="$RUNNER_TEMP/prosmet-construction-lifecycle-v1.tar.xz"
+          node --input-type=module <<'NODE'
+          import { appendFile, rm } from "node:fs/promises";
+          const path = process.env.BUNDLE_PATH;
+          await rm(path, { force: true });
+          for (const sha of process.env.BUNDLE_BLOBS.trim().split(/\s+/)) {
+            const response = await fetch(`https://api.github.com/repos/${process.env.GITHUB_REPOSITORY}/git/blobs/${sha}`, {
+              headers: {
+                authorization: `Bearer ${process.env.GH_TOKEN}`,
+                accept: "application/vnd.github+json",
+                "x-github-api-version": "2022-11-28"
+              }
+            });
+            if (!response.ok) throw new Error(`blob ${sha}: HTTP ${response.status}`);
+            const body = await response.json();
+            await appendFile(path, Buffer.from(String(body.content || "").replace(/\s+/g, ""), "base64"));
+          }
+          NODE
+          printf '%s  %s\n' "$BUNDLE_SHA256" "$BUNDLE_PATH" | sha256sum -c -
+          tar -xJf "$BUNDLE_PATH" -C "$GITHUB_WORKSPACE"
           rm -f "$GITHUB_WORKSPACE/.github/workflows/dev-apply-construction-lifecycle.yml"
 
       - name: Verify complete implementation
