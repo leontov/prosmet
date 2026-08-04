@@ -4,9 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches:
-      - greenfield/prosmet-v3
-      - feature/construction-lifecycle-v1
+    branches: [greenfield/prosmet-v3]
 
 permissions:
   contents: write
@@ -18,9 +16,8 @@ concurrency:
 jobs:
   apply_lifecycle_hardening:
     if: >-
-      github.event_name == 'push' &&
-      github.ref_name == 'feature/construction-lifecycle-v1' &&
-      github.event.head_commit.message == 'ci-run-lifecycle-hardening-v2'
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.ref == 'feature/construction-lifecycle-v1'
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 55
     env:
@@ -46,6 +43,7 @@ jobs:
       - name: Apply prepared lifecycle hardening
         run: |
           set -Eeuo pipefail
+          test -f scripts/apply-lifecycle-hardening.py
           python3 scripts/apply-lifecycle-hardening.py
           rm -f scripts/apply-lifecycle-hardening.py
           rm -f .github/workflows/dev-run-lifecycle-hardening.yml
@@ -60,7 +58,7 @@ jobs:
           npx playwright install chromium
           npm run e2e
 
-      - name: Commit verified source and remove one-shot CI
+      - name: Commit verified source and restore canonical CI
         run: |
           set -Eeuo pipefail
           git config user.name "github-actions[bot]"
@@ -73,9 +71,8 @@ jobs:
 
   verify:
     if: >-
-      github.event_name != 'push' ||
-      github.ref_name != 'feature/construction-lifecycle-v1' ||
-      github.event.head_commit.message != 'ci-run-lifecycle-hardening-v2'
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.ref != 'feature/construction-lifecycle-v1'
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 45
     env:
@@ -87,9 +84,6 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
-      - name: Record exact verification tree
-        run: echo "PROSMET_VERIFY_TREE=$(git rev-parse HEAD^{tree})"
 
       - uses: actions/setup-node@v4
         with:
