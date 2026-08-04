@@ -62,7 +62,8 @@ guard = '''
 if (server.includes('const expectedQwenKeySha256 = "')) failures.push("server:qwen-hardcoded-key-fingerprint");
 if (!server.includes("process.env.PROSMET_QWEN_KEY_SHA256")) failures.push("server:qwen-key-fingerprint-env-missing");
 if (!server.includes('request.method === "POST" && url.pathname === "/api/provisioning/qwen/complete"')) failures.push("server:qwen-provisioning-post-only-missing");
-if (!server.includes('const prompt = `${composeSystemPrompt(this.agent, context)}\\n\\n${conversationPrompt(messages)}`;')) failures.push("server:codex-context-prompt-missing");
+if (!server.includes("composeSystemPrompt(this.agent, context)")) failures.push("server:codex-context-prompt-missing");
+if (server.includes("this.agent.systemPrompt || systemInstructions")) failures.push("server:codex-context-prompt-bypass");
 if (/estimateIntentPattern[^\\n]+коммерческ/u.test(server)) failures.push("server:document-intent-can-create-estimate");
 
 '''
