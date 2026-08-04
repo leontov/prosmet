@@ -1,5 +1,17 @@
-import { useEffect, useRef } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  AccessibilityInfo,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  TextInput,
+  View
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   AuiIf,
   ComposerPrimitive,
@@ -8,13 +20,43 @@ import {
   useAui,
   useAuiState
 } from "@assistant-ui/react-native";
-import { GlobeGlyph, ImageGlyph, MicGlyph, PenGlyph, PlusGlyph, VoiceGlyph } from "../ReferenceIcons";
+import { CircleButton, ScreenHeader } from "../MobileChrome";
+import {
+  ChevronGlyph,
+  ComposeGlyph,
+  CopyGlyph,
+  GlobeGlyph,
+  ImageGlyph,
+  MenuGlyph,
+  MicGlyph,
+  MoreGlyph,
+  PenGlyph,
+  PlusGlyph,
+  ShareGlyph,
+  SpeakerGlyph,
+  ThumbGlyph,
+  VoiceGlyph
+} from "../ReferenceIcons";
+import { formatResponseDuration, readResponseDuration } from "../runtime/response-timing";
 import { theme } from "../theme";
 
-type Props = { hasEstimate: boolean; onOpenEstimate: () => void; focusRequest: number };
+export type PendingPrompt = { id: number; text: string } | null;
+
+type Props = {
+  hasEstimate: boolean;
+  onOpenEstimate: () => void;
+  focusRequest: number;
+  attentionCount: number;
+  pendingPrompt: PendingPrompt;
+  onPromptConsumed: () => void;
+  onOpenMenu: () => void;
+  onNewChat: () => void;
+  onOpenLibrary: () => void;
+  onOpenSettings: () => void;
+};
 
 type QuickAction = {
-  id: "estimate" | "measure" | "documents";
+  id: "estimate" | "edit" | "search";
   title: string;
   prompt: string;
 };
@@ -22,32 +64,60 @@ type QuickAction = {
 const quickActions: QuickAction[] = [
   {
     id: "estimate",
-    title: "Составить смету",
-    prompt: "Составь строительную смету. Уточни исходные данные, сформируй технологическую карту, исследуй цены и создай редактируемую смету."
+    title: "Создать смету",
+    prompt: "Составь строительную смету. Сначала уточни исходные данные и сформируй технологическую карту, затем исследуй цены и создай редактируемую смету."
   },
   {
-    id: "measure",
-    title: "Рассчитать по замерам",
-    prompt: "Рассчитай объёмы работ и материалов по моим замерам, затем создай смету с ценами и итогами."
+    id: "edit",
+    title: "Написать или отредактировать",
+    prompt: "Помоги написать или отредактировать строительный документ, расчёт, коммерческое предложение или договор."
   },
   {
-    id: "documents",
-    title: "Подготовить документы",
-    prompt: "На основании сметы подготовь коммерческое предложение, договор, акт и счёт."
+    id: "search",
+    title: "Искать цены в интернете",
+    prompt: "Найди и сопоставь актуальные цены на строительные работы и материалы для моего региона."
   }
 ];
 
-export function ChatScreen({ hasEstimate, onOpenEstimate, focusRequest }: Props) {
+export function ChatScreen({
+  hasEstimate,
+  onOpenEstimate,
+  focusRequest,
+  attentionCount,
+  pendingPrompt,
+  onPromptConsumed,
+  onOpenMenu,
+  onNewChat,
+  onOpenLibrary,
+  onOpenSettings
+}: Props) {
+  const isEmpty = useAuiState((state) => state.thread.isEmpty);
+  const [headerFocusRequest, setHeaderFocusRequest] = useState(0);
+  const [moreOpen, setMoreOpen] = useState(false);
+
   return (
-    <View style={styles.screen}>
+    <KeyboardAvoidingView style={styles.screen} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+      {isEmpty ? (
+        <ScreenHeader
+          title="Чат"
+          titleUnderlined
+          onTitlePress={onOpenMenu}
+          left={<CircleButton accessibilityLabel="Открыть навигацию" onPress={onOpenMenu} badge={attentionCount}><MenuGlyph /></CircleButton>}
+          right={<CircleButton accessibilityLabel="Голосовой режим" onPress={() => setHeaderFocusRequest((value) => value + 1)}><VoiceGlyph /></CircleButton>}
+        />
+      ) : (
+        <View style={styles.conversationHeader}>
+          <CircleButton accessibilityLabel="Открыть навигацию" onPress={onOpenMenu} badge={attentionCount}><MenuGlyph /></CircleButton>
+          <View style={styles.headerActions}>
+            <Pressable accessibilityRole="button" accessibilityLabel="Новый чат" onPress={onNewChat} style={({ pressed }) => [styles.headerAction, pressed && styles.pressed]}><ComposeGlyph /></Pressable>
+            <Pressable accessibilityRole="button" accessibilityLabel="Больше действий" onPress={() => setMoreOpen((value) => !value)} style={({ pressed }) => [styles.headerAction, pressed && styles.pressed]}><MoreGlyph /></Pressable>
+          </View>
+        </View>
+      )}
+
       <ThreadPrimitive.Root style={styles.thread}>
         <AuiIf condition={(state) => state.thread.isEmpty}>
-          <ScrollView
-            style={styles.emptyScroll}
-            contentContainerStyle={styles.emptyContent}
-            keyboardShouldPersistTaps="handled"
-            testID="native-reference-start"
-          >
+          <ScrollView style={styles.emptyScroll} contentContainerStyle={styles.emptyContent} keyboardShouldPersistTaps="handled" testID="native-reference-start">
             <View style={styles.emptySpace} />
             <View style={styles.quickActions} accessibilityLabel="Быстрые действия">
               {quickActions.map((item) => (
@@ -81,13 +151,26 @@ export function ChatScreen({ hasEstimate, onOpenEstimate, focusRequest }: Props)
           </ThreadPrimitive.MessagesFlatList>
         </AuiIf>
 
-        <MobileComposer focusRequest={focusRequest} />
+        <MobileComposer
+          focusRequest={focusRequest + headerFocusRequest}
+          pendingPrompt={pendingPrompt}
+          onPromptConsumed={onPromptConsumed}
+        />
       </ThreadPrimitive.Root>
-    </View>
+
+      {moreOpen ? (
+        <View style={styles.headerMenu}>
+          <Pressable onPress={() => { onNewChat(); setMoreOpen(false); }} style={styles.headerMenuRow}><Text style={styles.headerMenuText}>Новый чат</Text></Pressable>
+          <Pressable onPress={() => { onOpenLibrary(); setMoreOpen(false); }} style={styles.headerMenuRow}><Text style={styles.headerMenuText}>Библиотека</Text></Pressable>
+          <Pressable onPress={() => { onOpenSettings(); setMoreOpen(false); }} style={styles.headerMenuRow}><Text style={styles.headerMenuText}>Настройки</Text></Pressable>
+        </View>
+      ) : null}
+    </KeyboardAvoidingView>
   );
 }
 
-function MobileComposer({ focusRequest }: { focusRequest: number }) {
+function MobileComposer({ focusRequest, pendingPrompt, onPromptConsumed }: { focusRequest: number; pendingPrompt: PendingPrompt; onPromptConsumed: () => void }) {
+  const insets = useSafeAreaInsets();
   const inputRef = useRef<TextInput | null>(null);
   const aui = useAui();
   const text = useAuiState((state) => state.composer.text);
@@ -96,17 +179,26 @@ function MobileComposer({ focusRequest }: { focusRequest: number }) {
     if (focusRequest > 0) inputRef.current?.focus();
   }, [focusRequest]);
 
+  useEffect(() => {
+    if (!pendingPrompt) return;
+    aui.composer().setText(pendingPrompt.text);
+    inputRef.current?.focus();
+    const timer = setTimeout(() => {
+      aui.composer().send();
+      onPromptConsumed();
+    }, 50);
+    return () => clearTimeout(timer);
+  }, [aui, onPromptConsumed, pendingPrompt]);
+
   const send = () => {
     if (!text.trim()) return;
     aui.composer().send();
   };
 
   return (
-    <View style={styles.footer}>
+    <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
       <ComposerPrimitive.Root style={styles.composer}>
-        <Pressable style={styles.composerUtility} accessibilityRole="button" accessibilityLabel="Добавить запрос" onPress={() => inputRef.current?.focus()}>
-          <PlusGlyph />
-        </Pressable>
+        <Pressable style={styles.composerUtility} accessibilityRole="button" accessibilityLabel="Добавить запрос" onPress={() => inputRef.current?.focus()}><PlusGlyph /></Pressable>
         <TextInput
           ref={inputRef}
           style={styles.input}
@@ -119,9 +211,7 @@ function MobileComposer({ focusRequest }: { focusRequest: number }) {
           multiline
           accessibilityLabel="Сообщение"
         />
-        <Pressable style={styles.composerMic} accessibilityRole="button" accessibilityLabel="Голосовой ввод" onPress={() => inputRef.current?.focus()}>
-          <MicGlyph />
-        </Pressable>
+        <Pressable style={styles.composerMic} accessibilityRole="button" accessibilityLabel="Голосовой ввод" onPress={() => inputRef.current?.focus()}><MicGlyph /></Pressable>
         <ComposerPrimitive.Send style={styles.send} accessibilityLabel="Отправить">
           <View style={styles.sendGlyph}><VoiceGlyph color="#ffffff" /></View>
         </ComposerPrimitive.Send>
@@ -131,80 +221,121 @@ function MobileComposer({ focusRequest }: { focusRequest: number }) {
 }
 
 function QuickActionGlyph({ id }: { id: QuickAction["id"] }) {
-  if (id === "estimate") return <PenGlyph />;
-  if (id === "measure") return <GlobeGlyph />;
-  return <ImageGlyph />;
+  if (id === "estimate") return <ImageGlyph />;
+  if (id === "edit") return <PenGlyph />;
+  return <GlobeGlyph />;
+}
+
+function messageText(content: unknown) {
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((part) => {
+      if (!part || typeof part !== "object") return "";
+      const candidate = part as { type?: unknown; text?: unknown };
+      return candidate.type === "text" && typeof candidate.text === "string" ? candidate.text : "";
+    })
+    .filter(Boolean)
+    .join("\n");
 }
 
 function UserMessage() {
-  return (
-    <MessagePrimitive.Root style={styles.userMessage}>
-      <View style={styles.userBubble}><MessagePrimitive.Parts /></View>
-    </MessagePrimitive.Root>
-  );
+  const content = useAuiState((state) => state.message.content);
+  return <MessagePrimitive.Root style={styles.userMessage}><View style={styles.userBubble}><Text style={styles.userText}>{messageText(content)}</Text></View></MessagePrimitive.Root>;
 }
 
 function AssistantMessage() {
+  const content = useAuiState((state) => state.message.content);
+  const running = useAuiState((state) => state.thread.isRunning);
+  const text = useMemo(() => messageText(content), [content]);
+  const startedAt = useRef(Date.now());
+  const [duration, setDuration] = useState<number | null>(null);
+  const [feedback, setFeedback] = useState<"up" | "down" | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
+
+  useEffect(() => {
+    if (!running && duration === null) {
+      setDuration(Math.max(Date.now() - startedAt.current, readResponseDuration()));
+    }
+  }, [duration, running]);
+
+  const copy = async () => {
+    const clipboard = (globalThis as unknown as { navigator?: { clipboard?: { writeText?: (value: string) => Promise<void> } } }).navigator?.clipboard;
+    if (clipboard?.writeText) await clipboard.writeText(text);
+    else await Share.share({ message: text });
+  };
+
+  const share = async () => { await Share.share({ message: text }); };
+  const speak = () => AccessibilityInfo.announceForAccessibility(text);
+
   return (
     <MessagePrimitive.Root style={styles.assistantMessage}>
-      <View style={styles.assistantAvatar}><Text style={styles.assistantAvatarText}>✦</Text></View>
-      <View style={styles.assistantCopy}><MessagePrimitive.Parts /></View>
+      <Text style={styles.processing}>{running && duration === null ? "Обработка…" : `Обработка заняла ${formatResponseDuration(duration || readResponseDuration())}`}</Text>
+      <View style={styles.divider} />
+      <Text style={styles.assistantText}>{text}</Text>
+      <View style={styles.messageActions}>
+        <Pressable accessibilityRole="button" accessibilityLabel="Скопировать ответ" onPress={() => void copy()} style={styles.plainAction}><CopyGlyph /></Pressable>
+        <Pressable accessibilityRole="button" accessibilityLabel="Озвучить ответ" onPress={speak} style={styles.plainAction}><SpeakerGlyph /></Pressable>
+        <View style={styles.feedbackPill}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Полезный ответ" onPress={() => setFeedback(feedback === "up" ? null : "up")} style={[styles.feedbackAction, feedback === "up" && styles.feedbackSelected]}><ThumbGlyph color={feedback === "up" ? "#111214" : "#66676a"} /></Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Неполезный ответ" onPress={() => setFeedback(feedback === "down" ? null : "down")} style={[styles.feedbackAction, feedback === "down" && styles.feedbackSelected]}><ThumbGlyph down color={feedback === "down" ? "#111214" : "#66676a"} /></Pressable>
+        </View>
+        <Pressable accessibilityRole="button" accessibilityLabel="Поделиться ответом" onPress={() => void share()} style={styles.plainAction}><ShareGlyph /></Pressable>
+        <View style={styles.moreWrap}>
+          <Pressable accessibilityRole="button" accessibilityLabel="Другие действия с ответом" onPress={() => setMoreOpen((value) => !value)} style={styles.morePill}><MoreGlyph color="#66676a" /></Pressable>
+          {moreOpen ? <View style={styles.messageMenu}><Pressable onPress={() => void copy()} style={styles.messageMenuRow}><Text style={styles.messageMenuText}>Скопировать</Text></Pressable><Pressable onPress={() => void share()} style={styles.messageMenuRow}><Text style={styles.messageMenuText}>Поделиться</Text></Pressable></View> : null}
+        </View>
+      </View>
     </MessagePrimitive.Root>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: theme.canvas },
+  screen: { flex: 1, position: "relative", backgroundColor: theme.canvas },
+  pressed: { opacity: 0.72, transform: [{ scale: 0.98 }] },
+  conversationHeader: { minHeight: 74, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, backgroundColor: theme.canvas },
+  headerActions: { width: 130, height: 48, flexDirection: "row", alignItems: "center", borderWidth: 1.2, borderColor: "rgba(17,18,20,0.78)", borderRadius: 25, backgroundColor: theme.canvas, shadowColor: "#111214", shadowOpacity: 0.08, shadowRadius: 18, shadowOffset: { width: 0, height: 10 }, elevation: 4 },
+  headerAction: { width: 64, height: 46, alignItems: "center", justifyContent: "center", borderRadius: 23 },
+  headerMenu: { position: "absolute", top: 66, right: 16, zIndex: 30, width: 196, borderWidth: 1, borderColor: "rgba(17,18,20,0.12)", borderRadius: 20, backgroundColor: theme.canvas, padding: 8, shadowColor: "#111214", shadowOpacity: 0.14, shadowRadius: 24, shadowOffset: { width: 0, height: 12 }, elevation: 14 },
+  headerMenuRow: { minHeight: 48, justifyContent: "center", borderRadius: 14, paddingHorizontal: 12 },
+  headerMenuText: { color: "#111214", fontSize: 16, lineHeight: 21, fontWeight: "600" },
   thread: { flex: 1 },
   emptyScroll: { flex: 1 },
   emptyContent: { flexGrow: 1, justifyContent: "flex-end", paddingHorizontal: 28, paddingBottom: 14 },
   emptySpace: { minHeight: 250, flex: 1 },
   quickActions: { gap: 14 },
-  quickAction: {
-    minHeight: 46,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    borderRadius: 14,
-    paddingVertical: 3
-  },
+  quickAction: { minHeight: 46, flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 14, paddingVertical: 3 },
   quickIcon: { width: 34, height: 34, alignItems: "center", justifyContent: "center" },
   quickText: { flex: 1, color: "#66676a", fontSize: 18, lineHeight: 23, fontWeight: "600", letterSpacing: -0.35 },
   messageList: { flex: 1 },
-  messages: { flexGrow: 1, paddingHorizontal: 14, paddingTop: 20, paddingBottom: 24, gap: 22 },
-  userMessage: { alignItems: "flex-end" },
-  userBubble: { maxWidth: "86%", borderRadius: 20, borderBottomRightRadius: 7, backgroundColor: "#f0f0f1", paddingHorizontal: 15, paddingVertical: 12 },
-  assistantMessage: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
-  assistantAvatar: { width: 30, height: 30, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: theme.border, borderRadius: 10 },
-  assistantAvatarText: { color: theme.text, fontSize: 14 },
-  assistantCopy: { flex: 1, paddingTop: 3 },
-  artifact: { minHeight: 96, flexDirection: "row", alignItems: "center", gap: 12, marginTop: 2, borderWidth: 1, borderColor: theme.border, borderRadius: 18, backgroundColor: theme.canvas, padding: 14 },
+  messages: { flexGrow: 1, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 24 },
+  userMessage: { alignItems: "flex-end", marginBottom: 38 },
+  userBubble: { maxWidth: "84%", borderRadius: 25, backgroundColor: "#f2f2f3", paddingHorizontal: 16, paddingVertical: 12 },
+  userText: { color: "#111214", fontSize: 18, lineHeight: 25, fontWeight: "600" },
+  assistantMessage: { alignItems: "stretch", marginBottom: 28 },
+  processing: { color: "#9b9c9f", fontSize: 17, lineHeight: 24, fontWeight: "600", letterSpacing: -0.3 },
+  divider: { height: StyleSheet.hairlineWidth, marginTop: 18, marginBottom: 22, backgroundColor: "#e3e3e4" },
+  assistantText: { color: "#111214", fontSize: 19, lineHeight: 28, fontWeight: "600", letterSpacing: -0.35 },
+  messageActions: { minHeight: 54, flexDirection: "row", alignItems: "center", marginTop: 13 },
+  plainAction: { width: 38, height: 48, alignItems: "center", justifyContent: "center", borderRadius: 24, transform: [{ scale: 0.78 }] },
+  feedbackPill: { height: 50, flexDirection: "row", alignItems: "center", borderRadius: 25, backgroundColor: "#e8e8e9", paddingHorizontal: 2 },
+  feedbackAction: { width: 28, height: 46, alignItems: "center", justifyContent: "center", borderRadius: 23, transform: [{ scale: 0.68 }] },
+  feedbackSelected: { backgroundColor: "rgba(255,255,255,0.72)" },
+  moreWrap: { position: "relative" },
+  morePill: { width: 58, height: 50, alignItems: "center", justifyContent: "center", borderRadius: 25, backgroundColor: "#e8e8e9", transform: [{ scale: 1 }] },
+  messageMenu: { position: "absolute", right: 0, bottom: 58, zIndex: 20, width: 160, borderWidth: 1, borderColor: "rgba(17,18,20,0.12)", borderRadius: 17, backgroundColor: theme.canvas, padding: 6, shadowColor: "#111214", shadowOpacity: 0.14, shadowRadius: 20, shadowOffset: { width: 0, height: 10 }, elevation: 10 },
+  messageMenuRow: { minHeight: 44, justifyContent: "center", borderRadius: 12, paddingHorizontal: 10 },
+  messageMenuText: { color: "#111214", fontSize: 15, fontWeight: "600" },
+  artifact: { minHeight: 96, flexDirection: "row", alignItems: "center", gap: 12, marginTop: 12, borderWidth: 1, borderColor: theme.border, borderRadius: 18, backgroundColor: theme.canvas, padding: 14 },
   artifactIcon: { width: 48, height: 48, overflow: "hidden", borderRadius: 14, backgroundColor: theme.soft, color: theme.text, textAlign: "center", textAlignVertical: "center", fontSize: 20 },
   artifactCopy: { flex: 1 },
   artifactTitle: { color: theme.text, fontSize: 16, fontWeight: "700" },
   artifactText: { marginTop: 5, color: theme.muted, fontSize: 13 },
   artifactAction: { color: theme.text, fontSize: 12, fontWeight: "700" },
-  footer: { paddingHorizontal: 16, paddingBottom: 14, paddingTop: 10, backgroundColor: theme.canvas },
-  composer: {
-    minHeight: 62,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 1,
-    borderWidth: 1.4,
-    borderColor: "rgba(17,18,20,0.82)",
-    borderRadius: 34,
-    backgroundColor: theme.canvas,
-    paddingHorizontal: 6,
-    paddingVertical: 5,
-    shadowColor: "#111214",
-    shadowOpacity: 0.11,
-    shadowRadius: 20,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 6
-  },
-  composerUtility: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 22 },
-  input: { minHeight: 46, maxHeight: 126, flex: 1, color: "#111214", fontSize: 17, lineHeight: 23, paddingHorizontal: 4, paddingVertical: 10 },
-  composerMic: { width: 42, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 22 },
-  send: { width: 44, height: 44, alignItems: "center", justifyContent: "center", borderRadius: 22, backgroundColor: "#0a84ff" },
-  sendGlyph: { transform: [{ scale: 0.73 }] }
+  footer: { paddingHorizontal: 34, paddingTop: 10, backgroundColor: theme.canvas },
+  composer: { minHeight: 58, flexDirection: "row", alignItems: "center", borderWidth: 1.3, borderColor: "rgba(17,18,20,0.82)", borderRadius: 30, backgroundColor: theme.canvas, paddingHorizontal: 5, paddingVertical: 4, shadowColor: "#111214", shadowOpacity: 0.1, shadowRadius: 22, shadowOffset: { width: 0, height: 12 }, elevation: 6 },
+  composerUtility: { width: 45, height: 48, alignItems: "center", justifyContent: "center", borderRadius: 24 },
+  input: { minHeight: 48, maxHeight: 126, flex: 1, color: "#111214", fontSize: 17, lineHeight: 23, fontWeight: "600", paddingHorizontal: 2, paddingVertical: 10 },
+  composerMic: { width: 42, height: 48, alignItems: "center", justifyContent: "center", borderRadius: 24 },
+  send: { width: 48, height: 48, alignItems: "center", justifyContent: "center", borderRadius: 24, backgroundColor: "#0a84ff" },
+  sendGlyph: { transform: [{ scale: 0.74 }] }
 });
