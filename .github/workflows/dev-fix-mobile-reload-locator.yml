@@ -1,4 +1,4 @@
-name: Prosmet Dev Fix Mobile Reload Locator
+name: Prosmet Dev Apply Lifecycle QA Hardening
 
 on:
   push:
@@ -6,16 +6,17 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 concurrency:
-  group: prosmet-dev-fix-mobile-reload-locator
+  group: prosmet-dev-apply-lifecycle-qa-hardening
   cancel-in-progress: true
 
 jobs:
-  fix:
-    if: ${{ github.event.head_commit.message == 'chore(ci): apply scoped mobile reload locator fix' }}
+  apply:
+    if: ${{ github.event.head_commit.message == 'chore(ci): apply lifecycle QA hardening' }}
     runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 50
+    timeout-minutes: 55
     env:
       CI: "1"
     steps:
@@ -36,19 +37,226 @@ jobs:
         with:
           components: rustfmt
 
-      - name: Scope the mobile reload assertion to visible application content
+      - name: Apply product and QA fixes
         run: |
           set -Eeuo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          path = Path('apps/web/e2e/app.spec.ts')
-          source = path.read_text(encoding='utf-8')
-          old = 'await expect(page.getByText(stored.title, { exact: true }).first()).toBeVisible();'
-          new = 'await expect(page.locator(".pro-mobile-main").getByText(stored.title, { exact: true }).first()).toBeVisible();'
-          if source.count(old) != 1:
-              raise SystemExit(f'Expected exactly one legacy locator, found {source.count(old)}')
-          path.write_text(source.replace(old, new), encoding='utf-8')
+
+          test_path = Path('apps/web/e2e/app.spec.ts')
+          test_source = test_path.read_text(encoding='utf-8')
+          old_locator = 'await expect(page.getByText(stored.title, { exact: true }).first()).toBeVisible();'
+          new_locator = 'await expect(page.locator(".pro-mobile-main").getByText(stored.title, { exact: true }).first()).toBeVisible();'
+          if test_source.count(old_locator) != 1:
+              raise SystemExit(f'Expected one legacy mobile locator, found {test_source.count(old_locator)}')
+          test_path.write_text(test_source.replace(old_locator, new_locator), encoding='utf-8')
+
+          server_path = Path('apps/web/server.mjs')
+          server = server_path.read_text(encoding='utf-8')
+          lines = server.splitlines()
+
+          intent_matches = 0
+          fingerprint_matches = 0
+          codex_matches = 0
+          for index, line in enumerate(lines):
+              if line.startswith('const estimateIntentPattern = '):
+                  lines[index] = 'const estimateIntentPattern = /(?:смет|рассч(?:итай|итать|ёт)|калькуляц|бюджет|стоимост|расход|сколько\\s+(?:стоит|будет)|цена\\s+под\\s+ключ)/iu;'
+                  intent_matches += 1
+              if line.startswith('const expectedQwenKeySha256 = '):
+                  lines[index] = 'const expectedQwenKeySha256 = process.env.PROSMET_QWEN_KEY_SHA256?.trim() || "";'
+                  fingerprint_matches += 1
+              if line.strip() == 'const prompt = `${this.agent.systemPrompt || systemInstructions}\\n\\n${conversationPrompt(messages)}`;':
+                  lines[index] = '      const prompt = `${composeSystemPrompt(this.agent, context)}\\n\\n${conversationPrompt(messages)}`;'
+                  codex_matches += 1
+
+          if (intent_matches, fingerprint_matches, codex_matches) != (1, 1, 1):
+              raise SystemExit(f'Unexpected server replacement counts: intent={intent_matches}, fingerprint={fingerprint_matches}, codex={codex_matches}')
+          server = '\n'.join(lines) + '\n'
+
+          old_complete = '''  if ((request.method === "GET" || request.method === "POST") && url.pathname === "/api/provisioning/qwen/complete") {
+            const body = request.method === "POST" ? await readJsonBody(request) : {};
+            const encryptedPayload = body.payload || url.searchParams.get("payload");
+            if (!encryptedPayload) return sendError(response, 400, "QWEN_PAYLOAD_REQUIRED", "Не передан зашифрованный пакет Qwen");
+            const completed = await completeQwenProvisioning(encryptedPayload);
+            return sendJson(response, 200, completed);
+          }'''
+          new_complete = '''  if (request.method === "POST" && url.pathname === "/api/provisioning/qwen/complete") {
+            if (!(await requireAdmin(request, response))) return;
+            const body = await readJsonBody(request);
+            const encryptedPayload = body.payload;
+            if (!encryptedPayload) return sendError(response, 400, "QWEN_PAYLOAD_REQUIRED", "Не передан зашифрованный пакет Qwen");
+            const completed = await completeQwenProvisioning(encryptedPayload);
+            return sendJson(response, 200, completed);
+          }'''
+          if server.count(old_complete) != 1:
+              raise SystemExit(f'Expected one Qwen completion route, found {server.count(old_complete)}')
+          server = server.replace(old_complete, new_complete)
+
+          old_digest = '''  const digest = createHash("sha256").update(secret).digest("hex");
+            if (!constantTimeEqual(digest, expectedQwenKeySha256)) throw new Error("Ключ Qwen не соответствует разрешённому отпечатку");'''
+          new_digest = '''  if (!expectedQwenKeySha256) throw new Error("Provisioning Qwen отключён: задайте PROSMET_QWEN_KEY_SHA256 на сервере");
+            const digest = createHash("sha256").update(secret).digest("hex");
+            if (!constantTimeEqual(digest, expectedQwenKeySha256)) throw new Error("Ключ Qwen не соответствует разрешённому отпечатку");'''
+          if server.count(old_digest) != 1:
+              raise SystemExit(f'Expected one Qwen digest gate, found {server.count(old_digest)}')
+          server_path.write_text(server.replace(old_digest, new_digest), encoding='utf-8')
           PY
+
+          cat > apps/web/e2e/lifecycle.spec.ts <<'EOF'
+          import { expect, test, type APIRequestContext } from "@playwright/test";
+
+          const external = Boolean(process.env.PROSMET_BASE_URL);
+          const adminToken = "e2e-admin";
+
+          async function readJson(response: Awaited<ReturnType<APIRequestContext["get"]>>) {
+            return response.json().catch(async () => ({ raw: await response.text() }));
+          }
+
+          async function configureFixtureAgent(request: APIRequestContext) {
+            const registryResponse = await request.get("/api/agents");
+            const registry = await readJson(registryResponse) as { agents?: Array<{ id: string; name: string; active?: boolean }> };
+            expect(registryResponse.ok(), JSON.stringify(registry)).toBeTruthy();
+            let agent = registry.agents?.find((entry) => entry.name === "Fixture HTTP Agent");
+
+            if (!agent) {
+              const createResponse = await request.post("/api/agents", {
+                headers: { "x-prosmet-admin-token": adminToken },
+                data: {
+                  name: "Fixture HTTP Agent",
+                  type: "http-agent",
+                  enabled: true,
+                  baseUrl: "http://127.0.0.1:4174/run",
+                  timeoutMs: 30000
+                }
+              });
+              const created = await readJson(createResponse) as { id: string; name: string; active?: boolean };
+              expect(createResponse.ok(), JSON.stringify(created)).toBeTruthy();
+              agent = created;
+            }
+
+            if (!agent.active) {
+              const activateResponse = await request.post(`/api/agents/${encodeURIComponent(agent.id)}/activate`, {
+                headers: { "x-prosmet-admin-token": adminToken }
+              });
+              expect(activateResponse.ok(), await activateResponse.text()).toBeTruthy();
+            }
+          }
+
+          async function workflowAction(request: APIRequestContext, estimateId: string, action: string) {
+            const response = await request.post(`/api/workflows/estimates/${encodeURIComponent(estimateId)}/actions`, {
+              data: { action }
+            });
+            const body = await readJson(response);
+            expect(response.ok(), `${action}: ${JSON.stringify(body)}`).toBeTruthy();
+            return body as any;
+          }
+
+          test("construction lifecycle persists intent, revisions, documents, execution and regional prices", async ({ request }, testInfo) => {
+            test.skip(external || testInfo.project.name !== "desktop-chromium", "Local API lifecycle contract runs once per suite");
+            await configureFixtureAgent(request);
+
+            const beforeResponse = await request.get("/api/estimates");
+            const before = await readJson(beforeResponse) as { estimates: unknown[] };
+            expect(beforeResponse.ok(), JSON.stringify(before)).toBeTruthy();
+
+            const greetingResponse = await request.post("/api/agent", {
+              data: { requestId: `greeting-${Date.now()}`, messages: [{ role: "user", content: "Привет" }] }
+            });
+            const greeting = await readJson(greetingResponse) as { artifact?: unknown; intent?: string };
+            expect(greetingResponse.ok(), JSON.stringify(greeting)).toBeTruthy();
+            expect(greeting.intent).toBe("greeting");
+            expect(greeting.artifact).toBeNull();
+
+            const documentIntentResponse = await request.post("/api/agent", {
+              data: { requestId: `document-${Date.now()}`, messages: [{ role: "user", content: "Подготовь коммерческое предложение" }] }
+            });
+            const documentIntent = await readJson(documentIntentResponse) as { artifact?: unknown; intent?: string };
+            expect(documentIntentResponse.ok(), JSON.stringify(documentIntent)).toBeTruthy();
+            expect(documentIntent.intent).toBe("documents");
+            expect(documentIntent.artifact).toBeNull();
+
+            const afterDialogueResponse = await request.get("/api/estimates");
+            const afterDialogue = await readJson(afterDialogueResponse) as { estimates: unknown[] };
+            expect(afterDialogue.estimates).toHaveLength(before.estimates.length);
+
+            const estimateResponse = await request.post("/api/agent", {
+              data: {
+                requestId: `lifecycle-${Date.now()}`,
+                messages: [{
+                  role: "user",
+                  content: "Составь смету на ремонт ванной комнаты под ключ в Казани: работы, материалы и сопутствующие расходы."
+                }]
+              }
+            });
+            const estimateBody = await readJson(estimateResponse) as {
+              artifact?: { type: string; id: string; revision: number; database: string } | null;
+              workflow?: { projectId: string; status: string } | null;
+              intent?: string;
+            };
+            expect(estimateResponse.ok(), JSON.stringify(estimateBody)).toBeTruthy();
+            expect(estimateBody.intent).toBe("estimate");
+            expect(estimateBody.artifact?.type).toBe("estimate");
+            expect(estimateBody.artifact?.database).toBe("sqlite");
+            expect(estimateBody.workflow?.projectId).toBeTruthy();
+
+            const estimateId = estimateBody.artifact!.id;
+            const initialWorkflowResponse = await request.get(`/api/workflows/estimates/${encodeURIComponent(estimateId)}`);
+            let workflow = await readJson(initialWorkflowResponse) as any;
+            expect(initialWorkflowResponse.ok(), JSON.stringify(workflow)).toBeTruthy();
+            expect(workflow.project.activeEstimateId).toBe(estimateId);
+            expect(workflow.progress.length).toBeGreaterThan(0);
+            expect(workflow.revisions.some((revision: { event: string }) => revision.event === "generated")).toBeTruthy();
+
+            const invalidStart = await request.post(`/api/workflows/estimates/${encodeURIComponent(estimateId)}/actions`, {
+              data: { action: "start-work" }
+            });
+            expect(invalidStart.status()).toBe(409);
+
+            workflow = await workflowAction(request, estimateId, "save-version");
+            expect(workflow.estimate.status).toBe("review");
+            workflow = await workflowAction(request, estimateId, "send-client");
+            expect(workflow.estimate.status).toBe("sent");
+            workflow = await workflowAction(request, estimateId, "approve");
+            expect(workflow.estimate.status).toBe("approved");
+            workflow = await workflowAction(request, estimateId, "generate-proposal");
+            workflow = await workflowAction(request, estimateId, "generate-invoice");
+            workflow = await workflowAction(request, estimateId, "generate-contract");
+            workflow = await workflowAction(request, estimateId, "sign-contract");
+            expect(workflow.project.status).toBe("contracted");
+            workflow = await workflowAction(request, estimateId, "start-work");
+            expect(workflow.project.status).toBe("in_progress");
+
+            for (const item of workflow.progress as Array<{ itemId: string; plannedQuantity: number }>) {
+              const progressResponse = await request.put(
+                `/api/workflows/projects/${encodeURIComponent(workflow.project.id)}/progress/${encodeURIComponent(item.itemId)}`,
+                { data: { actualQuantity: item.plannedQuantity, status: "done", note: "Принято по факту" } }
+              );
+              const progressBody = await readJson(progressResponse);
+              expect(progressResponse.ok(), JSON.stringify(progressBody)).toBeTruthy();
+            }
+
+            workflow = await workflowAction(request, estimateId, "complete-work");
+            workflow = await workflowAction(request, estimateId, "generate-act");
+            workflow = await workflowAction(request, estimateId, "generate-ks2");
+            workflow = await workflowAction(request, estimateId, "generate-ks3");
+            workflow = await workflowAction(request, estimateId, "close-project");
+            expect(workflow.project.status).toBe("completed");
+            expect(workflow.project.progress.percent).toBe(100);
+
+            const documentTypes = new Set((workflow.documents as Array<{ type: string }>).map((document) => document.type));
+            for (const type of ["commercial-proposal", "invoice", "contract", "act", "ks-2", "ks-3"]) {
+              expect(documentTypes.has(type), `Missing ${type}`).toBeTruthy();
+            }
+            expect(workflow.revisions.length).toBeGreaterThanOrEqual(4);
+
+            const pricesResponse = await request.get("/api/workflows/prices?limit=300");
+            const prices = await readJson(pricesResponse) as { entries: Array<{ sampleCount: number }> };
+            expect(pricesResponse.ok(), JSON.stringify(prices)).toBeTruthy();
+            expect(prices.entries.length).toBeGreaterThan(0);
+            expect(prices.entries.some((entry) => entry.sampleCount >= 1)).toBeTruthy();
+          });
+          EOF
+
           rm -f .github/workflows/dev-fix-mobile-reload-locator.yml
 
       - name: Verify source, types, tests, build and browser flows
@@ -59,12 +267,24 @@ jobs:
           npx playwright install chromium
           npm run e2e
 
-      - name: Commit verified fix
+      - name: Commit verified implementation
         run: |
           set -Eeuo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
           git diff --cached --quiet && exit 0
-          git commit -m "test(e2e): scope mobile reload assertion to visible workspace"
+          git commit -m "test(lifecycle): cover complete construction workflow"
           git push origin HEAD:feature/construction-lifecycle-v1
+
+      - name: Report result
+        if: always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 53,
+              body: `LIFECYCLE_QA_HARDENING run=${context.runId} source=${context.sha} status=${{ job.status }}`
+            });
