@@ -48,6 +48,14 @@ async function workflowAction(request: APIRequestContext, estimateId: string, ac
 
 test("construction lifecycle persists intent, revisions, documents, execution and regional prices", async ({ request }, testInfo) => {
   test.skip(external || testInfo.project.name !== "desktop-chromium", "Local API lifecycle contract runs once per suite");
+
+  const qwenGet = await request.get("/api/provisioning/qwen/complete?payload=not-used");
+  expect(qwenGet.status()).toBe(404);
+  const qwenPost = await request.post("/api/provisioning/qwen/complete", {
+    data: { payload: "not-used" }
+  });
+  expect(qwenPost.status()).toBe(401);
+
   await configureFixtureAgent(request);
 
   const beforeResponse = await request.get("/api/estimates");
