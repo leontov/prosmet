@@ -3,13 +3,15 @@ name: Prosmet Dev Export Full Source V2
 on:
   push:
     branches: [feature/product-lifecycle-v2]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: prosmet-dev-export-full-source-v2
+  group: prosmet-dev-export-full-source-v2-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
