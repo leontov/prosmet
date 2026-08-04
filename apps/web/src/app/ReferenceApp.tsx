@@ -16,7 +16,26 @@ function useMediaQuery(query: string) {
   return matches;
 }
 
+function useMobileChromeAccessibility(active: boolean) {
+  useEffect(() => {
+    if (!active) return;
+
+    const demoteDecorativeTitles = () => {
+      document.querySelectorAll<HTMLElement>(".prosmet-screen-header h1").forEach((title) => {
+        title.setAttribute("role", "presentation");
+        title.setAttribute("aria-hidden", "true");
+      });
+    };
+
+    demoteDecorativeTitles();
+    const observer = new MutationObserver(demoteDecorativeTitles);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [active]);
+}
+
 export function ReferenceApp() {
   const mobile = useMediaQuery("(max-width: 767px)");
+  useMobileChromeAccessibility(mobile);
   return mobile ? <MobileWebApp /> : <DesktopApplication />;
 }
