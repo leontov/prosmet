@@ -909,7 +909,7 @@ const adminTokenFile = join(configRoot, "admin.token");
 const provisioningPrivateKeyFile = join(configRoot, "qwen-provisioning-private.pem");
 const provisioningPublicKeyFile = join(configRoot, "qwen-provisioning-public.pem");
 const qwenProvisionedFile = join(configRoot, "qwen-provisioned.json");
-const expectedQwenKeySha256 = "515867cad3fb98f52b7e2ea1de1169ba052eee2993217bceb6bdc66f829a039c";
+const expectedQwenKeySha256 = process.env.PROSMET_QWEN_KEY_SHA256?.trim() || "";
 const estimateDatabaseFile = process.env.PROSMET_DATABASE_PATH || join(configRoot, "prosmet.sqlite");
 const estimateStore = createEstimateStore(estimateDatabaseFile);
 const workflowStore = createWorkflowStore(estimateDatabaseFile);
@@ -1058,7 +1058,7 @@ const systemInstructions = [
 ].join("\n");
 
 const greetingPattern = /^(?:привет|здравствуй(?:те)?|доброе\s+(?:утро|день|вечер)|добрый\s+(?:день|вечер)|hello|hi|hey|спасибо|благодарю|как\s+дела)[!.?\s]*$/iu;
-const estimateIntentPattern = /(?:смет|рассч(?:итай|итать|ёт)|калькуляц|бюджет|стоимост|расход|сколько\s+(?:стоит|будет)|цена\s+под\s+ключ|коммерческ(?:ое|ую)\s+предложен)/iu;
+const estimateIntentPattern = /(?:смет|рассч(?:итай|итать|ёт)|калькуляц|бюджет|стоимост|расход|сколько\s+(?:стоит|будет)|цена\s+под\s+ключ)/iu;
 const constructionPattern = /(?:строит|ремонт|отделк|ванн|сануз|квартир|дом|коттедж|фундамент|бетон|кладк|кирпич|газобетон|штукатур|шпакл|плитк|стяжк|пол|потол|кровл|фасад|электрик|сантех|отоплен|вентиляц|водоснаб|канализац|монтаж|демонтаж|инженерн|окн|двер|утеплен|малярн|землян|свайн|перекрыт|лестниц|забор|благоустрой)/iu;
 const documentIntentPattern = /(?:договор|сч[её]т|акт\s+выполн|кс-?2|кс-?3|коммерческ(?:ое|ую)\s+предложен|документ)/iu;
 const minimalDraftPattern = /(?:минимальн|черновик|тестов(?:ый|ая)|одн(?:а|ой)\s+позиц)/iu;
@@ -1864,7 +1864,7 @@ class CodexAppServerClient {
     signal?.addEventListener("abort", abort, { once: true });
 
     try {
-      const prompt = `${this.agent.systemPrompt || systemInstructions}\n\n${conversationPrompt(messages)}`;
+      const prompt = `${composeSystemPrompt(this.agent, context)}\n\n${conversationPrompt(messages)}`;
       const turnResult = await this.request("turn/start", {
         threadId,
         input: [{ type: "text", text: prompt }],
@@ -2026,6 +2026,9 @@ async function completeQwenProvisioning(encryptedPayload) {
   const createdAt = Date.parse(String(payload.createdAt || ""));
   if (!secret || !nonce || !Number.isFinite(createdAt)) throw new Error("Пакет Qwen неполный");
   if (Math.abs(Date.now() - createdAt) > 15 * 60 * 1000) throw new Error("Срок действия пакета Qwen истёк");
+  if (!expectedQwenKeySha256) {
+    throw new Error("Provisioning Qwen отключён: задайте PROSMET_QWEN_KEY_SHA256 на сервере");
+  }
   const digest = createHash("sha256").update(secret).digest("hex");
   if (!constantTimeEqual(digest, expectedQwenKeySha256)) throw new Error("Ключ Qwen не соответствует разрешённому отпечатку");
   if (!workflowStore.useProvisioningNonce(nonce)) throw new Error("Пакет Qwen уже использован");
@@ -2448,9 +2451,10 @@ async function handleApi(request, response, url) {
     });
   }
 
-  if ((request.method === "GET" || request.method === "POST") && url.pathname === "/api/provisioning/qwen/complete") {
-    const body = request.method === "POST" ? await readJsonBody(request) : {};
-    const encryptedPayload = body.payload || url.searchParams.get("payload");
+  if (request.method === "POST" && url.pathname === "/api/provisioning/qwen/complete") {
+    if (!(await requireAdmin(request, response))) return;
+    const body = await readJsonBody(request);
+    const encryptedPayload = body.payload;
     if (!encryptedPayload) return sendError(response, 400, "QWEN_PAYLOAD_REQUIRED", "Не передан зашифрованный пакет Qwen");
     const completed = await completeQwenProvisioning(encryptedPayload);
     return sendJson(response, 200, completed);
