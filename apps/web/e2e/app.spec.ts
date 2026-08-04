@@ -334,7 +334,7 @@ test("greenfield shell uses real agent integration and the mobile reference layo
   } else {
     const menu = await openMobileMenu(page);
     await menu.getByRole("button", { name: /Сметы/ }).click();
-    await expect(page.getByText(stored.title, { exact: true }).first()).toBeVisible();
+    await expect(page.locator(".pro-mobile-main").getByText(stored.title, { exact: true }).first()).toBeVisible();
   }
   evidence.checks.reloadRestored = true;
   evidence.artifact = {
