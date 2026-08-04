@@ -27,6 +27,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Record exact verification tree
+        run: echo "PROSMET_VERIFY_TREE=$(git rev-parse HEAD^{tree})"
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22.16.0
