@@ -1,6 +1,8 @@
 import { useMemo, type ReactNode } from "react";
 import {
   AssistantRuntimeProvider,
+  WebSpeechDictationAdapter,
+  WebSpeechSynthesisAdapter,
   useLocalRuntime,
   type ChatModelAdapter
 } from "@assistant-ui/react";
@@ -20,11 +22,20 @@ function errorMessage(status: number, body: unknown) {
   return `Агент недоступен: HTTP ${status}`;
 }
 
-function emitResponseTiming(startedAt: number, aborted: boolean) {
-  if (aborted || typeof window === "undefined") return;
-  window.dispatchEvent(new CustomEvent("prosmet:response-timing", {
-    detail: { durationMs: Math.max(0, Date.now() - startedAt) }
-  }));
+function timedTextResult(text: string, startedAt: number) {
+  const totalStreamTime = Math.max(0, Date.now() - startedAt);
+  return {
+    content: [{ type: "text" as const, text }],
+    metadata: {
+      timing: {
+        streamStartTime: startedAt,
+        firstTokenTime: totalStreamTime,
+        totalStreamTime,
+        totalChunks: 1,
+        toolCallCount: 0
+      }
+    }
+  };
 }
 
 export function RuntimeProvider({ children, onEstimateReady }: Props) {
@@ -43,42 +54,47 @@ export function RuntimeProvider({ children, onEstimateReady }: Props) {
 
         const body = await response.json().catch(() => null);
         if (!response.ok) {
-          return {
-            content: [{ type: "text", text: errorMessage(response.status, body) }]
-          };
+          return timedTextResult(errorMessage(response.status, body), startedAt);
         }
 
         const result = body as AgentResponse;
         if (result.artifact?.type === "estimate") {
           const persisted = await fetchStoredEstimate(result.artifact.id);
           queueMicrotask(() => onEstimateReady(persisted));
-          return {
-            content: [{
-              type: "text",
-              text: result.text || "Смета сохранена в базе данных и открыта в редакторе."
-            }]
-          };
+          return timedTextResult(
+            result.text || "Смета сохранена в базе данных и открыта в редакторе.",
+            startedAt
+          );
         }
 
-        return {
-          content: [{ type: "text", text: result.text }]
-        };
+        return timedTextResult(result.text, startedAt);
       } catch (error) {
         if (abortSignal.aborted) throw error;
-        return {
-          content: [{
-            type: "text",
-            text: error instanceof Error
-              ? `Не удалось выполнить запрос к агенту: ${error.message}`
-              : "Не удалось выполнить запрос к агенту."
-          }]
-        };
-      } finally {
-        emitResponseTiming(startedAt, abortSignal.aborted);
+        return timedTextResult(
+          error instanceof Error
+            ? `Не удалось выполнить запрос к агенту: ${error.message}`
+            : "Не удалось выполнить запрос к агенту.",
+          startedAt
+        );
       }
     }
   }), [onEstimateReady]);
 
-  const runtime = useLocalRuntime(adapter);
+  const dictationAdapter = useMemo(() => {
+    if (typeof window === "undefined" || !WebSpeechDictationAdapter.isSupported()) return null;
+    return new WebSpeechDictationAdapter({
+      language: "ru-RU",
+      continuous: false,
+      interimResults: true
+    });
+  }, []);
+  const speechAdapter = useMemo(() => new WebSpeechSynthesisAdapter(), []);
+
+  const runtime = useLocalRuntime(adapter, {
+    adapters: {
+      speech: speechAdapter,
+      ...(dictationAdapter ? { dictation: dictationAdapter } : {})
+    }
+  });
   return <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>;
 }
