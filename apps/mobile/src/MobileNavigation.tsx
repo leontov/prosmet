@@ -258,6 +258,6 @@ const styles = StyleSheet.create({
   settingsAttention: { position: "absolute", top: 5, right: 5, width: 10, height: 10, borderRadius: 5, backgroundColor: "#f0182d" },
   content: { flex: 1, zIndex: 2, overflow: "hidden", backgroundColor: theme.canvas },
   contentOpen: { borderRadius: 32, shadowColor: "#111214", shadowOpacity: 0.2, shadowRadius: 28, shadowOffset: { width: -10, height: 0 }, elevation: 18 },
-  backdrop: { ...StyleSheet.absoluteFillObject, zIndex: 20, backgroundColor: "#ffffff" },
+  backdrop: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 20, backgroundColor: "#ffffff" },
   edgeGesture: { position: "absolute", top: 72, bottom: 0, left: 0, width: 24, zIndex: 30 }
 });
