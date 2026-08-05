@@ -1,7 +1,8 @@
 import { readFile } from "node:fs/promises";
 
-const [library, main, cargo, capability, tauriConfig, desktopPackage] = await Promise.all([
+const [library, commands, main, cargo, capability, tauriConfig, desktopPackage] = await Promise.all([
   readFile(new URL("../apps/desktop/src-tauri/src/lib.rs", import.meta.url), "utf8"),
+  readFile(new URL("../apps/desktop/src-tauri/src/commands.rs", import.meta.url), "utf8"),
   readFile(new URL("../apps/desktop/src-tauri/src/main.rs", import.meta.url), "utf8"),
   readFile(new URL("../apps/desktop/src-tauri/Cargo.toml", import.meta.url), "utf8"),
   readFile(new URL("../apps/desktop/src-tauri/capabilities/default.json", import.meta.url), "utf8"),
@@ -12,8 +13,8 @@ const [library, main, cargo, capability, tauriConfig, desktopPackage] = await Pr
 const failures = [];
 const requiredCommands = ["get_app_metadata", "calculate_estimate", "calculate_line"];
 for (const command of requiredCommands) {
-  if (!library.includes(`fn ${command}`)) failures.push(`desktop-ipc:command-missing:${command}`);
-  if (!library.includes(command)) failures.push(`desktop-ipc:handler-missing:${command}`);
+  if (!commands.includes(`fn ${command}`)) failures.push(`desktop-ipc:command-missing:${command}`);
+  if (!library.includes(`commands::${command}`)) failures.push(`desktop-ipc:handler-missing:${command}`);
 }
 
 for (const forbidden of [
@@ -27,7 +28,7 @@ for (const forbidden of [
   "fs:allow-home-read-recursive",
   "fs:allow-home-write-recursive"
 ]) {
-  if (`${library}\n${main}\n${capability}`.includes(forbidden)) {
+  if (`${library}\n${commands}\n${main}\n${capability}`.includes(forbidden)) {
     failures.push(`desktop-ipc:forbidden-capability:${forbidden}`);
   }
 }
@@ -87,6 +88,7 @@ console.log(JSON.stringify({
   status: "PASS",
   contract: "prosmet-desktop-ipc-v1",
   commands: requiredCommands,
+  commandModule: "isolated",
   capability: capabilityJson.identifier,
   permissions: capabilityJson.permissions,
   csp: "strict",
