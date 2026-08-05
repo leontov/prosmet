@@ -15,14 +15,11 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 55
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
     env:
       CI: "1"
     steps:
-      - name: Verify trusted runner
-        run: test "${{ runner.name }}" = "prosmet-primary"
-
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -44,8 +41,8 @@ jobs:
       - name: Desktop manifest
         run: npm run desktop:metadata
 
-      - name: Install Chromium
-        run: npx playwright install chromium
+      - name: Install Chromium system dependencies
+        run: npx playwright install --with-deps chromium
 
       - name: Desktop, mobile, landing and lifecycle browser acceptance
         run: npm run e2e
