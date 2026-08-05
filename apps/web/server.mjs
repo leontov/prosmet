@@ -2619,6 +2619,13 @@ function generalResponse() {
 }
 
 async function handleApi(request, response, url) {
+  if (request.method === "GET" && url.pathname === "/api/openapi.json") {
+    const document = JSON.parse(await readFile(join(root, "openapi.json"), "utf8"));
+    return sendJson(response, 200, document, {
+      "cache-control": "public, max-age=300"
+    });
+  }
+
   if (request.method === "GET" && url.pathname === "/api/health") {
     return sendJson(response, 200, {
       ok: true,

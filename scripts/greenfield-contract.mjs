@@ -10,6 +10,11 @@ const required = [
   ".github/workflows/public-root-recovery.yml",
   "deployment/ensure-public-edge.sh",
   "apps/web/server.mjs",
+  "apps/web/public/openapi.json",
+  "apps/web/e2e/openapi.spec.ts",
+  "scripts/openapi-source.mjs",
+  "scripts/openapi-contract.mjs",
+  "docs/architecture/desktop-web-api-contract.md",
   "apps/web/server/estimate-store.mjs",
   "apps/web/src/features/estimate/estimate-api.ts",
   "apps/web/src/app/App.tsx",
@@ -118,6 +123,8 @@ const workspaceCanvas = await read("apps/web/src/features/workspace/WorkspaceCan
 const brandedXlsx = await read("apps/web/src/features/estimate/branded-xlsx.ts");
 const webRuntime = await read("apps/web/src/runtime/RuntimeProvider.tsx");
 const server = await read("apps/web/server.mjs");
+const openApiContract = await read("scripts/openapi-contract.mjs");
+const openApiSource = await read("scripts/openapi-source.mjs");
 const webSettings = await read("apps/web/src/features/settings/SettingsView.tsx");
 const webAccount = await read("apps/web/src/features/account/AccountView.tsx");
 const webLibrary = await read("apps/web/src/features/library/LibraryView.tsx");
@@ -286,6 +293,17 @@ if (!landingE2e.includes('page.request.delete(`/api/leads/')) failures.push("lan
 
 
 if (!server.includes("content-encoding") || !server.includes("brotliCompressSync")) failures.push("server:static-compression-missing");
+for (const token of [
+  'url.pathname === "/api/openapi.json"',
+  'join(root, "openapi.json")',
+  '"cache-control": "public, max-age=300"'
+]) {
+  if (!server.includes(token)) failures.push(`openapi:server-publishing-missing:${token}`);
+}
+for (const token of ["routeInventory", "committed-document-is-not-canonical", "agent-secret-leak"]) {
+  if (!openApiContract.includes(token)) failures.push(`openapi:contract-gate-missing:${token}`);
+}
+if (!openApiSource.includes('openapi: "3.1.0"')) failures.push("openapi:source-version-missing");
 for (const token of [
   "CREATE TABLE IF NOT EXISTS registered_users",
   'url.pathname === "/api/register"',
