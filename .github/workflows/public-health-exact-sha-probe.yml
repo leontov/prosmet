@@ -1,0 +1,115 @@
+name: ProSmet Public Exact-SHA Probe
+
+on:
+  push:
+    branches: [ops/public-health-probe]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: prosmet-public-exact-sha-probe
+  cancel-in-progress: true
+
+env:
+  EXPECTED_RELEASE_SHA: aee966c356377be3d2e676679912bd705907c1ae
+  PRODUCTION_ORIGIN: https://kolibriai.online
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - name: Probe public root and health without mutating production
+        id: probe
+        shell: bash
+        run: |
+          set -u
+          ROOT_STATUS="$(curl --silent --show-error --retry 5 --retry-delay 2 --retry-all-errors \
+            --output public-root.html --dump-header public-root-headers.txt --write-out '%{http_code}' \
+            "$PRODUCTION_ORIGIN/" || true)"
+          HEALTH_STATUS="$(curl --silent --show-error --retry 5 --retry-delay 2 --retry-all-errors \
+            --output public-health.json --dump-header public-health-headers.txt --write-out '%{http_code}' \
+            "$PRODUCTION_ORIGIN/api/health" || true)"
+          CURRENT_SHA="$(node - <<'NODE'
+          const fs = require('node:fs');
+          try {
+            const health = JSON.parse(fs.readFileSync('public-health.json', 'utf8'));
+            process.stdout.write(String(health.releaseSha || health.sha || health.commit || 'unknown'));
+          } catch {
+            process.stdout.write('unreadable');
+          }
+          NODE
+          )"
+          ROOT_MARKER=false
+          HSTS=false
+          HEALTH_OK=false
+          SHA_MATCH=false
+          grep -Fq '<div id="root"></div>' public-root.html 2>/dev/null && ROOT_MARKER=true
+          grep -Eqi '^strict-transport-security:.*max-age=31536000' public-root-headers.txt 2>/dev/null && HSTS=true
+          grep -q '"ok":true' public-health.json 2>/dev/null && HEALTH_OK=true
+          [ "$CURRENT_SHA" = "$EXPECTED_RELEASE_SHA" ] && SHA_MATCH=true
+          printf 'root_status=%s\n' "$ROOT_STATUS" >> "$GITHUB_OUTPUT"
+          printf 'health_status=%s\n' "$HEALTH_STATUS" >> "$GITHUB_OUTPUT"
+          printf 'current_sha=%s\n' "$CURRENT_SHA" >> "$GITHUB_OUTPUT"
+          printf 'root_marker=%s\n' "$ROOT_MARKER" >> "$GITHUB_OUTPUT"
+          printf 'hsts=%s\n' "$HSTS" >> "$GITHUB_OUTPUT"
+          printf 'health_ok=%s\n' "$HEALTH_OK" >> "$GITHUB_OUTPUT"
+          printf 'sha_match=%s\n' "$SHA_MATCH" >> "$GITHUB_OUTPUT"
+
+      - name: Publish public release observation
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea
+        env:
+          EXPECTED_SHA: ${{ env.EXPECTED_RELEASE_SHA }}
+          ROOT_STATUS: ${{ steps.probe.outputs.root_status }}
+          HEALTH_STATUS: ${{ steps.probe.outputs.health_status }}
+          CURRENT_SHA: ${{ steps.probe.outputs.current_sha }}
+          ROOT_MARKER: ${{ steps.probe.outputs.root_marker }}
+          HSTS: ${{ steps.probe.outputs.hsts }}
+          HEALTH_OK: ${{ steps.probe.outputs.health_ok }}
+          SHA_MATCH: ${{ steps.probe.outputs.sha_match }}
+        with:
+          script: |
+            const exact = process.env.ROOT_STATUS === '200'
+              && process.env.HEALTH_STATUS === '200'
+              && process.env.ROOT_MARKER === 'true'
+              && process.env.HSTS === 'true'
+              && process.env.HEALTH_OK === 'true'
+              && process.env.SHA_MATCH === 'true';
+            const body = [
+              `## ${exact ? '✅ PUBLIC EXACT-SHA OBSERVED' : '⏳ PUBLIC RELEASE NOT YET CURRENT'}`,
+              '',
+              `- Expected SHA: \`${process.env.EXPECTED_SHA}\``,
+              `- Current public SHA: \`${process.env.CURRENT_SHA}\``,
+              `- Root HTTP: \`${process.env.ROOT_STATUS}\``,
+              `- Health HTTP: \`${process.env.HEALTH_STATUS}\``,
+              `- Root marker: \`${process.env.ROOT_MARKER}\``,
+              `- HSTS: \`${process.env.HSTS}\``,
+              `- Health ok: \`${process.env.HEALTH_OK}\``,
+              `- Exact SHA match: \`${process.env.SHA_MATCH}\``,
+              `- Probe run: https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              '',
+              exact
+                ? 'The public edge is already serving the requested main revision. Full Primary and browser acceptance remains tracked by the isolated deployment run.'
+                : 'The public edge has not yet exposed the requested revision. The isolated Primary deployment remains authoritative.'
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 53,
+              body
+            });
+
+      - name: Upload public probe evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: prosmet-public-sha-probe-${{ github.run_id }}
+          path: |
+            public-root.html
+            public-root-headers.txt
+            public-health.json
+            public-health-headers.txt
+          if-no-files-found: warn
+          retention-days: 14
