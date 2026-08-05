@@ -111,9 +111,12 @@ test.describe("ProSmet web appearance", () => {
     await expect(page.getByRole("complementary", { name: estimate.title })).toBeVisible();
     await expect(page.getByTestId("desktop-estimate-editor")).toBeVisible();
     expect(await horizontalOverflow(page)).toBeLessThanOrEqual(1);
-    await page.screenshot({ path: "artifacts-web-appearance-desktop-estimate-canvas.png", fullPage: true });
 
     const canvasResizer = page.getByRole("separator", { name: "Изменить ширину правого канваса" });
+    await expect(canvasResizer).toHaveAttribute("aria-valuenow", /^(?:5[2-9]\d|[6-9]\d\d)$/);
+    await page.waitForTimeout(180);
+    await page.screenshot({ path: "artifacts-web-appearance-desktop-estimate-canvas.png", fullPage: true });
+
     await canvasResizer.focus();
     await page.keyboard.press("ArrowLeft");
     await expect(canvasResizer).toBeFocused();
@@ -122,6 +125,7 @@ test.describe("ProSmet web appearance", () => {
     const pdfPreview = page.getByRole("region", { name: "Предпросмотр PDF" });
     await expect(pdfPreview).toBeVisible({ timeout: 20_000 });
     await expect(pdfPreview.locator("iframe")).toBeVisible();
+    await page.waitForTimeout(1_500);
     await page.screenshot({ path: "artifacts-web-appearance-desktop-pdf-canvas.png", fullPage: true });
   });
 
@@ -139,7 +143,9 @@ test.describe("ProSmet web appearance", () => {
     await expect(drawer).toBeVisible();
     await page.screenshot({ path: "artifacts-web-appearance-mobile-drawer.png", fullPage: true });
     await drawer.getByRole("button", { name: "Проекты" }).click();
+    await expect(drawer).toBeHidden();
     await expect(page.getByTestId("projects-view")).toBeVisible();
+    await page.waitForTimeout(380);
     expect(await horizontalOverflow(page)).toBeLessThanOrEqual(1);
     await page.screenshot({ path: "artifacts-web-appearance-mobile-projects.png", fullPage: true });
   });
@@ -151,6 +157,8 @@ test.describe("ProSmet web appearance", () => {
     await page.getByRole("button", { name: "Открыть навигацию" }).click();
     const drawer = page.getByRole("dialog", { name: "Навигация" });
     await drawer.getByRole("button", { name: "Сметы" }).click();
+    await expect(drawer).toBeHidden();
+    await page.waitForTimeout(380);
     const estimateButton = page.getByTestId("estimates-view").getByRole("button").filter({ hasText: estimate.title }).first();
     await expect(estimateButton).toBeVisible();
     await estimateButton.click();
