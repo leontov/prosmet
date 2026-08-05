@@ -16,6 +16,10 @@ const required = [
   "apps/web/src/mobile-navigation.css",
   "apps/web/src/agent-integrations.css",
   "apps/web/src/mobile-brand-polish.css",
+  "apps/web/src/workspace-canvas.css",
+  "apps/web/src/features/workspace/WorkspaceCanvasFrame.tsx",
+  "apps/web/src/features/estimate/PdfPreviewCanvas.tsx",
+  "apps/web/src/features/estimate/branded-xlsx.ts",
   "apps/web/src/features/estimate/branded-export.ts",
   "apps/web/src/features/estimate/branded-pdf.ts",
   "apps/web/src/types/pdfmake-build.d.ts",
@@ -109,6 +113,9 @@ for (const path of await walk(root)) {
 
 const read = (path) => readFile(resolve(root, path), "utf8");
 const webApp = await read("apps/web/src/app/App.tsx");
+const professionalApp = await read("apps/web/src/app/ProfessionalApp.tsx");
+const workspaceCanvas = await read("apps/web/src/features/workspace/WorkspaceCanvasFrame.tsx");
+const brandedXlsx = await read("apps/web/src/features/estimate/branded-xlsx.ts");
 const webRuntime = await read("apps/web/src/runtime/RuntimeProvider.tsx");
 const server = await read("apps/web/server.mjs");
 const webSettings = await read("apps/web/src/features/settings/SettingsView.tsx");
@@ -197,7 +204,7 @@ if (!webRuntime.includes("/api/agent") || webRuntime.includes("demoEstimate")) f
 if (!nativeRuntime.includes('mobileApiFetch("/api/agent"') || nativeRuntime.includes("demoEstimate")) failures.push("native-runtime:real-agent-only-contract-failed");
 
 if (webChat.includes("composer-attach") || nativeChat.includes("styles.attach")) failures.push("chat:inert-attachment-control-present");
-if (!webEstimate.includes("downloadExcel") || !webEstimate.includes("printEstimate") || !webEstimate.includes("navigator.share")) failures.push("estimate:working-export-or-share-missing");
+if (!webEstimate.includes("createBrandedPdfBlob") || !webEstimate.includes("downloadBrandedXlsx") || !webEstimate.includes("navigator.share")) failures.push("estimate:working-export-or-share-missing");
 if (webEstimate.includes('aria-label="Скачать PDF"><') || webEstimate.includes('aria-label="Скачать Excel"><')) failures.push("estimate:inert-export-control-present");
 
 if (!playwright.includes("fixture-agent.mjs")) failures.push("testing:external-http-agent-fixture-not-started");
@@ -294,7 +301,16 @@ for (const token of [
   if (!server.includes(token)) failures.push(`registration:server-contract-missing:${token}`);
 }
 if (!webAccount.includes("UserRegistrationPanel")) failures.push("registration:account-ui-missing");
-if (!webEstimate.includes("downloadBrandedPdf") || !webEstimate.includes("buildBrandedExcelHtml")) failures.push("exports:branded-pdf-excel-missing");
+if (!webEstimate.includes("createBrandedPdfBlob") || !webEstimate.includes("downloadBrandedXlsx")) failures.push("exports:branded-pdf-excel-missing");
+
+
+for (const token of ["WorkspaceCanvasFrame", "canvasFullscreen", "prosmet.workspace.sidebar-width.v1"]) {
+  if (![professionalApp, workspaceCanvas].some((source) => source.includes(token))) failures.push(`workspace:canvas-contract-missing:${token}`);
+}
+for (const token of ["buildBrandedXlsxBytes", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".xlsx"]) {
+  if (!brandedXlsx.includes(token)) failures.push(`exports:xlsx-contract-missing:${token}`);
+}
+if (!server.includes("frame-src 'self' blob:")) failures.push("security:pdf-preview-frame-csp-missing");
 
 if (failures.length) {
   console.error(JSON.stringify({ status: "FAIL", failures }, null, 2));

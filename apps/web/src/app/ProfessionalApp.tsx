@@ -53,6 +53,7 @@ import {
   DocumentViewer,
   WorkflowInspector
 } from "../features/workflow/WorkflowInspector";
+import { WorkspaceCanvasFrame } from "../features/workspace/WorkspaceCanvasFrame";
 import {
   fetchWorkflowByEstimate,
   fetchWorkflowByProject,
@@ -62,6 +63,7 @@ import {
   listProjects,
   runWorkflowAction,
   saveEstimate,
+  updateDocumentContent,
   updateDocumentStatus,
   updateProgress
 } from "../features/workflow/workflow-api";
@@ -208,7 +210,11 @@ export function ProfessionalApp() {
     try {
       const next = await fetchWorkflowByEstimate(estimateId);
       applyWorkflow(next);
-      if (show) setWorkflowOpen(true);
+      if (show) {
+        setEstimateOpen(false);
+        setDocumentOpen(null);
+        setWorkflowOpen(true);
+      }
       return next;
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Не удалось загрузить процесс проекта");
@@ -220,6 +226,8 @@ export function ProfessionalApp() {
     setEstimates((current) => replaceEstimate(current, incoming));
     setActiveEstimateId(incoming.id);
     setChatArtifactId(incoming.id);
+    setWorkflowOpen(false);
+    setDocumentOpen(null);
     setEstimateOpen(true);
     setError(null);
     void loadWorkflowForEstimate(incoming.id).then(() => refresh());
@@ -240,6 +248,8 @@ export function ProfessionalApp() {
 
   const openEstimate = useCallback((estimate: Estimate) => {
     setActiveEstimateId(estimate.id);
+    setWorkflowOpen(false);
+    setDocumentOpen(null);
     setEstimateOpen(true);
     setError(null);
     void loadWorkflowForEstimate(estimate.id);
@@ -251,6 +261,8 @@ export function ProfessionalApp() {
     try {
       const next = await fetchWorkflowByProject(project.id);
       applyWorkflow(next);
+      setEstimateOpen(false);
+      setDocumentOpen(null);
       setWorkflowOpen(true);
     } catch (projectError) {
       setError(projectError instanceof Error ? projectError.message : "Не удалось открыть проект");
@@ -263,6 +275,7 @@ export function ProfessionalApp() {
     setView("chat");
     setEstimateOpen(false);
     setWorkflowOpen(false);
+    setDocumentOpen(null);
     setChatArtifactId(null);
     setError(null);
     setRuntimeKey((value) => value + 1);
@@ -276,6 +289,8 @@ export function ProfessionalApp() {
     try {
       const next = await runWorkflowAction(activeEstimateId, action);
       applyWorkflow(next);
+      setEstimateOpen(false);
+      setDocumentOpen(null);
       setWorkflowOpen(true);
       await refresh();
     } catch (actionError) {
@@ -312,6 +327,21 @@ export function ProfessionalApp() {
     }
   }, [activeEstimateId, loadWorkflowForEstimate]);
 
+  const openDocument = useCallback((document: ConstructionDocument) => {
+    setEstimateOpen(false);
+    setWorkflowOpen(false);
+    setDocumentOpen(document);
+  }, []);
+
+  const saveDocumentContent = useCallback(async (
+    document: ConstructionDocument,
+    content: Pick<ConstructionDocument["content"], "heading" | "introduction" | "clauses" | "notes">
+  ) => {
+    const updated = await updateDocumentContent(document.id, content);
+    setDocumentOpen(updated);
+    setDocuments((current) => current.map((item) => item.id === updated.id ? updated : item));
+  }, []);
+
   const refreshPrices = useCallback(async (query: string, region: string) => {
     setBusy("prices");
     try { setPrices(await listPrices(query, region)); } finally { setBusy(null); }
@@ -331,12 +361,78 @@ export function ProfessionalApp() {
       onCreate={newChat}
       onOpenEstimate={openEstimate}
       onOpenProject={(project) => void openProject(project)}
-      onOpenDocument={setDocumentOpen}
+      onOpenDocument={openDocument}
       onRefreshPrices={refreshPrices}
       onView={setView}
       onOpenCurrentWorkflow={() => activeEstimateId && void loadWorkflowForEstimate(activeEstimateId, true)}
     />
   );
+
+  const desktopCanvas = !mobile
+    ? documentOpen ? (
+      <DocumentViewer
+        document={documentOpen}
+        mobile={false}
+        embedded
+        onClose={() => setDocumentOpen(null)}
+        onStatus={updateDocument}
+        onContent={saveDocumentContent}
+      />
+    ) : workflowOpen && workflow ? (
+      <WorkflowInspector
+        workflow={workflow}
+        mobile={false}
+        embedded
+        open
+        busy={busy}
+        error={error}
+        onClose={() => setWorkflowOpen(false)}
+        onAction={(action) => void runAction(action)}
+        onProgress={saveProgress}
+        onOpenEstimate={() => {
+          setWorkflowOpen(false);
+          setEstimateOpen(true);
+        }}
+        onOpenDocument={openDocument}
+      />
+    ) : estimateOpen && activeEstimate ? (
+      <EstimateEditor
+        mobile={false}
+        embedded
+        estimate={activeEstimate}
+        onChange={(next) => { void handleEstimateChange(next); }}
+        onClose={() => setEstimateOpen(false)}
+      />
+    ) : null
+    : null;
+
+  const desktopCanvasTitle = documentOpen
+    ? documentOpen.title
+    : workflowOpen && workflow
+      ? workflow.project.title
+      : estimateOpen && activeEstimate
+        ? activeEstimate.title
+        : "Рабочая область";
+  const desktopCanvasSubtitle = documentOpen
+    ? `${documentOpen.number} · ${documentOpen.status}`
+    : workflowOpen && workflow
+      ? `Процесс · ${workflow.project.progress.percent}%`
+      : estimateOpen && activeEstimate
+        ? `Смета · версия ${activeEstimate.revision}`
+        : null;
+
+  const closeDesktopCanvas = () => {
+    if (documentOpen) {
+      setDocumentOpen(null);
+      if (workflow) setWorkflowOpen(true);
+      return;
+    }
+    if (workflowOpen) {
+      setWorkflowOpen(false);
+      return;
+    }
+    setEstimateOpen(false);
+  };
 
   return (
     <RuntimeProvider key={runtimeKey} onEstimateReady={handleEstimateReady}>
@@ -350,52 +446,64 @@ export function ProfessionalApp() {
           system={system}
         >{workspace}</MobileShell>
       ) : (
-        <DesktopShell
-          view={view}
-          onView={setView}
-          onNewChat={newChat}
-          estimates={estimates}
-          activeEstimate={activeEstimate}
-          system={system}
-          onOpenEstimate={openEstimate}
-        >{workspace}</DesktopShell>
+        <WorkspaceCanvasFrame
+          canvas={desktopCanvas}
+          canvasTitle={desktopCanvasTitle}
+          canvasSubtitle={desktopCanvasSubtitle}
+          onCloseCanvas={closeDesktopCanvas}
+        >
+          <DesktopShell
+            view={view}
+            onView={setView}
+            onNewChat={newChat}
+            estimates={estimates}
+            activeEstimate={activeEstimate}
+            system={system}
+            onOpenEstimate={openEstimate}
+          >{workspace}</DesktopShell>
+        </WorkspaceCanvasFrame>
       )}
 
-      {estimateOpen && activeEstimate ? (
+      {mobile && estimateOpen && activeEstimate ? (
         <EstimateEditor
-          mobile={mobile}
+          mobile
           estimate={activeEstimate}
           onChange={(next) => { void handleEstimateChange(next); }}
           onClose={() => setEstimateOpen(false)}
         />
       ) : null}
 
-      {estimateOpen && workflow ? (
+      {mobile && estimateOpen && workflow ? (
         <button type="button" className="pro-editor-workflow-trigger" onClick={() => setWorkflowOpen(true)}>
           <LayoutDashboardIcon /> Процесс
           <span>{workflow.project.progress.percent}%</span>
         </button>
       ) : null}
 
-      <WorkflowInspector
-        workflow={workflow}
-        mobile={mobile}
-        open={workflowOpen}
-        busy={busy}
-        error={error}
-        onClose={() => setWorkflowOpen(false)}
-        onAction={(action) => void runAction(action)}
-        onProgress={saveProgress}
-        onOpenEstimate={() => setEstimateOpen(true)}
-        onOpenDocument={setDocumentOpen}
-      />
+      {mobile ? (
+        <WorkflowInspector
+          workflow={workflow}
+          mobile
+          open={workflowOpen}
+          busy={busy}
+          error={error}
+          onClose={() => setWorkflowOpen(false)}
+          onAction={(action) => void runAction(action)}
+          onProgress={saveProgress}
+          onOpenEstimate={() => setEstimateOpen(true)}
+          onOpenDocument={openDocument}
+        />
+      ) : null}
 
-      <DocumentViewer
-        document={documentOpen}
-        mobile={mobile}
-        onClose={() => setDocumentOpen(null)}
-        onStatus={updateDocument}
-      />
+      {mobile ? (
+        <DocumentViewer
+          document={documentOpen}
+          mobile
+          onClose={() => setDocumentOpen(null)}
+          onStatus={updateDocument}
+          onContent={saveDocumentContent}
+        />
+      ) : null}
 
       {error && !workflowOpen ? <div className="pro-global-error" role="alert"><span>{error}</span><button type="button" onClick={() => setError(null)}><XIcon /></button></div> : null}
     </RuntimeProvider>

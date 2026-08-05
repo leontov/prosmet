@@ -70,6 +70,7 @@ export function WorkflowInspector({
   workflow,
   mobile,
   open,
+  embedded = false,
   busy,
   error,
   onClose,
@@ -81,6 +82,7 @@ export function WorkflowInspector({
   workflow: WorkflowDetail | null;
   mobile: boolean;
   open: boolean;
+  embedded?: boolean;
   busy: string | null;
   error: string | null;
   onClose: () => void;
@@ -97,9 +99,9 @@ export function WorkflowInspector({
   const canEditProgress = status === "in_progress" || status === "completion_review";
 
   return (
-    <div className={mobile ? "pro-flow-layer pro-flow-mobile" : "pro-flow-layer"} role="dialog" aria-modal="true" aria-label="Процесс проекта">
-      <button type="button" className="pro-flow-backdrop" onClick={onClose} aria-label="Закрыть процесс проекта" />
-      <aside className="pro-flow-panel">
+    <div className={embedded ? "pro-flow-canvas" : mobile ? "pro-flow-layer pro-flow-mobile" : "pro-flow-layer"} role="region" aria-label="Процесс проекта">
+      {embedded ? null : <button type="button" className="pro-flow-backdrop" onClick={onClose} aria-label="Закрыть процесс проекта" />}
+      <aside className={embedded ? "pro-flow-panel pro-flow-panel-embedded" : "pro-flow-panel"}>
         <header className="pro-flow-header">
           <button type="button" onClick={onClose} aria-label="Закрыть"><XIcon /></button>
           <div><small>Процесс проекта</small><h2>{workflow.project.title}</h2><p>{workflowLabels.projectStatusLabels[workflow.project.status]}</p></div>
@@ -220,15 +222,38 @@ function ProgressRow({ item, busy, onSave }: {
   );
 }
 
-export function DocumentViewer({ document, mobile, onClose, onStatus }: {
+export function DocumentViewer({ document, mobile, embedded = false, onClose, onStatus, onContent }: {
   document: ConstructionDocument | null;
   mobile: boolean;
+  embedded?: boolean;
   onClose: () => void;
   onStatus: (document: ConstructionDocument, action: "send" | "sign" | "approve") => Promise<void>;
+  onContent: (
+    document: ConstructionDocument,
+    content: Pick<ConstructionDocument["content"], "heading" | "introduction" | "clauses" | "notes">
+  ) => Promise<void>;
 }) {
   const [busy, setBusy] = useState<string | null>(null);
+  const [preview, setPreview] = useState(false);
+  const [heading, setHeading] = useState("");
+  const [introduction, setIntroduction] = useState("");
+  const [clausesText, setClausesText] = useState("");
+  const [notesText, setNotesText] = useState("");
+
+  useEffect(() => {
+    if (!document) return;
+    setPreview(false);
+    setHeading(document.content.heading);
+    setIntroduction(document.content.introduction);
+    setClausesText(document.content.clauses.join("\n\n"));
+    setNotesText(document.content.notes.join("\n\n"));
+  }, [document]);
+
   if (!document) return null;
   const total = document.content.totals.total;
+  const clauses = paragraphs(clausesText);
+  const notes = paragraphs(notesText);
+  const readiness = contractReadiness(document, { heading, introduction, clauses, notes });
 
   const update = async (action: "send" | "sign" | "approve") => {
     setBusy(action);
@@ -236,24 +261,44 @@ export function DocumentViewer({ document, mobile, onClose, onStatus }: {
   };
 
   const share = async () => {
-    const text = `${document.content.heading}\n${document.content.introduction}\nИтого: ${money(total)}`;
+    const text = `${heading}\n${introduction}\nИтого: ${money(total)}`;
     if (navigator.share) await navigator.share({ title: document.title, text }).catch(() => undefined);
     else await navigator.clipboard?.writeText(text);
   };
 
+  const saveContent = async () => {
+    setBusy("content");
+    try {
+      await onContent(document, { heading, introduction, clauses, notes });
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
-    <div className={mobile ? "pro-document-layer pro-document-mobile" : "pro-document-layer"} role="dialog" aria-modal="true" aria-label={document.title}>
-      <button type="button" className="pro-document-backdrop" onClick={onClose} aria-label="Закрыть документ" />
-      <article className="pro-document-viewer">
+    <div className={embedded ? "pro-document-canvas" : mobile ? "pro-document-layer pro-document-mobile" : "pro-document-layer"} role="region" aria-label={document.title}>
+      {embedded ? null : <button type="button" className="pro-document-backdrop" onClick={onClose} aria-label="Закрыть документ" />}
+      <article className={embedded ? "pro-document-viewer pro-document-viewer-embedded" : "pro-document-viewer"}>
         <header className="pro-document-toolbar">
           <button type="button" onClick={onClose} aria-label="Назад"><ArrowLeftIcon /></button>
           <div><strong>{workflowLabels.documentTypeLabels[document.type]}</strong><span>{document.number} · {workflowLabels.documentStatusLabels[document.status]}</span></div>
-          <button type="button" onClick={() => printDocument(document)} aria-label="Печать или PDF"><PrinterIcon /></button>
+          <button type="button" onClick={() => setPreview((value) => !value)} aria-label={preview ? "Вернуться к документу" : "Предпросмотр печати или PDF"}><PrinterIcon /></button>
           <button type="button" onClick={() => void share()} aria-label="Поделиться"><Share2Icon /></button>
         </header>
         <div className="pro-document-scroll">
+          {preview ? (
+            <iframe className="pro-document-print-preview" title={`Предпросмотр ${document.title}`} srcDoc={buildDocumentPrintHtml({ ...document, content: { ...document.content, heading, introduction, clauses, notes } })} />
+          ) : (
           <div className="pro-document-paper">
-            <header><small>{document.number}</small><h1>{document.content.heading}</h1><p>{document.content.introduction}</p></header>
+            <header><small>{document.number}</small><h1>{heading}</h1><p>{introduction}</p></header>
+            {document.type === "contract" ? <ContractReadiness readiness={readiness} /> : null}
+            <section className="pro-document-editable" aria-label="Редактирование документа">
+              <label>Заголовок<input value={heading} onChange={(event) => setHeading(event.target.value)} /></label>
+              <label>Вводная часть<textarea rows={3} value={introduction} onChange={(event) => setIntroduction(event.target.value)} /></label>
+              <label>Условия — один пункт через пустую строку<textarea rows={10} value={clausesText} onChange={(event) => setClausesText(event.target.value)} /></label>
+              <label>Примечания — один пункт через пустую строку<textarea rows={5} value={notesText} onChange={(event) => setNotesText(event.target.value)} /></label>
+              <button type="button" className="pro-document-save-content" onClick={() => void saveContent()} disabled={Boolean(busy)}>{busy === "content" ? <LoaderCircleIcon className="spin" /> : <FileCheck2Icon />} Сохранить документ</button>
+            </section>
             {document.content.sections.map((section) => (
               <section key={section.title}>
                 <h2>{section.title}</h2>
@@ -272,10 +317,11 @@ export function DocumentViewer({ document, mobile, onClose, onStatus }: {
               <div><span>НДС</span><b>{money(document.content.totals.vat)}</b></div>
               <div className="total"><span>Итого</span><strong>{money(total)}</strong></div>
             </section>
-            {document.content.clauses.length ? <section className="pro-document-clauses"><h2>Условия</h2>{document.content.clauses.map((clause) => <p key={clause}>{clause}</p>)}</section> : null}
-            <section className="pro-document-notes"><h2>Примечания</h2>{document.content.notes.map((note) => <p key={note}>{note}</p>)}</section>
+            {clauses.length ? <section className="pro-document-clauses"><h2>Условия</h2>{clauses.map((clause) => <p key={clause}>{clause}</p>)}</section> : null}
+            <section className="pro-document-notes"><h2>Примечания</h2>{notes.map((note) => <p key={note}>{note}</p>)}</section>
             <footer><div><span>Исполнитель</span><i /></div><div><span>Заказчик</span><i /></div></footer>
           </div>
+          )}
         </div>
         <footer className="pro-document-actions">
           {document.status === "ready" ? <button type="button" onClick={() => void update("send")} disabled={Boolean(busy)}>{busy === "send" ? <LoaderCircleIcon className="spin" /> : <SendIcon />} Передать</button> : null}
@@ -291,10 +337,39 @@ function escapeHtml(value: string) {
   return value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[character] || character);
 }
 
-function printDocument(document: ConstructionDocument) {
-  const popup = window.open("", "_blank", "noopener,noreferrer");
-  if (!popup) return;
+function paragraphs(value: string) {
+  return value.split(/\n\s*\n/u).map((entry) => entry.trim()).filter(Boolean).slice(0, 80);
+}
+
+function contractReadiness(
+  document: ConstructionDocument,
+  content: Pick<ConstructionDocument["content"], "heading" | "introduction" | "clauses" | "notes">
+) {
+  const text = [content.heading, content.introduction, ...content.clauses, ...content.notes].join(" ");
+  const hasPlaceholder = /\[(?:УКАЗАТЬ|ВЫБРАТЬ|ЗАПОЛНИТЬ)[^\]]*\]/iu.test(text);
+  const checks = [
+    { label: "Предмет и состав работ закреплены сметой", complete: document.content.sections.some((section) => section.lines.length > 0) && /предмет|состав работ/iu.test(text) },
+    { label: "Начальный и конечный сроки заполнены", complete: /начальн[^.]{0,80}срок/iu.test(text) && /конечн[^.]{0,80}срок/iu.test(text) && !/срок[^.]*\[/iu.test(text) },
+    { label: "Цена и статус сметы определены", complete: document.content.totals.total > 0 && /цен|смет/iu.test(text) },
+    { label: "Порядок оплаты определён", complete: /порядок оплаты|аванс|оплат/iu.test(text) && !/оплат[^.]*\[/iu.test(text) },
+    { label: "Порядок сдачи и приёмки определён", complete: /при[её]мк/iu.test(text) },
+    { label: "Гарантийный срок заполнен", complete: /гарант/iu.test(text) && !/гарант[^.]*\[/iu.test(text) },
+    { label: "Реквизиты и подписанты заполнены", complete: /реквизит/iu.test(text) && !/реквизит[^.]*\[/iu.test(text) }
+  ];
+  return { checks, ready: checks.every((check) => check.complete) && !hasPlaceholder };
+}
+
+function ContractReadiness({ readiness }: { readiness: ReturnType<typeof contractReadiness> }) {
+  return (
+    <section className={readiness.ready ? "pro-contract-readiness ready" : "pro-contract-readiness"}>
+      <header><div><h2>Юридическая готовность договора</h2><p>Шаблон учитывает структуру подряда по ГК РФ, но становится готовым к подписанию только после заполнения конкретных условий и реквизитов сторон.</p></div><strong>{readiness.ready ? "Готов" : "Нужно заполнить"}</strong></header>
+      <ul>{readiness.checks.map((check) => <li key={check.label} className={check.complete ? "complete" : "incomplete"}>{check.complete ? "✓" : "○"} {check.label}</li>)}</ul>
+    </section>
+  );
+}
+
+function buildDocumentPrintHtml(document: ConstructionDocument) {
   const rows = document.content.sections.map((section) => `<h2>${escapeHtml(section.title)}</h2><table><thead><tr><th>Наименование</th><th>Ед.</th><th>Кол-во</th><th>Цена</th><th>Сумма</th></tr></thead><tbody>${section.lines.map((line) => `<tr><td>${escapeHtml(line.name)}</td><td>${escapeHtml(line.unit)}</td><td>${line.quantity}</td><td>${money(line.unitPrice)}</td><td>${money(line.total)}</td></tr>`).join("")}</tbody></table>`).join("");
-  popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(document.title)}</title><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#111;margin:28px}h1{font-size:25px}h2{font-size:16px;margin-top:26px}p{line-height:1.55}table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #ccc;padding:7px;text-align:left}.total{font-size:20px;font-weight:700;text-align:right;margin-top:24px}@page{size:A4;margin:14mm}</style></head><body><small>${escapeHtml(document.number)}</small><h1>${escapeHtml(document.content.heading)}</h1><p>${escapeHtml(document.content.introduction)}</p>${rows}<div class="total">Итого: ${money(document.content.totals.total)}</div>${document.content.clauses.map((clause) => `<p>${escapeHtml(clause)}</p>`).join("")}<script>window.onload=()=>window.print();<\/script></body></html>`);
-  popup.document.close();
+  return `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(document.title)}</title><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#111;margin:28px}h1{font-size:25px}h2{font-size:16px;margin-top:26px}p{line-height:1.55}table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #ccc;padding:7px;text-align:left}.total{font-size:20px;font-weight:700;text-align:right;margin-top:24px}@page{size:A4;margin:14mm}</style></head><body><small>${escapeHtml(document.number)}</small><h1>${escapeHtml(document.content.heading)}</h1><p>${escapeHtml(document.content.introduction)}</p>${rows}<div class="total">Итого: ${money(document.content.totals.total)}</div>${document.content.clauses.map((clause) => `<p>${escapeHtml(clause)}</p>`).join("")}</body></html>`;
+
 }

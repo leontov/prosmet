@@ -88,6 +88,16 @@ export async function updateDocumentStatus(
   });
 }
 
+export async function updateDocumentContent(
+  documentId: string,
+  content: Pick<ConstructionDocument["content"], "heading" | "introduction" | "clauses" | "notes">
+): Promise<ConstructionDocument> {
+  return api<ConstructionDocument>(`/api/workflows/documents/${encodeURIComponent(documentId)}`, {
+    method: "PUT",
+    body: JSON.stringify({ content })
+  });
+}
+
 export async function listPrices(query = "", region = ""): Promise<PriceCatalogEntry[]> {
   const params = new URLSearchParams();
   if (query) params.set("query", query);
