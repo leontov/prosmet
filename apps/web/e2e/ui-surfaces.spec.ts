@@ -119,7 +119,7 @@ test("projects, estimates, documents, prices and workflow are polished across de
 
     await page.getByRole("button", { name: "Проекты", exact: true }).click();
     await page.locator(".pro-project-row").first().click();
-    await expect(page.getByRole("dialog", { name: "Процесс проекта" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Процесс проекта" })).toBeVisible();
     await page.screenshot({ path: "artifacts-workflow-desktop-chromium.png", fullPage: true });
   } else {
     let drawer = await openMobileDrawer(page);
@@ -151,7 +151,7 @@ test("projects, estimates, documents, prices and workflow are polished across de
     await drawer.getByRole("button", { name: /Проекты/ }).click();
     await expectMobileTitle(page, "Проекты");
     await page.locator(".pro-project-row").first().click();
-    await expect(page.getByRole("dialog", { name: "Процесс проекта" })).toBeVisible();
+    await expect(page.getByRole("region", { name: "Процесс проекта" })).toBeVisible();
     await page.screenshot({ path: "artifacts-workflow-mobile-chromium.png", fullPage: true });
   }
 
