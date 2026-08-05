@@ -39,5 +39,6 @@ Desktop remains a separate work surface with a restrained sidebar, compact top b
 - Reduced-motion fallback
 - No mobile bottom navigation
 - Composer placeholder remains one line at the reference viewport
-- Mobile workflow control does not overlap sticky estimate actions
+- Mobile workflow control occupies a reserved compact slot in the sticky action rail and does not cover estimate content
+- Every newly generated estimate receives an isolated project identity, draft lifecycle status and zero factual progress, even when title and region match an earlier completed project
 - Source, assistant-ui architecture, TypeScript, unit, Rust and production build checks pass
