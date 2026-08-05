@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://kolibriai.online/sitemap.xml

@@ -289,3 +289,28 @@ body { margin: 0; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+.growth-honeypot {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  overflow: hidden !important;
+  clip: rect(0 0 0 0) !important;
+  clip-path: inset(50%) !important;
+  white-space: nowrap !important;
+}
+.growth-lead-error { margin: 0; color: #b42318; font-size: 12px; line-height: 1.4; }
+.growth-lead-form button:disabled { cursor: wait; opacity: .68; }
+
+.growth-section,
+.growth-final-cta,
+.growth-footer {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 900px;
+}
+
+.growth-workflow-list article > b { color: #5f6369; }
+.growth-enterprise .growth-eyebrow { color: #8bbcff; }
+.growth-lead-form > small { color: #a8adb4; }
+.growth-footer > small { color: #64686e; }
+

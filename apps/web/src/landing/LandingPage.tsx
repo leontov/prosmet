@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import {
   ArrowRightIcon,
   BadgeCheckIcon,
@@ -25,6 +25,12 @@ type Plan = {
   featured?: boolean;
   features: readonly string[];
 };
+
+type LeadState =
+  | { status: "idle" }
+  | { status: "sending" }
+  | { status: "sent"; id: string }
+  | { status: "error"; message: string };
 
 const demoLines: DemoLine[] = [
   { name: "Демонтаж покрытий и вывоз", unit: "компл.", quantity: 1, price: 28_000 },
@@ -78,12 +84,47 @@ export function LandingPage() {
   const [mobileNav, setMobileNav] = useState(false);
   const [demoPrompt, setDemoPrompt] = useState("Ремонт ванной под ключ, 5,8 м², Казань. Работы и материалы.");
   const [demoReady, setDemoReady] = useState(true);
-  const [leadSent, setLeadSent] = useState(false);
+  const [leadState, setLeadState] = useState<LeadState>({ status: "idle" });
   const total = useMemo(() => demoLines.reduce((sum, line) => sum + line.quantity * line.price, 0), []);
 
   const runDemo = () => {
     setDemoReady(false);
     window.setTimeout(() => setDemoReady(true), 850);
+  };
+
+  const submitLead = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    setLeadState({ status: "sending" });
+    try {
+      const response = await fetch("/api/leads", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({
+          name: data.get("name"),
+          contact: data.get("contact"),
+          company: data.get("company"),
+          website: data.get("website"),
+          source: "landing-enterprise"
+        })
+      });
+      const result = await response.json().catch(() => ({})) as {
+        lead?: { id?: string };
+        error?: { message?: string };
+      };
+      if (!response.ok || !result.lead?.id) {
+        throw new Error(result.error?.message || "Не удалось сохранить заявку.");
+      }
+      form.reset();
+      setLeadState({ status: "sent", id: result.lead.id });
+    } catch (error) {
+      setLeadState({
+        status: "error",
+        message: error instanceof Error ? error.message : "Не удалось сохранить заявку."
+      });
+    }
   };
 
   return (
@@ -190,16 +231,20 @@ export function LandingPage() {
             <p>Команды, роли, собственные шаблоны, интеграции, закрытая инфраструктура и единый аудит изменений.</p>
             <ul><li><ShieldCheckIcon /> Изоляция данных и управляемые права</li><li><Building2Icon /> Настройка под структуру компании</li><li><BotIcon /> Выбор AI-провайдеров и частных моделей</li></ul>
           </div>
-          <form className="growth-lead-form" onSubmit={(event) => { event.preventDefault(); setLeadSent(true); }}>
-            {leadSent ? (
-              <div className="growth-lead-success"><CheckIcon /><strong>Заявка принята</strong><p>Команда подготовит сценарий внедрения под вашу компанию.</p></div>
+          <form className="growth-lead-form" onSubmit={(event) => void submitLead(event)} aria-busy={leadState.status === "sending"}>
+            {leadState.status === "sent" ? (
+              <div className="growth-lead-success" aria-live="polite"><CheckIcon /><strong>Заявка принята</strong><p>Команда подготовит сценарий внедрения под вашу компанию.</p></div>
             ) : (
               <>
                 <strong>Запросить корпоративную демонстрацию</strong>
-                <label><span>Имя</span><input required name="name" autoComplete="name" /></label>
-                <label><span>Рабочий телефон или email</span><input required name="contact" /></label>
-                <label><span>Компания и число сотрудников</span><input required name="company" /></label>
-                <button type="submit">Получить план внедрения <ArrowRightIcon /></button>
+                <label><span>Имя</span><input required name="name" autoComplete="name" maxLength={160} /></label>
+                <label><span>Рабочий телефон или email</span><input required name="contact" autoComplete="email" maxLength={320} /></label>
+                <label><span>Компания и число сотрудников</span><input required name="company" autoComplete="organization" maxLength={320} /></label>
+                <label className="growth-honeypot" aria-hidden="true"><span>Сайт</span><input name="website" tabIndex={-1} autoComplete="off" /></label>
+                {leadState.status === "error" ? <p className="growth-lead-error" role="alert">{leadState.message}</p> : null}
+                <button type="submit" disabled={leadState.status === "sending"}>
+                  {leadState.status === "sending" ? "Сохраняем заявку…" : <>Получить план внедрения <ArrowRightIcon /></>}
+                </button>
                 <small>Отправляя форму, вы соглашаетесь на обработку контактных данных.</small>
               </>
             )}

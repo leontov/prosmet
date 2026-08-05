@@ -1,10 +1,8 @@
 import { lazy, StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
+import { LandingPage } from "./landing/LandingPage";
 
 const AppEntry = lazy(() => import("./app/AppEntry"));
-const LandingPage = lazy(() =>
-  import("./landing/LandingPage").then((module) => ({ default: module.LandingPage }))
-);
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Root element is missing");
@@ -28,8 +26,12 @@ document.querySelector('link[rel="canonical"]')?.setAttribute("href", canonical)
 
 createRoot(root).render(
   <StrictMode>
-    <Suspense fallback={<div role="status" aria-label="Загрузка ProSmet" style={{ minHeight: "100dvh", background: "#fff" }} />}>
-      {showLanding ? <LandingPage /> : <AppEntry />}
-    </Suspense>
+    {showLanding ? (
+      <LandingPage />
+    ) : (
+      <Suspense fallback={<div role="status" aria-label="Загрузка ProSmet" style={{ minHeight: "100dvh", background: "#fff" }} />}>
+        <AppEntry />
+      </Suspense>
+    )}
   </StrictMode>
 );

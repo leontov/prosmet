@@ -1,11 +1,14 @@
 import { expect, test } from "@playwright/test";
 
+const external = Boolean(process.env.PROSMET_BASE_URL);
+const adminToken = external ? process.env.PROSMET_E2E_ADMIN_TOKEN?.trim() || null : "e2e-admin";
+
 test.describe("production landing", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/landing");
   });
 
-  test("shows the product promise and interactive estimate demo", async ({ page }) => {
+  test("shows the product promise and interactive estimate demo", async ({ page }, testInfo) => {
     await expect(page.getByRole("heading", { name: /От запроса до КС-3/ })).toBeVisible();
     await expect(page.getByText("Ремонт ванной комнаты", { exact: true })).toBeVisible();
     await expect(page.getByText("Предварительная стоимость", { exact: true })).toBeVisible();
@@ -15,6 +18,7 @@ test.describe("production landing", () => {
     await page.getByRole("button", { name: "Запустить демонстрацию" }).click();
     await expect(page.getByText(/Проверяю состав работ/)).toBeVisible();
     await expect(page.getByText("Расчёт готов", { exact: true })).toBeVisible();
+    await page.screenshot({ path: `artifacts-landing-${testInfo.project.name}.png`, fullPage: true });
   });
 
   test("keeps the production application available on app route", async ({ page }, testInfo) => {
@@ -28,15 +32,48 @@ test.describe("production landing", () => {
     }
   });
 
-  test("exposes real application and enterprise conversion paths", async ({ page }) => {
+  test("persists and verifies an enterprise lead", async ({ page }, testInfo) => {
     const appLink = page.getByRole("link", { name: /Составить первую смету/ });
     await expect(appLink).toHaveAttribute("href", "/app");
 
+    if (external && !adminToken) {
+      await expect(page.getByRole("button", { name: /Получить план внедрения/ })).toBeVisible();
+      return;
+    }
+
+    const unique = `${testInfo.project.name}-${Date.now()}`;
     await page.getByRole("textbox", { name: "Имя" }).fill("Тестовый пользователь");
-    await page.getByRole("textbox", { name: "Рабочий телефон или email" }).fill("test@example.com");
+    await page.getByRole("textbox", { name: "Рабочий телефон или email" }).fill(`landing-${unique}@example.com`);
     await page.getByRole("textbox", { name: "Компания и число сотрудников" }).fill("Строй QA, 12");
+
+    const leadResponsePromise = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === "/api/leads" && response.request().method() === "POST"
+    );
     await page.getByRole("button", { name: /Получить план внедрения/ }).click();
+    const leadResponse = await leadResponsePromise;
+    const leadBody = await leadResponse.json() as { lead?: { id?: string }; persisted?: boolean };
+    expect(leadResponse.status()).toBe(201);
+    expect(leadBody.persisted).toBe(true);
+    expect(leadBody.lead?.id).toBeTruthy();
     await expect(page.getByText("Заявка принята", { exact: true })).toBeVisible();
+
+    const headers = { "x-prosmet-admin-token": adminToken! };
+    const listResponse = await page.request.get("/api/leads?limit=50", { headers });
+    expect(listResponse.ok(), await listResponse.text()).toBeTruthy();
+    const list = await listResponse.json() as { leads?: Array<{ id: string; contact: string }> };
+    expect(list.leads?.some((lead) => lead.id === leadBody.lead?.id && lead.contact === `landing-${unique}@example.com`)).toBe(true);
+
+    const deleteResponse = await page.request.delete(`/api/leads/${encodeURIComponent(leadBody.lead!.id!)}`, { headers });
+    expect(deleteResponse.ok(), await deleteResponse.text()).toBeTruthy();
+    await page.screenshot({ path: `artifacts-landing-lead-${testInfo.project.name}.png`, fullPage: true });
+  });
+
+  test("protects lead administration and validates required fields", async ({ page }, testInfo) => {
+    test.skip(testInfo.project.name !== "desktop-chromium", "API boundary runs once");
+    const unauthenticated = await page.request.get("/api/leads");
+    expect(unauthenticated.status()).toBe(401);
+    const invalid = await page.request.post("/api/leads", { data: { name: "Only name" } });
+    expect(invalid.status()).toBe(400);
   });
 
   test("has no horizontal overflow on mobile", async ({ page }, testInfo) => {
