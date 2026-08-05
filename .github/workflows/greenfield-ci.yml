@@ -57,12 +57,23 @@ jobs:
       - name: Install clean JavaScript workspace
         run: npm ci --workspaces --include-workspace-root --legacy-peer-deps --no-audit --no-fund
 
-      - name: Verify shared product and typed desktop IPC
-        run: |
-          set -Eeuo pipefail
-          npm run verify
-          npm run desktop:metadata
-          npm run desktop:verify
+      - name: Desktop IPC source and capability contract
+        run: npm run desktop:security
+
+      - name: Shared product source, TypeScript, unit and build verification
+        run: npm run verify
+
+      - name: Desktop manifest
+        run: npm run desktop:metadata
+
+      - name: Rust format
+        run: cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --all -- --check
+
+      - name: Rust clippy
+        run: cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      - name: Rust desktop unit tests
+        run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 
       - name: Build the unsigned Linux desktop artifact
         run: npm run desktop:build
