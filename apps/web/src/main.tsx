@@ -1,6 +1,7 @@
 import { lazy, StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { LandingPage } from "./landing/LandingPage";
+import "./landing/landing-render.css";
 
 const AppEntry = lazy(() => import("./app/AppEntry"));
 
