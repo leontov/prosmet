@@ -15,6 +15,7 @@
     "@assistant-ui/react": "0.15.1",
     "@prosmet/contracts": "0.1.0",
     "lucide-react": "1.28.0",
+    "pdfmake": "0.2.20",
     "react": "19.2.3",
     "react-dom": "19.2.3"
   },
