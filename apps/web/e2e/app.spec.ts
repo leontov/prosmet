@@ -287,7 +287,24 @@ test("greenfield shell uses real agent integration and the mobile reference layo
     const card = editor.locator(".mobile-estimate-item").first();
     expect((await card.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(112);
     const titleField = card.locator("textarea").first();
+    if (!external) {
+      const longMobileItemName = "Механизированная штукатурка стен по маякам гипсовым составом с подготовкой основания и устройством защитных углов";
+      const titleEditResponsePromise = page.waitForResponse((response) =>
+        new URL(response.url()).pathname === `/api/estimates/${encodeURIComponent(artifact.id)}` &&
+        response.request().method() === "PUT"
+      );
+      await titleField.fill(longMobileItemName);
+      const titleEditResponse = await titleEditResponsePromise;
+      expect(titleEditResponse.ok(), await titleEditResponse.text()).toBeTruthy();
+      await expect(titleField).toHaveValue(longMobileItemName);
+    }
+    await expect.poll(
+      () => titleField.evaluate((element) => element.scrollHeight <= element.clientHeight + 1),
+      { timeout: 5_000, message: "Mobile estimate item title must grow to its full content height" }
+    ).toBe(true);
     const titleGeometry = await titleField.evaluate((element) => ({
+      maxHeight: getComputedStyle(element).maxHeight,
+      inlineHeight: element.style.height,
       fontSize: parseFloat(getComputedStyle(element).fontSize),
       scrollWidth: element.scrollWidth,
       clientWidth: element.clientWidth,
@@ -295,6 +312,8 @@ test("greenfield shell uses real agent integration and the mobile reference layo
       clientHeight: element.clientHeight
     }));
     expect(titleGeometry.fontSize).toBeGreaterThanOrEqual(16);
+    expect(titleGeometry.maxHeight).toBe("none");
+    expect(titleGeometry.inlineHeight).not.toBe("");
     expect(titleGeometry.scrollWidth).toBeLessThanOrEqual(titleGeometry.clientWidth + 1);
     expect(titleGeometry.scrollHeight).toBeLessThanOrEqual(titleGeometry.clientHeight + 1);
     const actionbar = editor.locator(".mobile-estimate-actions");

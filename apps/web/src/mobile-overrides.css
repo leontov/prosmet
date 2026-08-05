@@ -2,7 +2,8 @@
   .mobile-item-head > textarea {
     width: 100%;
     min-height: 52px;
-    max-height: 72px;
+    max-height: none;
+    field-sizing: content;
     overflow: hidden;
     resize: none;
     border: 0;
