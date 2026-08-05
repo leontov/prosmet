@@ -43,6 +43,7 @@ jobs:
       - name: Apply lead persistence, SEO, visual and performance gates
         run: |
           set -Eeuo pipefail
+          cp .github/workflows/greenfield-ci.yml /tmp/prosmet-landing-one-shot.yml
           python3 scripts/apply-landing-production-gates.py
           python3 scripts/patch-landing-gates-v2.py
           rm -f scripts/apply-landing-production-gates.py scripts/patch-landing-gates-v2.py
@@ -72,13 +73,13 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-      - name: Commit verified landing production gates
+      - name: Commit verified landing production source
         run: |
           set -Eeuo pipefail
+          cp /tmp/prosmet-landing-one-shot.yml .github/workflows/greenfield-ci.yml
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add \
-            .github/workflows/greenfield-ci.yml \
             package.json \
             package-lock.json \
             scripts/greenfield-contract.mjs \
