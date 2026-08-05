@@ -1,22 +1,21 @@
-import { useEffect, useState } from "react";
-import { App as DesktopApplication } from "./App";
-import { MobileWebApp } from "./MobileWebApp";
+import { useEffect } from "react";
+import { ProfessionalApp } from "./ProfessionalApp";
 
-function useMediaQuery(query: string) {
-  const [matches, setMatches] = useState(() => typeof window !== "undefined" && window.matchMedia(query).matches);
-
-  useEffect(() => {
-    const media = window.matchMedia(query);
-    const update = () => setMatches(media.matches);
-    update();
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
-  }, [query]);
-
-  return matches;
+function normalizeChromeHeadings() {
+  for (const heading of document.querySelectorAll<HTMLElement>(
+    ".pro-desktop-topbar h1, .pro-mobile-topbar h1"
+  )) {
+    heading.setAttribute("aria-hidden", "true");
+  }
 }
 
 export function ReferenceApp() {
-  const mobile = useMediaQuery("(max-width: 767px)");
-  return mobile ? <MobileWebApp /> : <DesktopApplication />;
+  useEffect(() => {
+    normalizeChromeHeadings();
+    const observer = new MutationObserver(normalizeChromeHeadings);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, []);
+
+  return <ProfessionalApp />;
 }

@@ -214,7 +214,7 @@ test("greenfield shell uses real agent integration and the mobile reference layo
     await expect(page.getByText("Рассчитать по замерам", { exact: true })).toBeVisible();
     await expect(page.getByText("Подготовить документы", { exact: true })).toBeVisible();
     await expect(page.locator(".mobile-reference-composer")).toBeVisible();
-    await expect(page.locator("#mobile-message")).toHaveAttribute("placeholder", "Опишите объект и замеры...");
+    await expect(page.locator("#mobile-message")).toHaveAttribute("placeholder", "Спросить ProSmet…");
     await expect(page.locator(".mobile-bottom-nav")).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Новый расчёт" })).toHaveCount(0);
 
@@ -334,7 +334,7 @@ test("greenfield shell uses real agent integration and the mobile reference layo
   } else {
     const menu = await openMobileMenu(page);
     await menu.getByRole("button", { name: /Сметы/ }).click();
-    await expect(page.getByText(stored.title, { exact: true }).first()).toBeVisible();
+    await expect(page.locator(".pro-mobile-main").getByText(stored.title, { exact: true }).first()).toBeVisible();
   }
   evidence.checks.reloadRestored = true;
   evidence.artifact = {

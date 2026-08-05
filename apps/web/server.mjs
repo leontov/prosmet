@@ -4,9 +4,13 @@ import { extname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import {
+  constants as cryptoConstants,
   createCipheriv,
   createDecipheriv,
+  createHash,
   createHmac,
+  generateKeyPairSync,
+  privateDecrypt,
   randomBytes,
   randomUUID,
   timingSafeEqual
@@ -260,6 +264,639 @@ function createEstimateStore(databasePath) {
   };
 }
 
+
+function calculateEstimateTotals(estimate) {
+  const direct = (estimate?.sections || []).reduce(
+    (total, section) => total + (section.items || []).reduce(
+      (sectionTotal, item) => sectionTotal + finiteNonNegative(item.quantity) * finiteNonNegative(item.unitPrice),
+      0
+    ),
+    0
+  );
+  const overhead = direct * finiteNonNegative(estimate?.overheadPercent) / 100;
+  const profit = (direct + overhead) * finiteNonNegative(estimate?.profitPercent) / 100;
+  const vat = (direct + overhead + profit) * finiteNonNegative(estimate?.vatPercent) / 100;
+  return { direct, overhead, profit, vat, total: direct + overhead + profit + vat };
+}
+
+const projectStatusOrder = [
+  "estimate_draft",
+  "estimate_review",
+  "estimate_sent",
+  "estimate_approved",
+  "proposal_ready",
+  "contract_ready",
+  "contracted",
+  "in_progress",
+  "completion_review",
+  "completed"
+];
+
+function projectStatusRank(status) {
+  const index = projectStatusOrder.indexOf(String(status));
+  return index < 0 ? 0 : index;
+}
+
+function projectStatusForEstimate(status) {
+  if (status === "review") return "estimate_review";
+  if (status === "sent") return "estimate_sent";
+  if (status === "approved") return "estimate_approved";
+  return "estimate_draft";
+}
+
+function normalizeCatalogName(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replaceAll("ё", "е")
+    .replace(/[^a-zа-я0-9]+/gi, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function stableEntityId(prefix, ...parts) {
+  const digest = createHash("sha256").update(parts.join("\u0000")).digest("hex").slice(0, 24);
+  return `${prefix}-${digest}`;
+}
+
+function median(values) {
+  const sorted = [...values].sort((left, right) => left - right);
+  if (!sorted.length) return 0;
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function createWorkflowStore(databasePath) {
+  const db = new DatabaseSync(databasePath);
+  db.exec("PRAGMA foreign_keys = ON");
+  db.exec("PRAGMA journal_mode = WAL");
+  db.exec("PRAGMA synchronous = NORMAL");
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS workflow_projects (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      customer TEXT NOT NULL,
+      region TEXT NOT NULL,
+      status TEXT NOT NULL,
+      active_estimate_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    DROP INDEX IF EXISTS idx_workflow_project_identity;
+    CREATE INDEX IF NOT EXISTS idx_workflow_project_lookup
+      ON workflow_projects(owner_id, title, region);
+    CREATE INDEX IF NOT EXISTS idx_workflow_projects_updated
+      ON workflow_projects(owner_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_workflow_projects_estimate
+      ON workflow_projects(active_estimate_id);
+
+    CREATE TABLE IF NOT EXISTS estimate_revisions (
+      id TEXT PRIMARY KEY,
+      estimate_id TEXT NOT NULL,
+      revision INTEGER NOT NULL,
+      event TEXT NOT NULL,
+      status TEXT NOT NULL,
+      snapshot_json TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_estimate_revisions_history
+      ON estimate_revisions(estimate_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS workflow_documents (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      estimate_id TEXT NOT NULL,
+      type TEXT NOT NULL,
+      status TEXT NOT NULL,
+      number TEXT NOT NULL,
+      title TEXT NOT NULL,
+      content_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(project_id, estimate_id, type, number)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_workflow_documents_project
+      ON workflow_documents(project_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_workflow_documents_type
+      ON workflow_documents(type, updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS workflow_progress (
+      project_id TEXT NOT NULL,
+      estimate_id TEXT NOT NULL,
+      section_id TEXT NOT NULL,
+      item_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      unit TEXT NOT NULL,
+      category TEXT NOT NULL,
+      planned_quantity REAL NOT NULL,
+      actual_quantity REAL NOT NULL,
+      unit_price REAL NOT NULL,
+      status TEXT NOT NULL,
+      note TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY(project_id, item_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_workflow_progress_project
+      ON workflow_progress(project_id, updated_at DESC);
+
+    CREATE TABLE IF NOT EXISTS price_observations (
+      id TEXT PRIMARY KEY,
+      normalized_name TEXT NOT NULL,
+      item_name TEXT NOT NULL,
+      unit TEXT NOT NULL,
+      category TEXT NOT NULL,
+      region TEXT NOT NULL,
+      price REAL NOT NULL,
+      source_type TEXT NOT NULL,
+      source_label TEXT NOT NULL,
+      estimate_id TEXT,
+      revision INTEGER,
+      confidence REAL NOT NULL,
+      observed_at TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_price_observations_lookup
+      ON price_observations(normalized_name, unit, region, observed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_price_observations_region
+      ON price_observations(region, observed_at DESC);
+
+    CREATE TABLE IF NOT EXISTS workflow_audit (
+      id TEXT PRIMARY KEY,
+      entity_type TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_workflow_audit_entity
+      ON workflow_audit(entity_type, entity_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS provisioning_nonces (
+      nonce TEXT PRIMARY KEY,
+      used_at TEXT NOT NULL
+    );
+  `);
+
+  const selectProject = db.prepare("SELECT * FROM workflow_projects WHERE id = ?");
+  const selectProjectByEstimate = db.prepare("SELECT * FROM workflow_projects WHERE active_estimate_id = ? ORDER BY updated_at DESC LIMIT 1");
+  const listProjectRows = db.prepare("SELECT * FROM workflow_projects WHERE owner_id = ? ORDER BY updated_at DESC");
+  const upsertProject = db.prepare(`
+    INSERT INTO workflow_projects (
+      id, owner_id, title, customer, region, status, active_estimate_id, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      title = excluded.title,
+      customer = excluded.customer,
+      region = excluded.region,
+      status = excluded.status,
+      active_estimate_id = excluded.active_estimate_id,
+      updated_at = excluded.updated_at
+  `);
+  const updateProjectStatusStatement = db.prepare("UPDATE workflow_projects SET status = ?, updated_at = ? WHERE id = ?");
+  const selectEstimateSummary = db.prepare(`
+    SELECT e.overhead_percent, e.profit_percent, e.vat_percent,
+           COALESCE(SUM(i.quantity * i.unit_price), 0) AS direct
+      FROM estimates e
+      LEFT JOIN estimate_items i ON i.estimate_id = e.id
+     WHERE e.id = ?
+     GROUP BY e.id
+  `);
+  const selectProgressSummary = db.prepare(`
+    SELECT COUNT(*) AS total_items,
+           SUM(CASE WHEN status IN ('done', 'excluded') THEN 1 ELSE 0 END) AS completed_items,
+           COALESCE(SUM(actual_quantity * unit_price), 0) AS actual_total
+      FROM workflow_progress
+     WHERE project_id = ?
+  `);
+  const upsertProgress = db.prepare(`
+    INSERT INTO workflow_progress (
+      project_id, estimate_id, section_id, item_id, name, unit, category,
+      planned_quantity, actual_quantity, unit_price, status, note, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(project_id, item_id) DO UPDATE SET
+      estimate_id = excluded.estimate_id,
+      section_id = excluded.section_id,
+      name = excluded.name,
+      unit = excluded.unit,
+      category = excluded.category,
+      planned_quantity = excluded.planned_quantity,
+      unit_price = excluded.unit_price,
+      updated_at = excluded.updated_at
+  `);
+  const selectProgress = db.prepare("SELECT * FROM workflow_progress WHERE project_id = ? ORDER BY rowid ASC");
+  const updateProgressStatement = db.prepare(`
+    UPDATE workflow_progress
+       SET actual_quantity = ?, status = ?, note = ?, updated_at = ?
+     WHERE project_id = ? AND item_id = ?
+  `);
+  const selectProgressItem = db.prepare("SELECT * FROM workflow_progress WHERE project_id = ? AND item_id = ?");
+  const insertRevision = db.prepare(`
+    INSERT OR IGNORE INTO estimate_revisions (id, estimate_id, revision, event, status, snapshot_json, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+  const selectRevisions = db.prepare("SELECT * FROM estimate_revisions WHERE estimate_id = ? ORDER BY created_at DESC");
+  const upsertDocument = db.prepare(`
+    INSERT INTO workflow_documents (
+      id, project_id, estimate_id, type, status, number, title, content_json, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      status = excluded.status,
+      number = excluded.number,
+      title = excluded.title,
+      content_json = excluded.content_json,
+      updated_at = excluded.updated_at
+  `);
+  const selectDocument = db.prepare("SELECT * FROM workflow_documents WHERE id = ?");
+  const selectDocumentsByProject = db.prepare("SELECT * FROM workflow_documents WHERE project_id = ? ORDER BY updated_at DESC");
+  const listDocumentsStatement = db.prepare("SELECT * FROM workflow_documents ORDER BY updated_at DESC");
+  const updateDocumentStatusStatement = db.prepare("UPDATE workflow_documents SET status = ?, updated_at = ? WHERE id = ?");
+  const upsertPriceObservation = db.prepare(`
+    INSERT INTO price_observations (
+      id, normalized_name, item_name, unit, category, region, price, source_type,
+      source_label, estimate_id, revision, confidence, observed_at, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      item_name = excluded.item_name,
+      price = excluded.price,
+      confidence = excluded.confidence,
+      observed_at = excluded.observed_at
+  `);
+  const listPriceObservations = db.prepare("SELECT * FROM price_observations ORDER BY observed_at DESC");
+  const insertAudit = db.prepare(`
+    INSERT INTO workflow_audit (id, entity_type, entity_id, action, payload_json, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `);
+  const selectAudit = db.prepare("SELECT * FROM workflow_audit WHERE entity_type = ? AND entity_id = ? ORDER BY created_at DESC LIMIT 100");
+  const findNonce = db.prepare("SELECT nonce FROM provisioning_nonces WHERE nonce = ?");
+  const insertNonce = db.prepare("INSERT INTO provisioning_nonces (nonce, used_at) VALUES (?, ?)");
+
+  function transaction(callback) {
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      const value = callback();
+      db.exec("COMMIT");
+      return value;
+    } catch (error) {
+      try { db.exec("ROLLBACK"); } catch {}
+      throw error;
+    }
+  }
+
+  function audit(entityType, entityId, action, payload = {}) {
+    insertAudit.run(randomUUID(), entityType, entityId, action, JSON.stringify(payload), nowIso());
+  }
+
+  function projectFromRow(row) {
+    if (!row) return null;
+    const estimateSummary = selectEstimateSummary.get(row.active_estimate_id) || {};
+    const direct = asNumber(estimateSummary.direct);
+    const overhead = direct * asNumber(estimateSummary.overhead_percent) / 100;
+    const profit = (direct + overhead) * asNumber(estimateSummary.profit_percent) / 100;
+    const vat = (direct + overhead + profit) * asNumber(estimateSummary.vat_percent) / 100;
+    const estimateTotal = direct + overhead + profit + vat;
+    const progressSummary = selectProgressSummary.get(row.id) || {};
+    const totalItems = Math.max(0, Math.floor(asNumber(progressSummary.total_items)));
+    const completedItems = Math.max(0, Math.floor(asNumber(progressSummary.completed_items)));
+    return {
+      id: String(row.id),
+      title: String(row.title),
+      customer: String(row.customer),
+      region: String(row.region),
+      status: String(row.status),
+      activeEstimateId: String(row.active_estimate_id),
+      createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at),
+      totals: {
+        estimate: estimateTotal,
+        planned: estimateTotal,
+        actual: asNumber(progressSummary.actual_total)
+      },
+      progress: {
+        completedItems,
+        totalItems,
+        percent: totalItems ? Math.round(completedItems / totalItems * 100) : 0
+      }
+    };
+  }
+
+  function ensureProject(estimate, { status = null, forceStatus = false } = {}) {
+    const ownerId = estimate.persistence?.ownerId || "production";
+    const title = String(estimate.project || estimate.title || "Объект без названия").trim();
+    const region = String(estimate.region || "").trim();
+    const customer = String(estimate.customer || "").trim();
+    const existing = selectProjectByEstimate.get(estimate.id);
+    const id = existing?.id || stableEntityId("project", ownerId, estimate.id, title, region);
+    const createdAt = existing?.created_at || nowIso();
+    const requestedStatus = status || projectStatusForEstimate(estimate.status);
+    const currentStatus = existing?.status || "estimate_draft";
+    const nextStatus = forceStatus || projectStatusRank(requestedStatus) >= projectStatusRank(currentStatus)
+      ? requestedStatus
+      : currentStatus;
+    const updatedAt = nowIso();
+    upsertProject.run(id, ownerId, title, customer, region, nextStatus, estimate.id, createdAt, updatedAt);
+    for (const section of estimate.sections || []) {
+      for (const item of section.items || []) {
+        upsertProgress.run(
+          id,
+          estimate.id,
+          section.id,
+          item.id,
+          item.name,
+          item.unit,
+          item.category,
+          finiteNonNegative(item.quantity),
+          0,
+          finiteNonNegative(item.unitPrice),
+          "planned",
+          "",
+          updatedAt
+        );
+      }
+    }
+    return projectFromRow(selectProject.get(id));
+  }
+
+  function setProjectStatus(projectId, status) {
+    if (!projectStatusOrder.includes(status)) throw new Error("Некорректный статус проекта");
+    const current = selectProject.get(projectId);
+    if (!current) throw new Error("Проект не найден");
+    if (projectStatusRank(status) < projectStatusRank(current.status) && status !== "estimate_review") {
+      throw new Error("Нельзя перевести проект на предыдущий этап");
+    }
+    updateProjectStatusStatement.run(status, nowIso(), projectId);
+    audit("project", projectId, `status:${status}`);
+    return projectFromRow(selectProject.get(projectId));
+  }
+
+  function recordRevision(estimate, event) {
+    const createdAt = nowIso();
+    const id = stableEntityId("revision", estimate.id, String(estimate.revision), event);
+    insertRevision.run(id, estimate.id, estimate.revision, event, estimate.status, JSON.stringify(estimate), createdAt);
+    audit("estimate", estimate.id, event, { revision: estimate.revision, status: estimate.status });
+    return id;
+  }
+
+  function revisions(estimateId) {
+    return selectRevisions.all(estimateId).map((row) => ({
+      id: String(row.id),
+      estimateId: String(row.estimate_id),
+      revision: Math.max(1, Math.floor(asNumber(row.revision, 1))),
+      event: String(row.event),
+      status: String(row.status),
+      snapshot: JSON.parse(String(row.snapshot_json)),
+      createdAt: String(row.created_at)
+    }));
+  }
+
+  function observePrices(estimate, sourceType, sourceLabel = "", confidence = 0.7) {
+    const observedAt = nowIso();
+    for (const section of estimate.sections || []) {
+      for (const item of section.items || []) {
+        if (!item.name || !item.unit || finiteNonNegative(item.unitPrice) <= 0) continue;
+        const normalizedName = normalizeCatalogName(item.name);
+        const id = stableEntityId(
+          "price",
+          estimate.id,
+          String(estimate.revision),
+          item.id,
+          sourceType,
+          estimate.region || ""
+        );
+        upsertPriceObservation.run(
+          id,
+          normalizedName,
+          item.name,
+          item.unit,
+          item.category,
+          estimate.region || "",
+          finiteNonNegative(item.unitPrice),
+          sourceType,
+          sourceLabel || sourceType,
+          estimate.id,
+          estimate.revision,
+          Math.min(1, Math.max(0, Number(confidence) || 0)),
+          observedAt,
+          observedAt
+        );
+      }
+    }
+  }
+
+  function priceCatalog({ query = "", region = "", limit = 200 } = {}) {
+    const normalizedQuery = normalizeCatalogName(query);
+    const words = normalizedQuery.split(" ").filter((word) => word.length > 2);
+    const normalizedRegion = String(region || "").trim().toLowerCase();
+    const groups = new Map();
+    for (const row of listPriceObservations.all()) {
+      if (normalizedRegion && String(row.region).toLowerCase() !== normalizedRegion) continue;
+      const haystack = `${row.normalized_name} ${String(row.item_name).toLowerCase()}`;
+      if (words.length && !words.some((word) => haystack.includes(word))) continue;
+      const key = `${row.normalized_name}\u0000${row.unit}\u0000${row.region}`;
+      const group = groups.get(key) || { rows: [], latest: row };
+      group.rows.push(row);
+      if (String(row.observed_at) > String(group.latest.observed_at)) group.latest = row;
+      groups.set(key, group);
+    }
+    return [...groups.values()]
+      .map(({ rows, latest }) => {
+        const prices = rows.map((row) => asNumber(row.price)).filter((price) => price > 0);
+        const averagePrice = prices.length ? prices.reduce((sum, price) => sum + price, 0) / prices.length : 0;
+        const averageConfidence = rows.reduce((sum, row) => sum + asNumber(row.confidence), 0) / Math.max(1, rows.length);
+        return {
+          normalizedName: String(latest.normalized_name),
+          name: String(latest.item_name),
+          unit: String(latest.unit),
+          category: String(latest.category),
+          region: String(latest.region),
+          averagePrice,
+          medianPrice: median(prices),
+          minimumPrice: prices.length ? Math.min(...prices) : 0,
+          maximumPrice: prices.length ? Math.max(...prices) : 0,
+          latestPrice: asNumber(latest.price),
+          sampleCount: rows.length,
+          latestObservedAt: String(latest.observed_at),
+          confidence: Math.min(1, Math.max(0, averageConfidence))
+        };
+      })
+      .sort((left, right) => Date.parse(right.latestObservedAt) - Date.parse(left.latestObservedAt))
+      .slice(0, Math.min(500, Math.max(1, Number(limit) || 200)));
+  }
+
+  function priceContext(query, region, limit = 24) {
+    const entries = priceCatalog({ query, region, limit });
+    if (!entries.length) return "Локальный справочник цен пока не содержит сопоставимых подтверждённых позиций.";
+    return [
+      "Сопоставимые цены из локального справочника ProSmet. Это ориентиры, их нужно сверить с текущими коммерческими предложениями:",
+      ...entries.map((entry) => [
+        `- ${entry.name}: медиана ${Math.round(entry.medianPrice)} ₽/${entry.unit}`,
+        `средняя ${Math.round(entry.averagePrice)} ₽/${entry.unit}`,
+        `выборка ${entry.sampleCount}`,
+        entry.region ? `регион ${entry.region}` : "регион не указан",
+        `дата ${entry.latestObservedAt.slice(0, 10)}`
+      ].join(", "))
+    ].join("\n");
+  }
+
+  function documentFromRow(row) {
+    if (!row) return null;
+    return {
+      id: String(row.id),
+      projectId: String(row.project_id),
+      estimateId: String(row.estimate_id),
+      type: String(row.type),
+      status: String(row.status),
+      number: String(row.number),
+      title: String(row.title),
+      content: JSON.parse(String(row.content_json)),
+      createdAt: String(row.created_at),
+      updatedAt: String(row.updated_at)
+    };
+  }
+
+  function saveDocument({ projectId, estimateId, type, status = "ready", number, title, content }) {
+    const id = stableEntityId("document", projectId, estimateId, type, number);
+    const existing = selectDocument.get(id);
+    const createdAt = existing?.created_at || nowIso();
+    const updatedAt = nowIso();
+    upsertDocument.run(
+      id,
+      projectId,
+      estimateId,
+      type,
+      status,
+      number,
+      title,
+      JSON.stringify(content),
+      createdAt,
+      updatedAt
+    );
+    audit("document", id, `document:${type}:${status}`, { projectId, estimateId });
+    return documentFromRow(selectDocument.get(id));
+  }
+
+  function document(id) {
+    return documentFromRow(selectDocument.get(id));
+  }
+
+  function documents(projectId = null) {
+    const rows = projectId ? selectDocumentsByProject.all(projectId) : listDocumentsStatement.all();
+    return rows.map(documentFromRow);
+  }
+
+  function setDocumentStatus(id, status) {
+    if (!new Set(["draft", "ready", "sent", "signed", "approved"]).has(status)) {
+      throw new Error("Некорректный статус документа");
+    }
+    if (!selectDocument.get(id)) throw new Error("Документ не найден");
+    updateDocumentStatusStatement.run(status, nowIso(), id);
+    audit("document", id, `status:${status}`);
+    return documentFromRow(selectDocument.get(id));
+  }
+
+  function progressFromRow(row) {
+    return {
+      projectId: String(row.project_id),
+      estimateId: String(row.estimate_id),
+      sectionId: String(row.section_id),
+      itemId: String(row.item_id),
+      name: String(row.name),
+      unit: String(row.unit),
+      category: String(row.category),
+      plannedQuantity: asNumber(row.planned_quantity),
+      actualQuantity: asNumber(row.actual_quantity),
+      unitPrice: asNumber(row.unit_price),
+      status: String(row.status),
+      note: String(row.note),
+      updatedAt: String(row.updated_at)
+    };
+  }
+
+  function progress(projectId) {
+    return selectProgress.all(projectId).map(progressFromRow);
+  }
+
+  function updateProgress(projectId, itemId, patch) {
+    const existing = selectProgressItem.get(projectId, itemId);
+    if (!existing) throw new Error("Позиция выполнения не найдена");
+    const status = new Set(["planned", "started", "done", "excluded"]).has(patch.status)
+      ? patch.status
+      : String(existing.status);
+    const actualQuantity = finiteNonNegative(patch.actualQuantity, asNumber(existing.actual_quantity));
+    const note = optionalString(patch.note, 2000) || "";
+    updateProgressStatement.run(actualQuantity, status, note, nowIso(), projectId, itemId);
+    audit("project", projectId, "progress:update", { itemId, actualQuantity, status, note });
+    return progressFromRow(selectProgressItem.get(projectId, itemId));
+  }
+
+  function project(projectId) {
+    return projectFromRow(selectProject.get(projectId));
+  }
+
+  function projectByEstimate(estimateId) {
+    return projectFromRow(selectProjectByEstimate.get(estimateId));
+  }
+
+  function projects(ownerId = "production") {
+    return listProjectRows.all(ownerId).map(projectFromRow);
+  }
+
+  function workflow(estimate) {
+    const linkedProject = ensureProject(estimate);
+    return {
+      project: linkedProject,
+      estimate,
+      revisions: revisions(estimate.id),
+      documents: documents(linkedProject.id),
+      progress: progress(linkedProject.id),
+      audit: selectAudit.all("project", linkedProject.id).map((row) => ({
+        id: String(row.id),
+        action: String(row.action),
+        payload: JSON.parse(String(row.payload_json)),
+        createdAt: String(row.created_at)
+      }))
+    };
+  }
+
+  function useProvisioningNonce(nonce) {
+    if (!nonce || findNonce.get(nonce)) return false;
+    insertNonce.run(nonce, nowIso());
+    return true;
+  }
+
+  function close() {
+    db.close();
+  }
+
+  return {
+    audit,
+    close,
+    document,
+    documents,
+    ensureProject,
+    observePrices,
+    priceCatalog,
+    priceContext,
+    progress,
+    project,
+    projectByEstimate,
+    projects,
+    recordRevision,
+    revisions,
+    saveDocument,
+    setDocumentStatus,
+    setProjectStatus,
+    updateProgress,
+    useProvisioningNonce,
+    workflow
+  };
+}
+
 const root = fileURLToPath(new URL("./dist/", import.meta.url));
 const port = Number(process.env.PORT || 3200);
 const releaseSha = process.env.PROSMET_RELEASE_SHA || "development";
@@ -268,8 +905,13 @@ const registryFile = join(configRoot, "agents.json");
 const registryTempFile = join(configRoot, "agents.json.tmp");
 const keyFile = join(configRoot, "agents.key");
 const adminTokenFile = join(configRoot, "admin.token");
+const provisioningPrivateKeyFile = join(configRoot, "qwen-provisioning-private.pem");
+const provisioningPublicKeyFile = join(configRoot, "qwen-provisioning-public.pem");
+const qwenProvisionedFile = join(configRoot, "qwen-provisioned.json");
+const expectedQwenKeySha256 = process.env.PROSMET_QWEN_KEY_SHA256?.trim() || "";
 const estimateDatabaseFile = process.env.PROSMET_DATABASE_PATH || join(configRoot, "prosmet.sqlite");
 const estimateStore = createEstimateStore(estimateDatabaseFile);
+const workflowStore = createWorkflowStore(estimateDatabaseFile);
 const capabilityManifest = {
   vertical: "construction-estimates-ru",
   workflow: ["brief", "technology-card", "price-research", "estimate", "construction-documents"],
@@ -394,19 +1036,92 @@ const estimateSchema = {
 };
 
 const systemInstructions = [
-  "Ты главный агент-сметчик универсального строительного приложения Просметчик.",
-  "Отвечай только одним JSON-объектом с полями text, artifact и estimate.",
-  "artifact должен быть null или строкой estimate.",
-  "Когда пользователь просит смету, сначала проверь исходные данные и задай только необходимые уточняющие вопросы.",
-  "До формирования сметы составь технологическую карту: этапы, подготовка, материалы, механизмы, контроль качества, охрана труда и условия выполнения.",
-  "После технологической карты подбери актуальные цены для указанного региона, фиксируя в названиях и структуре сметы все необходимые работы, материалы, оборудование и логистику.",
-  "Когда данных достаточно, верни полноценную редактируемую смету по переданной JSON-схеме; сервер сам сохранит её в базе данных и откроет редактор.",
-  "Если пользователь явно просит минимальный черновик, верни один раздел и от одной до трёх прозрачных позиций без исследования рынка и технологической карты; это допустимо для начального редактируемого расчёта.",
-  "Если критически важных данных недостаточно, не придумывай значения: задай конкретный вопрос в text, а artifact и estimate оставь null.",
-  "Все количества, цены и проценты должны быть конечными неотрицательными числами.",
-  "Не используй тестовые, демонстрационные или фиктивные объекты.",
-  `Строго соблюдай эту JSON-схему ответа: ${JSON.stringify(estimateSchema)}`
-].join(" ");
+  "Ты — главный агент-сметчик ProSmet, профессиональной системы управления строительным проектом в России.",
+  "Работай только в строительной и ремонтной тематике. На обычное приветствие или общую беседу отвечай текстом и никогда не создавай смету.",
+  "Отвечай ровно одним JSON-объектом с полями text, artifact и estimate. artifact может быть только null или строкой estimate.",
+  "Создавай artifact estimate только когда пользователь явно просит смету, расчёт стоимости, бюджет или расходы по строительным работам.",
+  "Если пользователь задаёт строительный вопрос, но не просит расчёт, дай полезный ответ в text, а artifact и estimate оставь null.",
+  "Перед расчётом проверь критически важные исходные данные: объект, регион, объём или размеры, состав работ, уровень материалов и особые условия.",
+  "Не превращай уточнение в анкету: за один ответ спрашивай только то, без чего результат будет существенно недостоверен.",
+  "Если данных достаточно, сначала внутренне сформируй технологическую карту: последовательность операций, подготовку, материалы, механизмы, контроль качества, безопасность и условия выполнения.",
+  "Смета должна охватывать применимые работы, материалы, оборудование, доставку, погрузку, вывоз и сопутствующие операции; не добавляй категории, которые реально не нужны.",
+  "Для цен используй свежие коммерческие ориентиры указанного региона и переданный локальный справочник ProSmet. Сравни источники, отмечай допущения в text и не выдавай рыночный ориентир за обязательную государственную цену.",
+  "Учитывай применимые действующие технические регламенты, Градостроительный кодекс РФ, СП, СНиП и ГОСТ. Не придумывай номер или обязательность документа: при сомнении явно укажи необходимость проверки актуальной редакции.",
+  "Количество, единица измерения и цена каждой позиции должны быть осмысленными; все числа должны быть конечными и неотрицательными.",
+  "Обычная полноценная смета должна содержать не менее трёх содержательных позиций и разделять работы и материалы, когда оба вида затрат применимы.",
+  "Если пользователь прямо просит минимальный черновик или тестовый минимальный расчёт, допустим один раздел с одной–тремя прозрачными позициями.",
+  "Не используй демонстрационные названия, фиксированные идентификаторы вроде draft-001 и вымышленные данные клиента. Для id используй переданный requestId или уникальный нейтральный идентификатор.",
+  "Если данных недостаточно, задай конкретный вопрос в text, а artifact и estimate оставь null. Пустую или нулевую смету не возвращай.",
+  "Когда смета готова, сервер сохранит её в базе, создаст проект и откроет интерактивный редактор; не описывай несуществующие действия интерфейса.",
+  `Строго соблюдай JSON-схему: ${JSON.stringify(estimateSchema)}`
+].join("\n");
+
+const greetingPattern = /^(?:привет|здравствуй(?:те)?|доброе\s+(?:утро|день|вечер)|добрый\s+(?:день|вечер)|hello|hi|hey|спасибо|благодарю|как\s+дела)[!.?\s]*$/iu;
+const estimateIntentPattern = /(?:смет|рассч(?:итай|итать|ёт)|калькуляц|бюджет|стоимост|расход|сколько\s+(?:стоит|будет)|цена\s+под\s+ключ)/iu;
+const constructionPattern = /(?:строит|ремонт|отделк|ванн|сануз|квартир|дом|коттедж|фундамент|бетон|кладк|кирпич|газобетон|штукатур|шпакл|плитк|стяжк|пол|потол|кровл|фасад|электрик|сантех|отоплен|вентиляц|водоснаб|канализац|монтаж|демонтаж|инженерн|окн|двер|утеплен|малярн|землян|свайн|перекрыт|лестниц|забор|благоустрой)/iu;
+const documentIntentPattern = /(?:договор|сч[её]т|акт\s+выполн|кс-?2|кс-?3|коммерческ(?:ое|ую)\s+предложен|документ)/iu;
+const minimalDraftPattern = /(?:минимальн|черновик|тестов(?:ый|ая)|одн(?:а|ой)\s+позиц)/iu;
+
+function latestUserText(messages) {
+  const normalized = normalizeMessages(messages);
+  for (let index = normalized.length - 1; index >= 0; index -= 1) {
+    if (normalized[index].role === "user") return normalized[index].content.trim();
+  }
+  return "";
+}
+
+function classifyRequest(messages) {
+  const text = latestUserText(messages);
+  if (!text || greetingPattern.test(text)) {
+    return { kind: "greeting", text, allowEstimate: false, constructionRelated: false, enablePriceResearch: false, minimalDraft: false };
+  }
+  const estimateRequested = estimateIntentPattern.test(text);
+  const constructionRelated = constructionPattern.test(text) || estimateRequested;
+  const asksDocuments = documentIntentPattern.test(text) && !estimateRequested;
+  if (estimateRequested) {
+    return { kind: "estimate", text, allowEstimate: true, constructionRelated, enablePriceResearch: true, minimalDraft: minimalDraftPattern.test(text) };
+  }
+  if (asksDocuments) {
+    return { kind: "documents", text, allowEstimate: false, constructionRelated: true, enablePriceResearch: false, minimalDraft: false };
+  }
+  if (constructionRelated) {
+    return { kind: "construction", text, allowEstimate: false, constructionRelated: true, enablePriceResearch: false, minimalDraft: false };
+  }
+  return { kind: "general", text, allowEstimate: false, constructionRelated: false, enablePriceResearch: false, minimalDraft: false };
+}
+
+function composeSystemPrompt(agent, context = {}) {
+  const parts = [systemInstructions];
+  if (context.intent) {
+    parts.push(`Сервер классифицировал текущий запрос как ${context.intent.kind}. Создание сметы ${context.intent.allowEstimate ? "разрешено" : "запрещено"}.`);
+    if (context.intent.allowEstimate && context.requestId) {
+      parts.push(`Используй уникальный id сметы estimate-${context.requestId.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 80)}.`);
+    }
+  }
+  if (context.priceContext) parts.push(context.priceContext);
+  if (agent?.systemPrompt) parts.push(`Дополнительные инструкции владельца приложения (не отменяют правила выше):\n${agent.systemPrompt}`);
+  return parts.join("\n\n");
+}
+
+function estimateQualityIssues(estimate, { minimalDraft = false } = {}) {
+  if (!estimate) return ["estimate_missing"];
+  const items = estimate.sections.flatMap((section) => section.items || []);
+  const issues = [];
+  if (!estimate.title.trim()) issues.push("title_missing");
+  if (!estimate.project.trim()) issues.push("project_missing");
+  if (!estimate.region.trim()) issues.push("region_missing");
+  if (!minimalDraft && items.length < 3) issues.push("too_few_items");
+  if (!items.length) issues.push("items_missing");
+  if (items.some((item) => !item.name.trim() || !item.unit.trim())) issues.push("invalid_item");
+  if (items.every((item) => finiteNonNegative(item.unitPrice) <= 0)) issues.push("prices_missing");
+  if (!minimalDraft) {
+    const categories = new Set(items.map((item) => item.category));
+    if (categories.has("work") && !categories.has("material") && /(?:ремонт|отделк|под\s+ключ|строит)/iu.test(estimate.title)) {
+      issues.push("materials_missing");
+    }
+  }
+  return issues;
+}
 
 let encryptionKeyPromise;
 let adminTokenPromise;
@@ -865,10 +1580,35 @@ async function fetchJson(url, options, timeoutMs, externalSignal) {
   }
 }
 
-async function callOpenAICompatible(agent, messages, signal) {
+async function callOpenAICompatible(agent, messages, signal, context = {}) {
   const secret = await decryptSecret(agent.secretCipher);
-  const isMimoV25 = /^mimo-v2\.5(?:-|$)/i.test(String(agent.model || "").trim());
-  const result = await fetchJson(
+  const model = String(agent.model || "").trim();
+  const isMimoV25 = /^mimo-v2\.5(?:-|$)/i.test(model);
+  const isQwen = /^qwen(?:-|$)/i.test(model) || /(?:dashscope|aliyuncs|qwen)/i.test(String(agent.baseUrl || ""));
+  const systemPrompt = composeSystemPrompt(agent, context);
+  const basePayload = {
+    model: agent.model,
+    messages: [
+      { role: "system", content: systemPrompt },
+      ...normalizeMessages(messages)
+    ],
+    temperature: 0.1,
+    ...(isMimoV25 ? {
+      response_format: { type: "json_object" },
+      thinking: { type: "disabled" },
+      max_completion_tokens: 8192
+    } : {}),
+    ...(isQwen ? {
+      response_format: { type: "json_object" },
+      max_completion_tokens: 8192,
+      ...(context.intent?.enablePriceResearch ? {
+        enable_search: true,
+        search_options: { search_strategy: "agent" }
+      } : {})
+    } : {})
+  };
+
+  const run = (payload) => fetchJson(
     endpointFor(agent.baseUrl, "chat/completions"),
     {
       method: "POST",
@@ -876,28 +1616,27 @@ async function callOpenAICompatible(agent, messages, signal) {
         "content-type": "application/json",
         ...(secret ? { authorization: `Bearer ${secret}` } : {})
       },
-      body: JSON.stringify({
-        model: agent.model,
-        messages: [
-          { role: "system", content: agent.systemPrompt || systemInstructions },
-          ...normalizeMessages(messages)
-        ],
-        temperature: 0.1,
-        ...(isMimoV25 ? {
-          response_format: { type: "json_object" },
-          thinking: { type: "disabled" },
-          max_completion_tokens: 4096
-        } : {})
-      })
+      body: JSON.stringify(payload)
     },
     agent.timeoutMs,
     signal
   );
+
+  let result;
+  try {
+    result = await run(basePayload);
+  } catch (error) {
+    if (!isQwen || !basePayload.enable_search) throw error;
+    const fallbackPayload = { ...basePayload };
+    delete fallbackPayload.enable_search;
+    delete fallbackPayload.search_options;
+    result = await run(fallbackPayload);
+  }
   const content = result?.choices?.[0]?.message?.content;
   return parseAgentEnvelope(content);
 }
 
-async function callOllama(agent, messages, signal) {
+async function callOllama(agent, messages, signal, context = {}) {
   const secret = await decryptSecret(agent.secretCipher);
   const result = await fetchJson(
     endpointFor(agent.baseUrl, "api/chat"),
@@ -910,7 +1649,7 @@ async function callOllama(agent, messages, signal) {
       body: JSON.stringify({
         model: agent.model,
         messages: [
-          { role: "system", content: agent.systemPrompt || systemInstructions },
+          { role: "system", content: composeSystemPrompt(agent, context) },
           ...normalizeMessages(messages)
         ],
         stream: false,
@@ -924,7 +1663,7 @@ async function callOllama(agent, messages, signal) {
   return parseAgentEnvelope(result?.message?.content ?? result?.response);
 }
 
-async function callHttpAgent(agent, messages, signal) {
+async function callHttpAgent(agent, messages, signal, context = {}) {
   const secret = await decryptSecret(agent.secretCipher);
   const result = await fetchJson(
     agent.baseUrl,
@@ -936,9 +1675,15 @@ async function callHttpAgent(agent, messages, signal) {
       },
       body: JSON.stringify({
         messages: normalizeMessages(messages),
-        instructions: agent.systemPrompt || systemInstructions,
+        instructions: composeSystemPrompt(agent, context),
         responseSchema: estimateSchema,
-        context: { application: "prosmet-greenfield", releaseSha }
+        context: {
+          application: "prosmet-greenfield",
+          releaseSha,
+          intent: context.intent?.kind || "general",
+          allowEstimate: Boolean(context.intent?.allowEstimate),
+          priceResearch: Boolean(context.intent?.enablePriceResearch)
+        }
       })
     },
     agent.timeoutMs,
@@ -1059,13 +1804,13 @@ class CodexAppServerClient {
     return () => this.listeners.delete(listener);
   }
 
-  run(messages, signal) {
-    const operation = this.queue.catch(() => undefined).then(() => this.runInternal(messages, signal));
+  run(messages, signal, context = {}) {
+    const operation = this.queue.catch(() => undefined).then(() => this.runInternal(messages, signal, context));
     this.queue = operation;
     return operation;
   }
 
-  async runInternal(messages, signal) {
+  async runInternal(messages, signal, context = {}) {
     await this.start();
     const threadParams = {
       ephemeral: true,
@@ -1118,7 +1863,7 @@ class CodexAppServerClient {
     signal?.addEventListener("abort", abort, { once: true });
 
     try {
-      const prompt = `${this.agent.systemPrompt || systemInstructions}\n\n${conversationPrompt(messages)}`;
+      const prompt = `${composeSystemPrompt(this.agent, context)}\n\n${conversationPrompt(messages)}`;
       const turnResult = await this.request("turn/start", {
         threadId,
         input: [{ type: "text", text: prompt }],
@@ -1163,14 +1908,14 @@ async function getCodexClient(agent) {
   return client;
 }
 
-async function callConfiguredAgent(agent, messages, signal) {
+async function callConfiguredAgent(agent, messages, signal, context = {}) {
   if (agent.enabled === false) throw new Error("Активный агент отключён");
-  if (agent.type === "openai-compatible") return callOpenAICompatible(agent, messages, signal);
-  if (agent.type === "ollama") return callOllama(agent, messages, signal);
-  if (agent.type === "http-agent") return callHttpAgent(agent, messages, signal);
+  if (agent.type === "openai-compatible") return callOpenAICompatible(agent, messages, signal, context);
+  if (agent.type === "ollama") return callOllama(agent, messages, signal, context);
+  if (agent.type === "http-agent") return callHttpAgent(agent, messages, signal, context);
   if (agent.type === "codex-app-server") {
     const client = await getCodexClient(agent);
-    return client.run(messages, signal);
+    return client.run(messages, signal, context);
   }
   throw new Error("Unsupported active agent type");
 }
@@ -1191,6 +1936,376 @@ function profileForResponse(profile) {
   };
 }
 
+
+async function fileExists(path) {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function ensureProvisioningKeyPair() {
+  await ensureConfigRoot();
+  if (!(await fileExists(provisioningPrivateKeyFile)) || !(await fileExists(provisioningPublicKeyFile))) {
+    const { privateKey, publicKey } = generateKeyPairSync("rsa", {
+      modulusLength: 4096,
+      publicKeyEncoding: { type: "spki", format: "pem" },
+      privateKeyEncoding: { type: "pkcs8", format: "pem" }
+    });
+    await writeFile(provisioningPrivateKeyFile, privateKey, { mode: 0o600 });
+    await writeFile(provisioningPublicKeyFile, publicKey, { mode: 0o644 });
+  }
+  return {
+    privateKey: await readFile(provisioningPrivateKeyFile, "utf8"),
+    publicKey: await readFile(provisioningPublicKeyFile, "utf8")
+  };
+}
+
+async function qwenProvisioningState() {
+  try {
+    const payload = JSON.parse(await readFile(qwenProvisionedFile, "utf8"));
+    return { provisioned: true, ...payload };
+  } catch (error) {
+    if (error?.code !== "ENOENT") console.error("[prosmet] qwen provisioning marker", error);
+    return { provisioned: false };
+  }
+}
+
+async function testQwenKey(secret, {
+  baseUrl = "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  model = "qwen-plus"
+} = {}) {
+  const temporaryAgent = {
+    id: "qwen-provisioning-test",
+    name: "Qwen provisioning test",
+    type: "openai-compatible",
+    enabled: true,
+    model,
+    baseUrl,
+    command: null,
+    args: [],
+    cwd: null,
+    systemPrompt: null,
+    timeoutMs: 120000,
+    secretCipher: await encryptSecret(secret),
+    createdAt: nowIso(),
+    updatedAt: nowIso()
+  };
+  const startedAt = Date.now();
+  const result = await callOpenAICompatible(
+    temporaryAgent,
+    [{ role: "user", content: "Ответь JSON: {\"text\":\"OK\",\"artifact\":null,\"estimate\":null}." }],
+    new AbortController().signal,
+    { intent: { kind: "general", allowEstimate: false, enablePriceResearch: false }, requestId: "qwen-provisioning" }
+  );
+  if (!/OK/i.test(result.text || "")) throw new Error("Qwen не подтвердил тестовое соединение");
+  return { ok: true, latencyMs: Date.now() - startedAt, model, baseUrl };
+}
+
+async function completeQwenProvisioning(encryptedPayload) {
+  const state = await qwenProvisioningState();
+  if (state.provisioned) return { ...state, alreadyProvisioned: true };
+  const { privateKey } = await ensureProvisioningKeyPair();
+  let payload;
+  try {
+    const plaintext = privateDecrypt({
+      key: privateKey,
+      oaepHash: "sha256",
+      padding: cryptoConstants.RSA_PKCS1_OAEP_PADDING
+    }, Buffer.from(String(encryptedPayload || ""), "base64url"));
+    payload = JSON.parse(plaintext.toString("utf8"));
+  } catch {
+    throw new Error("Не удалось расшифровать одноразовый пакет Qwen");
+  }
+
+  const secret = String(payload.key || "").trim();
+  const nonce = String(payload.nonce || "").trim();
+  const createdAt = Date.parse(String(payload.createdAt || ""));
+  if (!secret || !nonce || !Number.isFinite(createdAt)) throw new Error("Пакет Qwen неполный");
+  if (Math.abs(Date.now() - createdAt) > 15 * 60 * 1000) throw new Error("Срок действия пакета Qwen истёк");
+  if (!expectedQwenKeySha256) {
+    throw new Error("Provisioning Qwen отключён: задайте PROSMET_QWEN_KEY_SHA256 на сервере");
+  }
+  const digest = createHash("sha256").update(secret).digest("hex");
+  if (!constantTimeEqual(digest, expectedQwenKeySha256)) throw new Error("Ключ Qwen не соответствует разрешённому отпечатку");
+  if (!workflowStore.useProvisioningNonce(nonce)) throw new Error("Пакет Qwen уже использован");
+
+  const baseUrl = normalizeUrl(payload.baseUrl || "https://dashscope.aliyuncs.com/compatible-mode/v1", "URL Qwen");
+  const model = optionalString(payload.model, 160) || "qwen-plus";
+  const test = await testQwenKey(secret, { baseUrl, model });
+  const connected = await mutateRegistry(async (registry) => {
+    const existingIndex = registry.agents.findIndex((agent) =>
+      agent.type === "openai-compatible" && /qwen|dashscope|aliyuncs/i.test(`${agent.name} ${agent.model} ${agent.baseUrl}`)
+    );
+    const existing = existingIndex >= 0 ? registry.agents[existingIndex] : null;
+    const agent = await normalizeAgentInput({
+      name: "Qwen Plus · поиск цен",
+      type: "openai-compatible",
+      enabled: true,
+      model,
+      baseUrl,
+      timeoutMs: 240000,
+      secret,
+      systemPrompt: "Для расчётов используй веб-поиск Qwen только для актуальных коммерческих цен и нормативных источников; возвращай источники и дату проверки в текстовом пояснении."
+    }, existing);
+    if (existingIndex >= 0) registry.agents[existingIndex] = agent;
+    else registry.agents.push(agent);
+    registry.activeAgentId = agent.id;
+    return sanitizeAgent(agent, registry.activeAgentId);
+  });
+  const marker = {
+    provisioned: true,
+    agentId: connected.id,
+    model: connected.model,
+    baseUrl: connected.baseUrl,
+    testedAt: nowIso(),
+    latencyMs: test.latencyMs,
+    releaseSha
+  };
+  await writeFile(qwenProvisionedFile, `${JSON.stringify(marker, null, 2)}\n`, { mode: 0o600 });
+  return marker;
+}
+
+function documentTypeLabel(type) {
+  return ({
+    "commercial-proposal": "Коммерческое предложение",
+    invoice: "Счёт",
+    contract: "Договор подряда",
+    act: "Акт выполненных работ",
+    "ks-2": "КС-2",
+    "ks-3": "КС-3"
+  })[type] || type;
+}
+
+function documentNumber(type, project, estimate) {
+  const date = new Date().toISOString().slice(0, 10).replaceAll("-", "");
+  const prefix = ({
+    "commercial-proposal": "KP",
+    invoice: "INV",
+    contract: "DOG",
+    act: "ACT",
+    "ks-2": "KS2",
+    "ks-3": "KS3"
+  })[type] || "DOC";
+  return `${prefix}-${date}-${estimate.revision}-${project.id.slice(-6).toUpperCase()}`;
+}
+
+function documentLinesForEstimate(estimate, project, type) {
+  const actualTypes = new Set(["act", "ks-2", "ks-3"]);
+  const progress = actualTypes.has(type) ? workflowStore.progress(project.id) : [];
+  const progressByItem = new Map(progress.map((item) => [item.itemId, item]));
+  return estimate.sections.map((section) => ({
+    title: section.title,
+    lines: section.items
+      .map((item) => {
+        const execution = progressByItem.get(item.id);
+        const quantity = actualTypes.has(type)
+          ? finiteNonNegative(execution?.actualQuantity)
+          : finiteNonNegative(item.quantity);
+        return {
+          name: item.name,
+          unit: item.unit,
+          quantity,
+          unitPrice: finiteNonNegative(item.unitPrice),
+          total: quantity * finiteNonNegative(item.unitPrice)
+        };
+      })
+      .filter((line) => !actualTypes.has(type) || line.quantity > 0)
+  })).filter((section) => section.lines.length > 0);
+}
+
+function documentTotals(estimate, sections) {
+  const direct = sections.reduce(
+    (total, section) => total + section.lines.reduce((sum, line) => sum + line.total, 0),
+    0
+  );
+  const overhead = direct * finiteNonNegative(estimate.overheadPercent) / 100;
+  const profit = (direct + overhead) * finiteNonNegative(estimate.profitPercent) / 100;
+  const vat = (direct + overhead + profit) * finiteNonNegative(estimate.vatPercent) / 100;
+  return { direct, overhead, profit, vat, total: direct + overhead + profit + vat };
+}
+
+function buildDocumentContent(type, estimate, project, profile) {
+  const sections = documentLinesForEstimate(estimate, project, type);
+  const totals = documentTotals(estimate, sections);
+  const organization = profile?.organization || "Исполнитель не указан";
+  const customer = estimate.customer || project.customer || "Заказчик не указан";
+  const commonNotes = [
+    "Документ сформирован из зафиксированной версии сметы ProSmet; исходные значения и история изменений сохраняются отдельно.",
+    "Перед юридически значимым использованием проверьте реквизиты сторон, сроки, налогообложение и актуальность применимых норм.",
+    "Рыночные цены являются коммерческими ориентирами на дату расчёта и могут требовать подтверждения счетами поставщиков."
+  ];
+  const clausesByType = {
+    "commercial-proposal": [
+      `Исполнитель: ${organization}. Заказчик: ${customer}.`,
+      "Предложение действительно 14 календарных дней, если стороны письменно не согласовали иной срок.",
+      "Окончательная стоимость корректируется только через новую версию сметы с сохранением истории."
+    ],
+    invoice: [
+      `Плательщик: ${customer}. Получатель: ${organization}.`,
+      "Счёт является проектом до заполнения банковских и налоговых реквизитов исполнителя.",
+      "Назначение платежа должно ссылаться на объект и согласованную версию сметы."
+    ],
+    contract: [
+      "Предмет: выполнение строительных работ по утверждённой смете и технологической карте.",
+      "Цена, состав и объёмы работ меняются только оформленной версией сметы или дополнительным соглашением.",
+      "Сроки, порядок оплаты, порядок приёмки, гарантийные обязательства и ответственность сторон требуют заполнения до подписания.",
+      "Проект договора должен пройти проверку юриста с учётом статуса сторон и конкретного объекта."
+    ],
+    act: [
+      "В акт включены только позиции с фактическим объёмом больше нуля.",
+      "Подписание акта подтверждает объём выполненных работ, но не отменяет замечания, прямо зафиксированные сторонами."
+    ],
+    "ks-2": [
+      "Черновик подготовлен по структуре акта о приёмке выполненных работ КС-2 на основании фактических объёмов.",
+      "Перед подписанием необходимо заполнить обязательные реквизиты, период, коды и проверить применимость формы к конкретному договору."
+    ],
+    "ks-3": [
+      "Черновик справки КС-3 сформирован на основании принятых фактических объёмов и связанного КС-2.",
+      "Перед подписанием необходимо проверить реквизиты, период, налогообложение и итоговые суммы."
+    ]
+  };
+  return {
+    heading: `${documentTypeLabel(type)} № ${documentNumber(type, project, estimate)}`,
+    introduction: `${estimate.title}. Объект: ${project.title}. Регион: ${project.region || "не указан"}.`,
+    sections,
+    totals,
+    clauses: clausesByType[type] || [],
+    notes: commonNotes
+  };
+}
+
+async function generateWorkflowDocument(type, estimate, project) {
+  const registry = await loadRegistry();
+  const profile = profileForResponse(registry.profile);
+  const number = documentNumber(type, project, estimate);
+  const content = buildDocumentContent(type, estimate, project, profile);
+  return workflowStore.saveDocument({
+    projectId: project.id,
+    estimateId: estimate.id,
+    type,
+    status: "ready",
+    number,
+    title: `${documentTypeLabel(type)} · ${project.title}`,
+    content
+  });
+}
+
+function requireEstimate(estimateId) {
+  const estimate = estimateStore.getEstimate(estimateId, "production");
+  if (!estimate) {
+    const error = new Error("Смета не найдена");
+    error.code = "ESTIMATE_NOT_FOUND";
+    throw error;
+  }
+  return estimate;
+}
+
+function requireDocument(projectId, type, statuses = null) {
+  const document = workflowStore.documents(projectId).find((item) =>
+    item.type === type && (!statuses || statuses.includes(item.status))
+  );
+  if (!document) throw new Error(`Сначала сформируйте ${documentTypeLabel(type)}`);
+  return document;
+}
+
+async function runWorkflowAction(estimateId, action) {
+  let estimate = requireEstimate(estimateId);
+  let project = workflowStore.ensureProject(estimate);
+
+  if (action === "save-version") {
+    estimate = estimateStore.saveEstimate({
+      ...estimate,
+      revision: estimate.revision + 1,
+      status: "review",
+      updatedAt: nowIso()
+    }, { ownerId: "production" });
+    project = workflowStore.ensureProject(estimate, { status: "estimate_review" });
+    workflowStore.recordRevision(estimate, "save-version");
+    workflowStore.observePrices(estimate, "user_review", "Сохранённая версия", 0.78);
+  } else if (action === "send-client") {
+    if (!new Set(["review", "sent", "approved"]).has(estimate.status)) {
+      throw new Error("Сначала сохраните проверенную версию сметы");
+    }
+    estimate = estimateStore.saveEstimate({ ...estimate, status: "sent", updatedAt: nowIso() }, { ownerId: "production" });
+    project = workflowStore.ensureProject(estimate, { status: "estimate_sent" });
+    workflowStore.recordRevision(estimate, "send-client");
+  } else if (action === "approve") {
+    if (!new Set(["review", "sent", "approved"]).has(estimate.status)) {
+      throw new Error("Сначала сохраните версию и передайте её на согласование");
+    }
+    estimate = estimateStore.saveEstimate({ ...estimate, status: "approved", updatedAt: nowIso() }, { ownerId: "production" });
+    project = workflowStore.ensureProject(estimate, { status: "estimate_approved" });
+    workflowStore.recordRevision(estimate, "approve");
+    workflowStore.observePrices(estimate, "approved_estimate", "Утверждённая смета", 0.95);
+  } else if (action === "generate-proposal") {
+    if (!new Set(["sent", "approved"]).has(estimate.status)) throw new Error("Сначала передайте или утвердите смету");
+    await generateWorkflowDocument("commercial-proposal", estimate, project);
+    project = workflowStore.setProjectStatus(project.id, "proposal_ready");
+  } else if (action === "generate-invoice") {
+    if (!new Set(["sent", "approved"]).has(estimate.status)) throw new Error("Сначала передайте или утвердите смету");
+    await generateWorkflowDocument("invoice", estimate, project);
+  } else if (action === "generate-contract") {
+    if (estimate.status !== "approved") throw new Error("Договор формируется только из утверждённой сметы");
+    await generateWorkflowDocument("contract", estimate, project);
+    project = workflowStore.setProjectStatus(project.id, "contract_ready");
+  } else if (action === "sign-contract") {
+    const contract = requireDocument(project.id, "contract", ["ready", "sent", "signed"]);
+    workflowStore.setDocumentStatus(contract.id, "signed");
+    project = workflowStore.setProjectStatus(project.id, "contracted");
+  } else if (action === "start-work") {
+    requireDocument(project.id, "contract", ["signed"]);
+    project = workflowStore.setProjectStatus(project.id, "in_progress");
+  } else if (action === "complete-work") {
+    if (!new Set(["in_progress", "completion_review"]).has(project.status)) throw new Error("Сначала запустите выполнение работ");
+    if (!workflowStore.progress(project.id).some((item) => item.actualQuantity > 0 || item.status === "done")) {
+      throw new Error("Зафиксируйте фактические объёмы выполненных работ");
+    }
+    project = workflowStore.setProjectStatus(project.id, "completion_review");
+  } else if (action === "generate-act") {
+    if (!new Set(["in_progress", "completion_review"]).has(project.status)) throw new Error("Сначала зафиксируйте выполнение работ");
+    await generateWorkflowDocument("act", estimate, project);
+    project = workflowStore.setProjectStatus(project.id, "completion_review");
+  } else if (action === "generate-ks2") {
+    requireDocument(project.id, "act", ["ready", "sent", "signed", "approved"]);
+    await generateWorkflowDocument("ks-2", estimate, project);
+  } else if (action === "generate-ks3") {
+    requireDocument(project.id, "ks-2", ["ready", "sent", "signed", "approved"]);
+    await generateWorkflowDocument("ks-3", estimate, project);
+  } else if (action === "close-project") {
+    requireDocument(project.id, "act");
+    requireDocument(project.id, "ks-2");
+    requireDocument(project.id, "ks-3");
+    project = workflowStore.setProjectStatus(project.id, "completed");
+  } else {
+    throw new Error("Неизвестное действие процесса");
+  }
+
+  return workflowStore.workflow(estimateStore.getEstimate(estimate.id, "production"));
+}
+
+function greetingResponse() {
+  return {
+    text: "Здравствуйте. Опишите объект, регион, размеры или объёмы и желаемый состав работ. Я уточню недостающие данные и подготовлю смету только после явного запроса на расчёт.",
+    artifact: null,
+    intent: "greeting",
+    workflow: null,
+    agent: null
+  };
+}
+
+function generalResponse() {
+  return {
+    text: "ProSmet специализируется на строительных сметах, проектах и документах. Опишите строительную задачу или попросите рассчитать стоимость работ и материалов.",
+    artifact: null,
+    intent: "general",
+    workflow: null,
+    agent: null
+  };
+}
+
 async function handleApi(request, response, url) {
   if (request.method === "GET" && url.pathname === "/api/health") {
     return sendJson(response, 200, {
@@ -1198,12 +2313,13 @@ async function handleApi(request, response, url) {
       app: "prosmet-greenfield-v3",
       releaseSha,
       runtime: "node-static",
-      ui: "greenfield"
+      ui: "greenfield",
+      workflowSchema: "construction-lifecycle-v1"
     });
   }
 
   if (request.method === "GET" && url.pathname === "/api/system") {
-    const registry = await loadRegistry();
+    const [registry, qwen] = await Promise.all([loadRegistry(), qwenProvisioningState()]);
     const adminAuthenticated = await isAdmin(request);
     const active = registry.agents.find((agent) => agent.id === registry.activeAgentId) || null;
     return sendJson(response, 200, {
@@ -1216,7 +2332,13 @@ async function handleApi(request, response, url) {
       adminAuthenticated,
       bootstrapRequired: !process.env.PROSMET_ADMIN_TOKEN,
       profileConfigured: Boolean(registry.profile?.name || registry.profile?.organization),
-      persistence: "sqlite-artifact-store"
+      persistence: "sqlite-artifact-store",
+      workflowSchema: "construction-lifecycle-v1",
+      qwen: {
+        provisioned: Boolean(qwen.provisioned),
+        model: qwen.model || null,
+        testedAt: qwen.testedAt || null
+      }
     });
   }
 
@@ -1289,13 +2411,125 @@ async function handleApi(request, response, url) {
     }
     if (request.method === "PUT") {
       const body = await readJsonBody(request);
-      const estimate = validateEstimate(body.estimate ?? body);
-      if (!estimate || estimate.id !== estimateId) {
+      const incoming = validateEstimate(body.estimate ?? body);
+      if (!incoming || incoming.id !== estimateId) {
         return sendError(response, 400, "INVALID_ESTIMATE", "Передана некорректная смета.");
       }
+      const previous = estimateStore.getEstimate(estimateId, "production");
+      const clientSent = previous?.status === "approved" && incoming.status === "sent";
+      const estimate = clientSent ? { ...incoming, status: "approved" } : incoming;
       const stored = estimateStore.saveEstimate(estimate, { ownerId: "production" });
-      return sendJson(response, 200, stored);
+      let project = workflowStore.ensureProject(stored);
+      if (previous && incoming.revision > previous.revision) {
+        project = workflowStore.ensureProject(stored, { status: "estimate_review" });
+        workflowStore.recordRevision(stored, "save-version");
+        workflowStore.observePrices(stored, "user_review", "Сохранённая версия", 0.78);
+      }
+      if (previous && previous.status !== incoming.status && incoming.status === "sent") {
+        project = workflowStore.ensureProject(stored, { status: clientSent ? "estimate_approved" : "estimate_sent" });
+        workflowStore.recordRevision(stored, "send-client");
+      }
+      if (previous && previous.status !== incoming.status && incoming.status === "approved") {
+        project = workflowStore.ensureProject(stored, { status: "estimate_approved" });
+        workflowStore.recordRevision(stored, "approve");
+        workflowStore.observePrices(stored, "approved_estimate", "Утверждённая смета", 0.95);
+      }
+      return sendJson(response, 200, { ...stored, workflowProjectId: project.id });
     }
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/provisioning/qwen/public-key") {
+    const state = await qwenProvisioningState();
+    if (state.provisioned) return sendJson(response, 200, { ...state, publicKey: null });
+    const { publicKey } = await ensureProvisioningKeyPair();
+    return sendJson(response, 200, {
+      provisioned: false,
+      algorithm: "RSA-OAEP-4096-SHA256",
+      expiresInSeconds: 900,
+      publicKey
+    });
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/provisioning/qwen/complete") {
+    if (!(await requireAdmin(request, response))) return;
+    const body = await readJsonBody(request);
+    const encryptedPayload = body.payload;
+    if (!encryptedPayload) return sendError(response, 400, "QWEN_PAYLOAD_REQUIRED", "Не передан зашифрованный пакет Qwen");
+    const completed = await completeQwenProvisioning(encryptedPayload);
+    return sendJson(response, 200, completed);
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/workflows/projects") {
+    return sendJson(response, 200, { projects: workflowStore.projects("production") });
+  }
+
+  const projectProgressRoute = url.pathname.match(/^\/api\/workflows\/projects\/([^/]+)\/progress\/([^/]+)$/);
+  if (projectProgressRoute && request.method === "PUT") {
+    const projectId = decodeURIComponent(projectProgressRoute[1]);
+    const itemId = decodeURIComponent(projectProgressRoute[2]);
+    const project = workflowStore.project(projectId);
+    if (!project) return sendError(response, 404, "PROJECT_NOT_FOUND", "Проект не найден");
+    if (!new Set(["in_progress", "completion_review"]).has(project.status)) {
+      return sendError(response, 409, "WORK_NOT_STARTED", "Фактические объёмы можно менять после запуска работ");
+    }
+    const patch = await readJsonBody(request);
+    const progress = workflowStore.updateProgress(projectId, itemId, patch);
+    const estimate = requireEstimate(project.activeEstimateId);
+    return sendJson(response, 200, { progress, workflow: workflowStore.workflow(estimate) });
+  }
+
+  const projectWorkflowRoute = url.pathname.match(/^\/api\/workflows\/projects\/([^/]+)$/);
+  if (projectWorkflowRoute && request.method === "GET") {
+    const projectId = decodeURIComponent(projectWorkflowRoute[1]);
+    const project = workflowStore.project(projectId);
+    if (!project) return sendError(response, 404, "PROJECT_NOT_FOUND", "Проект не найден");
+    return sendJson(response, 200, workflowStore.workflow(requireEstimate(project.activeEstimateId)));
+  }
+
+  const estimateActionRoute = url.pathname.match(/^\/api\/workflows\/estimates\/([^/]+)\/actions$/);
+  if (estimateActionRoute && request.method === "POST") {
+    const body = await readJsonBody(request);
+    const workflow = await runWorkflowAction(decodeURIComponent(estimateActionRoute[1]), String(body.action || ""));
+    return sendJson(response, 200, workflow);
+  }
+
+  const estimateWorkflowRoute = url.pathname.match(/^\/api\/workflows\/estimates\/([^/]+)$/);
+  if (estimateWorkflowRoute && request.method === "GET") {
+    const estimate = requireEstimate(decodeURIComponent(estimateWorkflowRoute[1]));
+    return sendJson(response, 200, workflowStore.workflow(estimate));
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/workflows/documents") {
+    const projectId = url.searchParams.get("projectId");
+    return sendJson(response, 200, { documents: workflowStore.documents(projectId || null) });
+  }
+
+  const documentActionRoute = url.pathname.match(/^\/api\/workflows\/documents\/([^/]+)\/actions$/);
+  if (documentActionRoute && request.method === "POST") {
+    const body = await readJsonBody(request);
+    const status = String(body.action || "") === "send" ? "sent"
+      : String(body.action || "") === "sign" ? "signed"
+        : String(body.action || "") === "approve" ? "approved"
+          : null;
+    if (!status) return sendError(response, 400, "DOCUMENT_ACTION_INVALID", "Неизвестное действие документа");
+    return sendJson(response, 200, workflowStore.setDocumentStatus(decodeURIComponent(documentActionRoute[1]), status));
+  }
+
+  const documentRoute = url.pathname.match(/^\/api\/workflows\/documents\/([^/]+)$/);
+  if (documentRoute && request.method === "GET") {
+    const document = workflowStore.document(decodeURIComponent(documentRoute[1]));
+    if (!document) return sendError(response, 404, "DOCUMENT_NOT_FOUND", "Документ не найден");
+    return sendJson(response, 200, document);
+  }
+
+  if (request.method === "GET" && url.pathname === "/api/workflows/prices") {
+    return sendJson(response, 200, {
+      entries: workflowStore.priceCatalog({
+        query: url.searchParams.get("query") || "",
+        region: url.searchParams.get("region") || "",
+        limit: Number(url.searchParams.get("limit") || 200)
+      })
+    });
   }
 
   if (request.method === "GET" && url.pathname === "/api/agents") {
@@ -1392,6 +2626,10 @@ async function handleApi(request, response, url) {
   if (request.method === "POST" && url.pathname === "/api/agent") {
     if (!publicAgentAccess && !(await requireAdmin(request, response))) return;
     const body = await readJsonBody(request);
+    const intent = classifyRequest(body.messages);
+    if (intent.kind === "greeting") return sendJson(response, 200, greetingResponse());
+    if (intent.kind === "general") return sendJson(response, 200, generalResponse());
+
     const agent = await activeAgent();
     if (!agent) {
       return sendError(response, 409, "AGENT_NOT_CONFIGURED", "Подключите и активируйте агента в настройках.");
@@ -1401,24 +2639,84 @@ async function handleApi(request, response, url) {
       if (!request.complete) controller.abort(new Error("Client disconnected"));
     });
     const requestId = optionalString(body.requestId, 160) || randomUUID();
-    const result = await callConfiguredAgent(agent, body.messages, controller.signal);
+    const registry = await loadRegistry();
+    const region = optionalString(body.region, 240) || optionalString(registry.profile?.region, 240) || "";
+    const priceContext = intent.enablePriceResearch
+      ? workflowStore.priceContext(intent.text, region)
+      : "";
+    const context = { intent, requestId, priceContext };
+    let result = await callConfiguredAgent(agent, body.messages, controller.signal, context);
+
+    if (!intent.allowEstimate && result.artifact === "estimate") {
+      result = {
+        text: result.text || "Для создания сметы сформулируйте явный запрос на расчёт стоимости.",
+        artifact: null,
+        estimate: null
+      };
+    }
+
+    if (intent.allowEstimate && result.artifact === "estimate" && result.estimate) {
+      let issues = estimateQualityIssues(result.estimate, intent);
+      if (issues.length) {
+        result = await callConfiguredAgent(agent, [
+          ...normalizeMessages(body.messages),
+          {
+            role: "system",
+            content: `Предыдущая смета не прошла серверный контроль: ${issues.join(", ")}. Исправь её полностью. Не возвращай пустые разделы, нулевые цены или демонстрационный id.`
+          },
+          {
+            role: "user",
+            content: "Пересобери расчёт по исходному запросу и верни один валидный JSON-объект по схеме."
+          }
+        ], controller.signal, context);
+        issues = result.artifact === "estimate" && result.estimate
+          ? estimateQualityIssues(result.estimate, intent)
+          : [];
+      }
+      if (issues.length) {
+        result = {
+          text: `Смета пока не создана: результат не прошёл контроль качества (${issues.join(", ")}). Уточните регион, размеры и состав работ.`,
+          artifact: null,
+          estimate: null
+        };
+      }
+    }
+
     let artifact = null;
-    if (result.artifact === "estimate" && result.estimate) {
+    let workflow = null;
+    if (intent.allowEstimate && result.artifact === "estimate" && result.estimate) {
+      const existingIds = new Set(estimateStore.listEstimates("production").map((estimate) => estimate.id));
+      const returnedId = String(result.estimate.id || "");
+      if (!returnedId || existingIds.has(returnedId) || /^(?:draft|demo|test|estimate-e2e)/i.test(returnedId)) {
+        const safeRequestId = requestId.replace(/[^a-zA-Z0-9_-]/g, "-").slice(0, 80);
+        result.estimate = {
+          ...result.estimate,
+          id: `estimate-${safeRequestId}-${randomBytes(4).toString("hex")}`,
+          revision: 1,
+          status: "draft"
+        };
+      }
       const stored = estimateStore.saveEstimate(result.estimate, {
         ownerId: "production",
         sourceAgentId: agent.id,
         sourceRequestId: requestId
       });
+      const project = workflowStore.ensureProject(stored, { status: "estimate_draft" });
+      workflowStore.recordRevision(stored, "generated");
+      workflowStore.observePrices(stored, "ai_research", agent.name, /qwen/i.test(`${agent.name} ${agent.model}`) ? 0.82 : 0.68);
       artifact = {
         type: "estimate",
         id: stored.id,
         revision: stored.revision,
         database: "sqlite"
       };
+      workflow = { projectId: project.id, status: project.status };
     }
     return sendJson(response, 200, {
-      text: artifact ? (result.text || "Смета сформирована и сохранена в базе данных.") : result.text,
+      text: artifact ? (result.text || "Смета сформирована, сохранена в базе и открыта в интерактивном редакторе.") : result.text,
       artifact,
+      intent: intent.kind,
+      workflow,
       agent: {
         id: agent.id,
         name: agent.name,
@@ -1482,11 +2780,24 @@ const server = createServer(async (request, response) => {
       ? "BODY_TOO_LARGE"
       : error?.code === "INVALID_JSON"
         ? "INVALID_JSON"
-        : "REQUEST_FAILED";
-    const status = code === "BODY_TOO_LARGE" ? 413 : code === "INVALID_JSON" ? 400 : 500;
+        : error?.code === "ESTIMATE_NOT_FOUND"
+          ? "ESTIMATE_NOT_FOUND"
+          : "REQUEST_FAILED";
+    const message = error instanceof Error ? error.message : "Unexpected server error";
+    const status = code === "BODY_TOO_LARGE"
+      ? 413
+      : code === "INVALID_JSON"
+        ? 400
+        : code === "ESTIMATE_NOT_FOUND" || /не найден/iu.test(message)
+          ? 404
+          : /сначала|нельзя|только после|можно менять после|требуется/iu.test(message)
+            ? 409
+            : /некоррект|неизвестн|не передан|неполный|ист[её]к/iu.test(message)
+              ? 400
+              : 500;
     console.error("[prosmet]", error);
     if (!response.headersSent && !response.writableEnded) {
-      sendError(response, status, code, error instanceof Error ? error.message : "Unexpected server error", error?.details);
+      sendError(response, status, code, message, error?.details);
     } else if (!response.writableEnded) {
       response.end();
     }
@@ -1507,6 +2818,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, () => {
     for (const { client } of codexClients.values()) client.close();
     estimateStore.close();
+    workflowStore.close();
     server.close(() => process.exit(0));
   });
 }

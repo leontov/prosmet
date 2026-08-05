@@ -269,7 +269,7 @@ function MobileComposer({ actions }: { actions: ActionView[] }) {
           name="mobile-message"
           rows={1}
           unstable_insertNewlineOnTouchEnter
-          placeholder="Опишите объект и замеры..."
+          placeholder="Спросить ProSmet…"
           className="composer-input"
         />
         <AuiIf condition={(state) => state.composer.dictation == null}>
