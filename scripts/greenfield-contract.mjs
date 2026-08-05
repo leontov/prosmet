@@ -241,6 +241,12 @@ if (!server.includes("composeSystemPrompt(this.agent, context)")) failures.push(
 if (server.includes("this.agent.systemPrompt || systemInstructions")) failures.push("server:codex-context-prompt-bypass");
 if (/estimateIntentPattern[^\n]+коммерческ/u.test(server)) failures.push("server:document-intent-can-create-estimate");
 
+
+if (server.includes("selectProjectByIdentity.get(ownerId, title, region)")) failures.push("server:project-title-region-reuse");
+if (server.includes("CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_project_identity")) failures.push("server:project-title-region-unique-index");
+if (!server.includes('stableEntityId("project", ownerId, estimate.id, title, region)')) failures.push("server:project-estimate-bound-identity-missing");
+if (!server.includes("DROP INDEX IF EXISTS idx_workflow_project_identity")) failures.push("server:project-identity-migration-missing");
+
 if (failures.length) {
   console.error(JSON.stringify({ status: "FAIL", failures }, null, 2));
   process.exit(1);

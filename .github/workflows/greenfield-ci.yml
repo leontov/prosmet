@@ -7,71 +7,14 @@ on:
     branches: [greenfield/prosmet-v3]
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: prosmet-greenfield-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  apply_project_identity_isolation:
-    if: >-
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.head.ref == 'feature/construction-lifecycle-v1'
-    runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 55
-    env:
-      CI: "1"
-    steps:
-      - name: Verify trusted runner
-        run: test "${{ runner.name }}" = "prosmet-primary"
-
-      - uses: actions/checkout@v4
-        with:
-          ref: feature/construction-lifecycle-v1
-          fetch-depth: 0
-          token: ${{ github.token }}
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.16.0
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-
-      - name: Apply project identity isolation and restore canonical workflow
-        run: |
-          set -Eeuo pipefail
-          test -f scripts/apply-project-identity-isolation.py
-          python3 scripts/apply-project-identity-isolation.py
-          rm -f scripts/apply-project-identity-isolation.py
-          git show origin/main:.github/workflows/greenfield-ci.yml > .github/workflows/greenfield-ci.yml
-
-      - name: Verify source, lifecycle and desktop/mobile browser flows
-        run: |
-          set -Eeuo pipefail
-          npm ci --workspaces --include-workspace-root --legacy-peer-deps --no-audit --no-fund
-          npm run verify
-          npm run desktop:metadata
-          npx playwright install chromium
-          npm run e2e
-
-      - name: Commit verified project isolation and canonical CI
-        run: |
-          set -Eeuo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add apps/web/server.mjs scripts/greenfield-contract.mjs .github/workflows/greenfield-ci.yml
-          git add -A scripts/apply-project-identity-isolation.py
-          git diff --cached --quiet && exit 0
-          git commit -m "fix(projects): isolate lifecycle state per generated estimate"
-          git push origin HEAD:feature/construction-lifecycle-v1
-
   verify:
-    if: >-
-      github.event_name != 'pull_request' ||
-      github.event.pull_request.head.ref != 'feature/construction-lifecycle-v1'
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 45
     env:

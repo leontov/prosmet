@@ -343,7 +343,8 @@ function createWorkflowStore(databasePath) {
       updated_at TEXT NOT NULL
     );
 
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_project_identity
+    DROP INDEX IF EXISTS idx_workflow_project_identity;
+    CREATE INDEX IF NOT EXISTS idx_workflow_project_lookup
       ON workflow_projects(owner_id, title, region);
     CREATE INDEX IF NOT EXISTS idx_workflow_projects_updated
       ON workflow_projects(owner_id, updated_at DESC);
@@ -444,7 +445,6 @@ function createWorkflowStore(databasePath) {
 
   const selectProject = db.prepare("SELECT * FROM workflow_projects WHERE id = ?");
   const selectProjectByEstimate = db.prepare("SELECT * FROM workflow_projects WHERE active_estimate_id = ? ORDER BY updated_at DESC LIMIT 1");
-  const selectProjectByIdentity = db.prepare("SELECT * FROM workflow_projects WHERE owner_id = ? AND title = ? AND region = ? LIMIT 1");
   const listProjectRows = db.prepare("SELECT * FROM workflow_projects WHERE owner_id = ? ORDER BY updated_at DESC");
   const upsertProject = db.prepare(`
     INSERT INTO workflow_projects (
@@ -590,9 +590,8 @@ function createWorkflowStore(databasePath) {
     const title = String(estimate.project || estimate.title || "Объект без названия").trim();
     const region = String(estimate.region || "").trim();
     const customer = String(estimate.customer || "").trim();
-    const existing = selectProjectByEstimate.get(estimate.id)
-      || selectProjectByIdentity.get(ownerId, title, region);
-    const id = existing?.id || stableEntityId("project", ownerId, title, region || estimate.id);
+    const existing = selectProjectByEstimate.get(estimate.id);
+    const id = existing?.id || stableEntityId("project", ownerId, estimate.id, title, region);
     const createdAt = existing?.created_at || nowIso();
     const requestedStatus = status || projectStatusForEstimate(estimate.status);
     const currentStatus = existing?.status || "estimate_draft";
