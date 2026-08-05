@@ -15,7 +15,7 @@ import {
   SunIcon
 } from "lucide-react";
 
-type ThemeMode = "system" | "light" | "dark";
+export type WorkspaceThemeMode = "system" | "light" | "dark";
 type ResizeKind = "sidebar" | "canvas";
 
 type Props = {
@@ -23,21 +23,18 @@ type Props = {
   canvas: ReactNode | null;
   canvasTitle: string;
   canvasSubtitle?: string | null;
+  sidebarCollapsed: boolean;
+  themeMode: WorkspaceThemeMode;
   onCloseCanvas: () => void;
+  onCycleTheme: () => void;
 };
 
 const sidebarKey = "prosmet.workspace.sidebar-width.v1";
 const canvasKey = "prosmet.workspace.canvas-width.v1";
-const themeKey = "prosmet.workspace.theme.v1";
 
 function readNumber(key: string, fallback: number) {
   const value = Number(window.localStorage.getItem(key));
   return Number.isFinite(value) ? value : fallback;
-}
-
-function readTheme(): ThemeMode {
-  const value = window.localStorage.getItem(themeKey);
-  return value === "light" || value === "dark" || value === "system" ? value : "system";
 }
 
 function clamp(value: number, minimum: number, maximum: number) {
@@ -53,12 +50,14 @@ export function WorkspaceCanvasFrame({
   canvas,
   canvasTitle,
   canvasSubtitle,
-  onCloseCanvas
+  sidebarCollapsed,
+  themeMode,
+  onCloseCanvas,
+  onCycleTheme
 }: Props) {
   const [sidebarWidth, setSidebarWidth] = useState(() => clamp(readNumber(sidebarKey, 254), 210, 420));
   const [canvasWidth, setCanvasWidth] = useState(() => clamp(readNumber(canvasKey, 620), 440, canvasMaximum()));
   const [canvasFullscreen, setCanvasFullscreen] = useState(false);
-  const [themeMode, setThemeMode] = useState<ThemeMode>(() => readTheme());
   const drag = useRef<{
     kind: ResizeKind;
     pointerId: number;
@@ -66,11 +65,6 @@ export function WorkspaceCanvasFrame({
     sidebarWidth: number;
     canvasWidth: number;
   } | null>(null);
-
-  useEffect(() => {
-    document.documentElement.dataset.prosmetTheme = themeMode;
-    window.localStorage.setItem(themeKey, themeMode);
-  }, [themeMode]);
 
   useEffect(() => {
     const onResize = () => {
@@ -137,24 +131,21 @@ export function WorkspaceCanvasFrame({
     }
   };
 
-  const cycleTheme = () => {
-    setThemeMode((current) => current === "system" ? "light" : current === "light" ? "dark" : "system");
-  };
-
+  const effectiveSidebarWidth = sidebarCollapsed ? 68 : sidebarWidth;
   const style = {
-    "--prosmet-sidebar-width": `${sidebarWidth}px`,
+    "--prosmet-sidebar-width": `${effectiveSidebarWidth}px`,
     "--prosmet-canvas-width": `${canvasWidth}px`
   } as CSSProperties;
 
   return (
     <div
-      className={`pro-workspace-frame${canvas ? " has-canvas" : ""}${canvasFullscreen ? " canvas-fullscreen" : ""}`}
+      className={`pro-workspace-frame${canvas ? " has-canvas" : ""}${canvasFullscreen ? " canvas-fullscreen" : ""}${sidebarCollapsed ? " sidebar-collapsed" : ""}`}
       style={style}
       data-testid="workspace-canvas-frame"
     >
       <section className="pro-workspace-primary" aria-label="Основная рабочая область">
         {children}
-        {!canvasFullscreen ? (
+        {!canvasFullscreen && !sidebarCollapsed ? (
           <div
             className="pro-workspace-resizer pro-workspace-sidebar-resizer"
             role="separator"
@@ -201,7 +192,7 @@ export function WorkspaceCanvasFrame({
               {canvasSubtitle ? <span>{canvasSubtitle}</span> : null}
             </div>
             <div className="pro-workspace-canvas-actions">
-              <button type="button" onClick={cycleTheme} aria-label={`Тема: ${themeMode}`} title={`Тема: ${themeMode}`}>
+              <button type="button" onClick={onCycleTheme} aria-label={`Тема: ${themeMode}`} title={`Тема: ${themeMode}`}>
                 {themeMode === "dark" ? <MoonIcon /> : <SunIcon />}
               </button>
               <button
