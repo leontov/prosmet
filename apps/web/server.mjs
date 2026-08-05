@@ -2437,8 +2437,9 @@ function buildDocumentContent(type, estimate, project, profile) {
   const commonNotes = [
     "Документ сформирован из зафиксированной версии сметы ProSmet; исходные значения и история изменений сохраняются отдельно.",
     "Перед юридически значимым использованием проверьте реквизиты сторон, сроки, налогообложение и актуальность применимых норм.",
-    "Рыночные цены являются коммерческими ориентирами на дату расчёта и могут требовать подтверждения счетами поставщиков."
-  ];
+      "Рыночные цены являются коммерческими ориентирами на дату расчёта и могут требовать подтверждения счетами поставщиков.",
+      "Правовая основа шаблона договора: общие положения о подряде и строительном подряде ГК РФ (включая статьи 702, 708, 709, 720, 740, 743, 746, 753–755); для гражданина-потребителя дополнительно применяется Закон РФ № 2300-1. Шаблон не заменяет проверку конкретного договора юристом."
+    ];
   const clausesByType = {
     "commercial-proposal": [
       `Исполнитель: ${organization}. Заказчик: ${customer}.`,
@@ -2451,10 +2452,19 @@ function buildDocumentContent(type, estimate, project, profile) {
       "Назначение платежа должно ссылаться на объект и согласованную версию сметы."
     ],
     contract: [
-      "Предмет: выполнение строительных работ по утверждённой смете и технологической карте.",
-      "Цена, состав и объёмы работ меняются только оформленной версией сметы или дополнительным соглашением.",
-      "Сроки, порядок оплаты, порядок приёмки, гарантийные обязательства и ответственность сторон требуют заполнения до подписания.",
-      "Проект договора должен пройти проверку юриста с учётом статуса сторон и конкретного объекта."
+      `1. Предмет договора. ${organization} (Подрядчик) обязуется выполнить для ${customer} (Заказчик) строительные работы по объекту «${project.title}» в составе, объёмах и по ценам утверждённой сметы версии ${estimate.revision}, являющейся Приложением № 1 к договору, а Заказчик обязуется создать необходимые условия, принять результат и оплатить его.`,
+      "2. Сроки выполнения работ. Начальный срок: [УКАЗАТЬ ДАТУ ИЛИ УСЛОВИЕ НАЧАЛА]. Конечный срок: [УКАЗАТЬ ДАТУ]. Промежуточные этапы и порядок изменения сроков: [УКАЗАТЬ].",
+      `3. Цена договора. Стоимость работ по утверждённой смете составляет ${Math.round(totals.total).toLocaleString("ru-RU")} ₽. Цена является [ВЫБРАТЬ: ТВЁРДОЙ / ПРИБЛИЗИТЕЛЬНОЙ]. Дополнительные работы и изменение цены допускаются только после письменного согласования и оформления дополнительного соглашения или новой утверждённой версии сметы.`,
+      "4. Порядок оплаты. Аванс: [УКАЗАТЬ ПРОЦЕНТ И СРОК]. Промежуточные платежи: [УКАЗАТЬ]. Окончательный расчёт: [УКАЗАТЬ СРОК ПОСЛЕ ПРИЁМКИ]. Способ оплаты и банковские реквизиты сторон: [УКАЗАТЬ РЕКВИЗИТЫ].",
+      "5. Материалы и оборудование. Сторона, предоставляющая материалы, их перечень, качество, сроки передачи, порядок учёта остатков и ответственность за сохранность: [УКАЗАТЬ].",
+      "6. Сдача и приёмка. Подрядчик уведомляет Заказчика о готовности результата. Заказчик осматривает и принимает работы в согласованный срок с оформлением акта; замечания и обнаруженные недостатки фиксируются в акте или мотивированном отказе.",
+      "7. Качество и гарантия. Работы должны соответствовать договору, технической документации и обязательным требованиям. Гарантийный срок: [УКАЗАТЬ СРОК]. Порядок уведомления и устранения недостатков: [УКАЗАТЬ].",
+      "8. Права, обязанности и ответственность сторон. Ответственность за просрочку, нарушение качества, непредоставление фронта работ и задержку оплаты: [УКАЗАТЬ НЕУСТОЙКУ И ПОРЯДОК РАСЧЁТА].",
+      "9. Изменение и расторжение. Изменения оформляются письменно. Односторонний отказ и расчёты за фактически выполненную часть допускаются в случаях и порядке, предусмотренных законом и договором.",
+      "10. Обстоятельства непреодолимой силы. Сторона уведомляет другую сторону о наступлении и прекращении таких обстоятельств в срок [УКАЗАТЬ] рабочих дней и подтверждает их документами компетентного органа, когда это применимо.",
+      "11. Споры. Претензионный порядок: [УКАЗАТЬ СРОК ОТВЕТА]. Подсудность определяется применимым законодательством; условие о территориальной подсудности не должно ограничивать права потребителя, если Заказчик является гражданином-потребителем.",
+      "12. Особый режим для потребителя. Если работы выполняются для личных, семейных или бытовых нужд гражданина, применяются императивные гарантии законодательства о защите прав потребителей; условия договора не могут уменьшать установленные законом права Заказчика.",
+      "13. Заключительные положения. Неотъемлемые приложения: утверждённая смета, техническое задание/технологическая карта, график работ, перечень материалов и акт передачи объекта. Реквизиты, подписанты и основания полномочий сторон: [УКАЗАТЬ РЕКВИЗИТЫ И ПОДПИСАНТОВ]."
     ],
     act: [
       "В акт включены только позиции с фактическим объёмом больше нуля.",
@@ -2938,10 +2948,34 @@ async function handleApi(request, response, url) {
   }
 
   const documentRoute = url.pathname.match(/^\/api\/workflows\/documents\/([^/]+)$/);
-  if (documentRoute && request.method === "GET") {
-    const document = workflowStore.document(decodeURIComponent(documentRoute[1]));
+  if (documentRoute) {
+    const documentId = decodeURIComponent(documentRoute[1]);
+    const document = workflowStore.document(documentId);
     if (!document) return sendError(response, 404, "DOCUMENT_NOT_FOUND", "Документ не найден");
-    return sendJson(response, 200, document);
+    if (request.method === "GET") return sendJson(response, 200, document);
+    if (request.method === "PUT") {
+      const body = await readJsonBody(request);
+      const content = body?.content && typeof body.content === "object" ? body.content : {};
+      const cleanParagraphs = (value, fallback) => Array.isArray(value)
+        ? value.map((entry) => optionalString(entry, 4000)).filter(Boolean).slice(0, 80)
+        : fallback;
+      const updated = workflowStore.saveDocument({
+        projectId: document.projectId,
+        estimateId: document.estimateId,
+        type: document.type,
+        status: document.status,
+        number: document.number,
+        title: document.title,
+        content: {
+          ...document.content,
+          heading: optionalString(content.heading, 500) || document.content.heading,
+          introduction: optionalString(content.introduction, 6000) || "",
+          clauses: cleanParagraphs(content.clauses, document.content.clauses),
+          notes: cleanParagraphs(content.notes, document.content.notes)
+        }
+      });
+      return sendJson(response, 200, updated);
+    }
   }
 
   if (request.method === "GET" && url.pathname === "/api/workflows/prices") {
@@ -3209,7 +3243,7 @@ const server = createServer(async (request, response) => {
       const headers = {
         "content-type": mime[extension] || "application/octet-stream",
         "cache-control": extension === ".html" ? "no-store" : "public, max-age=31536000, immutable",
-        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+        "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; frame-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
         "referrer-policy": "strict-origin-when-cross-origin",
         "x-content-type-options": "nosniff",
         "x-frame-options": "DENY"

@@ -15,21 +15,25 @@ import {
   XIcon
 } from "lucide-react";
 import { calculateEstimate, formatMoney, updateEstimateItem } from "../../lib/estimate";
-import { buildBrandedExcelHtml, downloadHtmlFile, exportFileName } from "./branded-export";
-import { downloadBrandedPdf } from "./branded-pdf";
+import { exportFileName } from "./branded-export";
+import { createBrandedPdfBlob } from "./branded-pdf";
+import { downloadBrandedXlsx } from "./branded-xlsx";
+import { PdfPreviewCanvas } from "./PdfPreviewCanvas";
 
 type Props = {
   mobile: boolean;
   estimate: Estimate;
   onChange: (estimate: Estimate) => void;
   onClose: () => void;
+  embedded?: boolean;
 };
 
 type Calculation = ReturnType<typeof calculateEstimate>;
 
-export function EstimateEditor({ mobile, estimate, onChange, onClose }: Props) {
+export function EstimateEditor({ mobile, estimate, onChange, onClose, embedded = false }: Props) {
   const calculation = useMemo(() => calculateEstimate(estimate), [estimate]);
   const [shareOpen, setShareOpen] = useState(false);
+  const [pdfPreview, setPdfPreview] = useState<{ blob: Blob; filename: string } | null>(null);
   const [exporting, setExporting] = useState<"pdf" | "excel" | null>(null);
   const [exportNotice, setExportNotice] = useState<string | null>(null);
 
@@ -39,8 +43,8 @@ export function EstimateEditor({ mobile, estimate, onChange, onClose }: Props) {
     try {
       await operation();
       setExportNotice(kind === "pdf"
-        ? "PDF создан и отправлен в загрузки."
-        : "Excel создан в фирменных цветах ProSmet.");
+        ? "PDF сформирован и открыт в рабочей области."
+        : "Excel .xlsx создан в фирменных цветах ProSmet.");
     } catch (error) {
       setExportNotice(error instanceof Error ? error.message : "Не удалось сформировать файл.");
     } finally {
@@ -93,16 +97,23 @@ export function EstimateEditor({ mobile, estimate, onChange, onClose }: Props) {
     onSave: saveVersion,
     onApprove: approve,
     onDeliver: deliver,
-    onPrint: () => void runExport("pdf", () => downloadBrandedPdf({ ...estimate, totals: calculation })),
-    onExcel: () => void runExport("excel", () => downloadExcel(estimate, calculation)),
+    onPrint: () => void runExport("pdf", async () => {
+      const value = { ...estimate, totals: calculation };
+      setPdfPreview({
+        blob: await createBrandedPdfBlob(value),
+        filename: exportFileName(value, "pdf")
+      });
+    }),
+    onExcel: () => void runExport("excel", () => downloadBrandedXlsx({ ...estimate, totals: calculation })),
     exporting,
     exportNotice
   };
 
   return (
-    <div className="estimate-overlay" role="dialog" aria-modal="true" aria-label="Редактор сметы">
-      {mobile ? <MobileEditor {...editorProps} /> : <DesktopEditor {...editorProps} />}
-      {shareOpen ? (
+    <div className={embedded ? "estimate-canvas-surface" : "estimate-page-surface"} role="region" aria-label="Редактор сметы">
+      {pdfPreview ? (
+        <PdfPreviewCanvas blob={pdfPreview.blob} filename={pdfPreview.filename} onBack={() => setPdfPreview(null)} />
+      ) : shareOpen ? (
         <ShareDialog
           estimate={estimate}
           total={calculation.total}
@@ -112,7 +123,7 @@ export function EstimateEditor({ mobile, estimate, onChange, onClose }: Props) {
             setShareOpen(false);
           }}
         />
-      ) : null}
+      ) : mobile ? <MobileEditor {...editorProps} /> : <DesktopEditor {...editorProps} />}
     </div>
   );
 }
@@ -142,8 +153,8 @@ function DesktopEditor(props: EditorProps) {
         <button type="button" className="icon-button" onClick={onClose} aria-label="Закрыть смету"><ArrowLeftIcon /></button>
         <div className="estimate-topbar-title"><strong>{estimate.title}</strong><span>Версия {estimate.revision} · {statusLabel(estimate.status)} · сохранено в базе данных</span></div>
         <div className="estimate-topbar-actions">
-          <button type="button" className="icon-button" aria-label="Скачать PDF" onClick={onPrint} disabled={exporting === "pdf"}><FileTextIcon /></button>
-          <button type="button" className="icon-button" aria-label="Скачать Excel" onClick={onExcel} disabled={exporting === "excel"}><FileSpreadsheetIcon /></button>
+          <button type="button" className="icon-button estimate-export-pdf" aria-label="Скачать PDF" onClick={onPrint} disabled={exporting === "pdf"}><FileTextIcon /></button>
+          <button type="button" className="icon-button estimate-export-excel" aria-label="Скачать Excel" onClick={onExcel} disabled={exporting === "excel"}><FileSpreadsheetIcon /></button>
           <button type="button" className="secondary-button" onClick={onDeliver}><Share2Icon /> Передать</button>
           <button type="button" className="primary-button" onClick={onSave}><SaveIcon /> Сохранить версию</button>
         </div>
@@ -279,11 +290,11 @@ function MobileEditor(props: EditorProps) {
         </section>
 
         <section className="mobile-export-panel" aria-label="Экспорт сметы">
-          <button type="button" onClick={onPrint} disabled={exporting === "pdf"} aria-label="Скачать PDF">
+          <button type="button" className="estimate-export-pdf" onClick={onPrint} disabled={exporting === "pdf"} aria-label="Скачать PDF">
             <FileTextIcon />
             <span><strong>{exporting === "pdf" ? "Создаём PDF…" : "PDF"}</strong><small>Фирменная форма ProSmet</small></span>
           </button>
-          <button type="button" onClick={onExcel} disabled={exporting === "excel"} aria-label="Скачать Excel">
+          <button type="button" className="estimate-export-excel" onClick={onExcel} disabled={exporting === "excel"} aria-label="Скачать Excel">
             <FileSpreadsheetIcon />
             <span><strong>{exporting === "excel" ? "Создаём Excel…" : "Excel"}</strong><small>Редактируемая таблица</small></span>
           </button>
@@ -392,16 +403,13 @@ function ShareDialog({ estimate, total, onClose, onSent }: { estimate: Estimate;
     onSent();
   };
   return (
-    <div className="share-dialog-layer">
-      <button type="button" className="share-backdrop" aria-label="Закрыть передачу" onClick={onClose} />
-      <section className="share-dialog" role="dialog" aria-modal="true" aria-label="Передача сметы клиенту">
-        <header><div><h2>Передать клиенту</h2><p>Выберите реальный канал передачи. Статус обновится после запуска действия.</p></div><button type="button" onClick={onClose} aria-label="Закрыть"><XIcon /></button></header>
-        <button type="button" onClick={() => void webShare()}><span className="share-channel"><Share2Icon /></span><span><strong>Системное меню</strong><small>AirDrop, сообщения и установленные приложения</small></span></button>
-        <button type="button" onClick={whatsapp}><span className="share-channel whatsapp"><SendIcon /></span><span><strong>WhatsApp</strong><small>Открыть готовое сообщение</small></span></button>
-        <button type="button" onClick={email}><span className="share-channel"><MailIcon /></span><span><strong>Электронная почта</strong><small>Открыть письмо с суммой и объектом</small></span></button>
-        <button type="button" onClick={() => void copy()}><span className="share-channel"><CopyIcon /></span><span><strong>Копировать описание</strong><small>Скопировать состав и итог сметы</small></span></button>
-      </section>
-    </div>
+    <section className="share-canvas-surface" role="region" aria-label="Передача сметы клиенту">
+      <header><div><h2>Передать клиенту</h2><p>Выберите реальный канал передачи. Статус обновится после запуска действия.</p></div><button type="button" onClick={onClose} aria-label="Закрыть"><XIcon /></button></header>
+      <button type="button" onClick={() => void webShare()}><span className="share-channel"><Share2Icon /></span><span><strong>Системное меню</strong><small>AirDrop, сообщения и установленные приложения</small></span></button>
+      <button type="button" onClick={whatsapp}><span className="share-channel whatsapp"><SendIcon /></span><span><strong>WhatsApp</strong><small>Открыть готовое сообщение</small></span></button>
+      <button type="button" onClick={email}><span className="share-channel"><MailIcon /></span><span><strong>Электронная почта</strong><small>Открыть письмо с суммой и объектом</small></span></button>
+      <button type="button" onClick={() => void copy()}><span className="share-channel"><CopyIcon /></span><span><strong>Копировать описание</strong><small>Скопировать состав и итог сметы</small></span></button>
+    </section>
   );
 }
 
@@ -417,28 +425,3 @@ function estimateSummary(estimate: Estimate, total: number) {
   return lines.join("\n");
 }
 
-function downloadExcel(estimate: Estimate, calculation: Calculation) {
-const html = buildBrandedExcelHtml(estimate);
-  downloadHtmlFile(html, exportFileName(estimate, "xls"), "application/vnd.ms-excel");
-}
-
-function printEstimate(estimate: Estimate, calculation: Calculation) {
-  return downloadBrandedPdf({ ...estimate, totals: calculation });
-}
-
-function downloadBlob(blob: Blob, filename: string) {
-  const href = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = href;
-  link.download = filename;
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(href), 0);
-}
-
-function safeFileName(value: string) {
-  return value.trim().replace(/[\\/:*?"<>|]+/g, "-").replace(/\s+/g, " ").slice(0, 80) || "estimate";
-}
-
-function escapeHtml(value: string) {
-  return String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[character] || character);
-}

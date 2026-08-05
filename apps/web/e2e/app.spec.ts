@@ -153,7 +153,11 @@ test("greenfield shell uses real agent integration and the mobile reference layo
     if (message.type() === "error") violations.push(`console:${message.text()}`);
   });
   page.on("pageerror", (error) => violations.push(`pageerror:${error.message}`));
-  page.on("requestfailed", (request) => violations.push(`requestfailed:${request.url()}:${request.failure()?.errorText ?? "unknown"}`));
+  page.on("requestfailed", (request) => {
+    const failure = request.failure()?.errorText ?? "unknown";
+    if (request.url().startsWith("blob:") && failure.includes("ERR_ABORTED")) return;
+    violations.push(`requestfailed:${request.url()}:${failure}`);
+  });
 
   await page.addInitScript(() => {
     document.addEventListener("securitypolicyviolation", (event) => {
@@ -252,7 +256,7 @@ test("greenfield shell uses real agent integration and the mobile reference layo
   evidence.checks.artifactReference = true;
   evidence.checks.sqliteArtifact = true;
 
-  const editor = page.getByRole("dialog", { name: "Редактор сметы" });
+  const editor = page.getByRole("region", { name: "Редактор сметы" });
   await expect(editor).toBeVisible({ timeout: 30_000 });
 
   const storedResponse = await page.request.get(`/api/estimates/${encodeURIComponent(artifact.id)}`);
@@ -272,7 +276,10 @@ test("greenfield shell uses real agent integration and the mobile reference layo
     const desktopEditor = page.getByTestId("desktop-estimate-editor");
     await expect(desktopEditor).toBeVisible();
     await expect(editor.locator(".estimate-summary")).toBeVisible();
-    expect((await desktopEditor.boundingBox())?.width ?? 0).toBeGreaterThan(1200);
+    expect((await desktopEditor.boundingBox())?.width ?? 0).toBeGreaterThan(420);
+    await expect(page.getByRole("separator", { name: "Изменить ширину левого сайдбара" })).toBeVisible();
+    await expect(page.getByRole("separator", { name: "Изменить ширину правого канваса" })).toBeVisible();
+    await expect(page.locator('[aria-modal="true"][aria-label="Редактор сметы"]')).toHaveCount(0);
     const editResponsePromise = page.waitForResponse((response) =>
       new URL(response.url()).pathname === `/api/estimates/${encodeURIComponent(artifact.id)}` &&
       response.request().method() === "PUT"
@@ -327,8 +334,12 @@ test("greenfield shell uses real agent integration and the mobile reference layo
     expect(editResponse.ok(), await editResponse.text()).toBeTruthy();
   }
 
-  const pdfDownloadPromise = page.waitForEvent("download", { timeout: 45_000 });
   await editor.getByRole("button", { name: "Скачать PDF" }).first().click();
+  const pdfPreview = page.getByRole("region", { name: "Предпросмотр PDF" });
+  await expect(pdfPreview).toBeVisible({ timeout: 45_000 });
+  await expect(pdfPreview.locator("iframe")).toBeVisible();
+  const pdfDownloadPromise = page.waitForEvent("download", { timeout: 45_000 });
+  await pdfPreview.getByRole("button", { name: "Скачать PDF" }).click();
   const pdfDownload = await pdfDownloadPromise;
   expect(pdfDownload.suggestedFilename()).toMatch(/\.pdf$/);
   const pdfPath = await pdfDownload.path();
@@ -337,14 +348,19 @@ test("greenfield shell uses real agent integration and the mobile reference layo
     expect((await readFile(pdfPath)).subarray(0, 5).toString("ascii")).toBe("%PDF-");
   }
 
+  await pdfPreview.getByRole("button", { name: "Вернуться к смете" }).click();
+  await expect(editor.locator("#estimate-title").or(editor.locator(".mobile-estimate-hero"))).toBeVisible();
+
   const excelDownloadPromise = page.waitForEvent("download", { timeout: 30_000 });
   await editor.getByRole("button", { name: "Скачать Excel" }).first().click();
   const excelDownload = await excelDownloadPromise;
-  expect(excelDownload.suggestedFilename()).toMatch(/\.xls$/);
+  expect(excelDownload.suggestedFilename()).toMatch(/\.xlsx$/);
   const excelPath = await excelDownload.path();
   if (excelPath) {
     const excelBytes = await readFile(excelPath);
-    expect(excelBytes.length).toBeGreaterThan(1_000);
+    expect(excelBytes.length).toBeGreaterThan(5_000);
+    expect(excelBytes.subarray(0, 2).toString("ascii")).toBe("PK");
+    expect(excelBytes.toString("utf8")).toContain("xl/worksheets/sheet1.xml");
     expect(excelBytes.toString("utf8")).toContain("ProSmet");
   }
 

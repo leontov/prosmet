@@ -11,9 +11,13 @@ type EstimateLike = {
   sections?: Array<{ title?: string; items?: Item[] }>;
   totals?: { direct?: number; overhead?: number; profit?: number; vat?: number; total?: number };
 };
+type PdfDocument = {
+  download: (filename: string) => void;
+  getBlob: (callback: (blob: Blob) => void) => void;
+};
 type PdfMake = {
   vfs?: Record<string, string>;
-  createPdf: (definition: unknown) => { download: (filename: string) => void };
+  createPdf: (definition: unknown) => PdfDocument;
 };
 type PdfFonts = {
   vfs?: Record<string, string>;
@@ -150,7 +154,7 @@ export function buildBrandedPdfDefinition(value: unknown) {
   };
 }
 
-export async function downloadBrandedPdf(value: unknown) {
+async function loadPdfMake() {
   const [pdfMakeModule, fontsModule] = await Promise.all([
     import("pdfmake/build/pdfmake"),
     import("pdfmake/build/vfs_fonts")
@@ -160,5 +164,20 @@ export async function downloadBrandedPdf(value: unknown) {
   const vfs = fonts.pdfMake?.vfs ?? fonts.vfs ?? directFontVfs(fonts) ?? pdfMake.vfs;
   if (!vfs) throw new Error("Не удалось загрузить шрифты PDF.");
   pdfMake.vfs = vfs;
+  return pdfMake;
+}
+
+export async function createBrandedPdfBlob(value: unknown) {
+  const pdfMake = await loadPdfMake();
+  const document = pdfMake.createPdf(buildBrandedPdfDefinition(value));
+  const blob = await new Promise<Blob>((resolve) => document.getBlob(resolve));
+  const signature = new TextDecoder("ascii").decode(await blob.slice(0, 5).arrayBuffer());
+  if (signature !== "%PDF-") throw new Error("Сформированный файл не является PDF.");
+  return blob;
+}
+
+export async function downloadBrandedPdf(value: unknown) {
+  const pdfMake = await loadPdfMake();
   pdfMake.createPdf(buildBrandedPdfDefinition(value)).download(exportFileName(value, "pdf"));
+
 }
