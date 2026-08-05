@@ -1,3 +1,67 @@
+.pdf-preview-frame {
+  position: relative;
+  isolation: isolate;
+}
+
+.pdf-preview-loading {
+  position: absolute;
+  inset: 12px;
+  z-index: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 8px;
+  border: 1px dashed var(--pro-line);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--pro-canvas) 96%, var(--pro-soft)), var(--pro-canvas));
+  color: var(--pro-ink);
+  text-align: center;
+}
+
+.pdf-preview-loading > span {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 13px;
+  background: color-mix(in srgb, #e63946 9%, var(--pro-canvas));
+  color: #d92d3a;
+}
+
+.pdf-preview-loading svg {
+  width: 20px;
+  height: 20px;
+  animation: pro-pdf-spin 1s linear infinite;
+}
+
+.pdf-preview-loading strong {
+  font-size: 14px;
+  letter-spacing: -.02em;
+}
+
+.pdf-preview-loading small {
+  max-width: 320px;
+  color: var(--pro-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.pdf-preview-frame iframe {
+  position: relative;
+  z-index: 1;
+  opacity: 0;
+  transition: opacity .18s ease;
+}
+
+.pdf-preview-frame.loaded iframe {
+  opacity: 1;
+}
+
+@keyframes pro-pdf-spin {
+  to { transform: rotate(360deg); }
+}
+
 @media (min-width: 768px) {
   .pro-workspace-canvas-body {
     container-type: inline-size;
@@ -68,5 +132,15 @@
       minmax(0, 1fr)
       5px
       min(var(--prosmet-canvas-width), calc(100vw - 620px));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pdf-preview-loading svg {
+    animation: none;
+  }
+
+  .pdf-preview-frame iframe {
+    transition: none;
   }
 }
