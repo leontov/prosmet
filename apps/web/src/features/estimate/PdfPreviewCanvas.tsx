@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { ArrowLeftIcon, DownloadIcon, FileTextIcon } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowLeftIcon, DownloadIcon, FileTextIcon, LoaderCircleIcon } from "lucide-react";
 
 type Props = {
   blob: Blob;
@@ -8,34 +8,62 @@ type Props = {
 };
 
 export function PdfPreviewCanvas({ blob, filename, onBack }: Props) {
-  const [url, setUrl] = useState<string | null>(null);
+  const objectUrl = useMemo(() => URL.createObjectURL(blob), [blob]);
+  const [dataUrl, setDataUrl] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    const next = URL.createObjectURL(blob);
-    setUrl(next);
-    return () => URL.revokeObjectURL(next);
+    const reader = new FileReader();
+    let active = true;
+    reader.addEventListener("load", () => {
+      if (active && typeof reader.result === "string") setDataUrl(reader.result);
+    });
+    reader.readAsDataURL(blob);
+    return () => {
+      active = false;
+      reader.abort();
+    };
   }, [blob]);
 
+  useEffect(() => () => URL.revokeObjectURL(objectUrl), [objectUrl]);
+
+  const source = dataUrl ? `${dataUrl}#toolbar=0&navpanes=0&view=FitH` : null;
+
   const download = () => {
-    if (!url) return;
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = filename;
-    link.rel = "noopener";
-    document.body.append(link);
-    link.click();
-    link.remove();
+    const anchor = document.createElement("a");
+    anchor.href = objectUrl;
+    anchor.download = filename;
+    anchor.rel = "noopener";
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
   };
 
   return (
     <section className="pdf-preview-canvas" role="region" aria-label="Предпросмотр PDF">
       <header>
-        <button type="button" onClick={onBack} aria-label="Вернуться к смете"><ArrowLeftIcon /></button>
-        <div><FileTextIcon /><span><strong>PDF</strong><small>{filename}</small></span></div>
-        <button type="button" className="pdf-preview-download" onClick={download} disabled={!url} aria-label="Скачать PDF"><DownloadIcon /> Скачать</button>
+        <button type="button" aria-label="Вернуться к смете" onClick={onBack}><ArrowLeftIcon /></button>
+        <div>
+          <FileTextIcon />
+          <span><strong>PDF</strong><small>{filename}</small></span>
+        </div>
+        <button type="button" className="pdf-preview-download" onClick={download}><DownloadIcon /> Скачать</button>
       </header>
-      <div className="pdf-preview-frame">
-        {url ? <iframe title={`Предпросмотр ${filename}`} src={url} /> : <div role="status">Готовим PDF…</div>}
+      <div className={`pdf-preview-frame${loaded ? " loaded" : " loading"}`}>
+        {!loaded ? (
+          <div className="pdf-preview-loading" role="status">
+            <span><LoaderCircleIcon /></span>
+            <strong>Подготавливаем предпросмотр PDF</strong>
+            <small>Фирменный документ остаётся внутри рабочего канваса.</small>
+          </div>
+        ) : null}
+        {source ? (
+          <iframe
+            src={source}
+            title={`Предпросмотр ${filename}`}
+            onLoad={() => setLoaded(true)}
+          />
+        ) : null}
       </div>
     </section>
   );
