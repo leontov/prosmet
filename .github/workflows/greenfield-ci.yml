@@ -62,7 +62,7 @@ jobs:
           path.write_text("\n".join(lines[:start] + replacement + lines[end + 1:]) + "\n", encoding="utf-8")
           PY
           python3 scripts/apply-mobile-polish-registration-export-v2.py
-          rm -f scripts/apply-mobile-polish-registration-export.py scripts/apply-mobile-polish-registration-export-v2.py README-polish-trigger*.txt
+          rm -f scripts/apply-mobile-polish-registration-export-v2.py
 
       - name: Verify complete product, exports, registration and mobile UI
         run: |
@@ -90,7 +90,7 @@ jobs:
             apps/web/src/mobile-brand-polish.css \
             apps/web/e2e/registration-export.spec.ts \
             scripts/greenfield-contract.mjs
-          git add -A scripts/apply-mobile-polish-registration-export.py scripts/apply-mobile-polish-registration-export-v2.py README-polish-trigger*.txt
+          git add -u -- scripts/apply-mobile-polish-registration-export-v2.py
           git diff --cached --quiet && exit 0
           git commit -m "feat: polish mobile UI, branded exports and user registration"
           git push origin HEAD:feature/mobile-polish-registration-export-v1
