@@ -1,0 +1,178 @@
+.pro-workspace-canvas {
+  container: artifact-canvas / inline-size;
+}
+
+@container artifact-canvas (max-width: 860px) {
+  .pro-workspace-canvas-body .desktop-estimate-editor {
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .pro-workspace-canvas-body .estimate-topbar {
+    min-height: 66px;
+    flex-wrap: wrap;
+    align-content: center;
+    padding: 8px 10px;
+  }
+
+  .pro-workspace-canvas-body .estimate-topbar-title {
+    flex: 1 1 250px;
+  }
+
+  .pro-workspace-canvas-body .estimate-topbar-actions {
+    width: 100%;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    padding-bottom: 1px;
+  }
+
+  .pro-workspace-canvas-body .desktop-estimate-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+    overflow: hidden;
+  }
+
+  .pro-workspace-canvas-body .estimate-canvas-scroll {
+    padding: 14px 14px 24px;
+  }
+
+  .pro-workspace-canvas-body .estimate-document {
+    width: 100%;
+    max-width: none;
+    border-radius: 16px;
+    padding: 20px 18px 28px;
+  }
+
+  .pro-workspace-canvas-body .document-header {
+    padding-bottom: 16px;
+  }
+
+  .pro-workspace-canvas-body .document-meta-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pro-workspace-canvas-body .estimate-section {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+  }
+
+  .pro-workspace-canvas-body .estimate-table-head,
+  .pro-workspace-canvas-body .estimate-table-row {
+    min-width: 720px;
+  }
+
+  .pro-workspace-canvas-body .estimate-summary {
+    min-height: 0;
+    max-height: 230px;
+    display: grid;
+    grid-template-columns: minmax(150px, .72fr) minmax(280px, 1.28fr);
+    grid-template-areas:
+      "status actions"
+      "label lines"
+      "total lines"
+      "notice lines";
+    column-gap: 14px;
+    row-gap: 7px;
+    overflow-y: auto;
+    border-top: 1px solid var(--border);
+    border-left: 0;
+    padding: 12px 14px;
+  }
+
+  .pro-workspace-canvas-body .estimate-summary > .status {
+    grid-area: status;
+    align-self: center;
+    justify-self: start;
+  }
+
+  .pro-workspace-canvas-body .estimate-summary > small {
+    grid-area: label;
+    align-self: end;
+    margin: 0;
+  }
+
+  .pro-workspace-canvas-body .summary-total {
+    grid-area: total;
+    align-self: start;
+    margin: 0;
+    font-size: clamp(23px, 4cqw, 30px);
+  }
+
+  .pro-workspace-canvas-body .summary-lines {
+    grid-area: lines;
+    align-self: stretch;
+    gap: 7px;
+    margin: 0;
+    border-top: 0;
+    border-bottom: 0;
+    border-left: 1px solid var(--border);
+    padding: 0 0 0 14px;
+  }
+
+  .pro-workspace-canvas-body .summary-actions {
+    grid-area: actions;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 7px;
+    margin: 0;
+  }
+
+  .pro-workspace-canvas-body .summary-actions button {
+    width: auto;
+    min-height: 38px;
+    flex: 1 1 128px;
+    padding-inline: 10px;
+  }
+
+  .pro-workspace-canvas-body .estimate-summary > p {
+    grid-area: notice;
+    margin: 0;
+  }
+}
+
+@container artifact-canvas (max-width: 560px) {
+  .pro-workspace-canvas-body .estimate-topbar-title {
+    flex-basis: 190px;
+  }
+
+  .pro-workspace-canvas-body .estimate-topbar-actions {
+    gap: 4px;
+  }
+
+  .pro-workspace-canvas-body .estimate-topbar-actions .secondary-button,
+  .pro-workspace-canvas-body .estimate-topbar-actions .primary-button {
+    min-width: max-content;
+    min-height: 40px;
+  }
+
+  .pro-workspace-canvas-body .document-meta-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .pro-workspace-canvas-body .estimate-summary {
+    max-height: 360px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "status"
+      "label"
+      "total"
+      "lines"
+      "actions"
+      "notice";
+  }
+
+  .pro-workspace-canvas-body .summary-lines {
+    border-top: 1px solid var(--border);
+    border-left: 0;
+    padding: 10px 0 0;
+  }
+
+  .pro-workspace-canvas-body .summary-actions {
+    justify-content: stretch;
+  }
+
+  .pro-workspace-canvas-body .summary-actions button {
+    flex-basis: 100%;
+  }
+}
