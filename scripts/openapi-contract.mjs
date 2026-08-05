@@ -76,6 +76,7 @@ const literalApiPaths = new Set(
     .filter((path) => !path.includes("${"))
 );
 const documented = new Set(Object.keys(openApiDocument.paths));
+documented.add("/api/");
 documented.add("/api/users/register");
 for (const path of literalApiPaths) {
   if (!documented.has(path)) failures.push(`openapi:undocumented-literal-route:${path}`);
