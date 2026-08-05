@@ -17,8 +17,7 @@ jobs:
   apply_mobile_placeholder_contract:
     if: >-
       github.event_name == 'pull_request' &&
-      github.event.pull_request.head.ref == 'feature/construction-lifecycle-v1' &&
-      hashFiles('.github/workflows/dev-sync-mobile-placeholder.yml') != ''
+      github.event.pull_request.head.ref == 'feature/construction-lifecycle-v1'
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 50
     env:
@@ -44,6 +43,7 @@ jobs:
       - name: Apply UI contract and restore canonical workflow
         run: |
           set -Eeuo pipefail
+          test -f .github/workflows/dev-sync-mobile-placeholder.yml
           python3 - <<'PY'
           from pathlib import Path
           path = Path('apps/web/e2e/app.spec.ts')
@@ -80,8 +80,7 @@ jobs:
   verify:
     if: >-
       github.event_name != 'pull_request' ||
-      github.event.pull_request.head.ref != 'feature/construction-lifecycle-v1' ||
-      hashFiles('.github/workflows/dev-sync-mobile-placeholder.yml') == ''
+      github.event.pull_request.head.ref != 'feature/construction-lifecycle-v1'
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 45
     env:
