@@ -17,6 +17,7 @@ import "../workspace-canvas.css";
 import "../desktop-product-polish.css";
 import "../mobile-product-polish.css";
 import "../web-appearance-fixes.css";
+import "../web-visual-corrections.css";
 
 export default function AppEntry() {
   return <ReferenceApp />;
