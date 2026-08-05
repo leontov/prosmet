@@ -58,6 +58,19 @@ export type UserLoginInput = {
 };`
 );
 
+const accountPath = "apps/mobile/src/screens/AccountScreen.tsx";
+let accountSource = await readFile(accountPath, "utf8");
+accountSource = accountSource.replace(
+  "function AuthField({ label, error, children }: { label: string; error?: string; children: React.ReactNode })",
+  "function AuthField({ label, error, children }: { label: string; error?: string | undefined; children: React.ReactNode })"
+);
+accountSource = accountSource
+  .replaceAll('fontWeight: "750"', 'fontWeight: "700"')
+  .replaceAll('fontWeight: "650"', 'fontWeight: "600"')
+  .replaceAll('fontWeight: "780"', 'fontWeight: "800"')
+  .replaceAll('fontWeight: "760"', 'fontWeight: "700"');
+await writeFile(accountPath, accountSource, "utf8");
+
 const mobilePackagePath = "apps/mobile/package.json";
 const mobilePackage = JSON.parse(await readFile(mobilePackagePath, "utf8"));
 mobilePackage.scripts.test = "vitest run src/domain/user-session.test.ts src/application/user-session.test.ts";
