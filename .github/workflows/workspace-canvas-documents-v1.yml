@@ -1,0 +1,111 @@
+name: Apply Workspace Canvas and Documents V1
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: prosmet-workspace-canvas-documents-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apply_and_verify:
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.head.ref == 'feature/workspace-canvas-documents-v1'
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 80
+    env:
+      CI: "1"
+    steps:
+      - name: Verify trusted runner
+        run: test "${{ runner.name }}" = "prosmet-primary"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/workspace-canvas-documents-v1
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Apply embedded canvas, PDF preview, XLSX and document editing patch
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/apply-workspace-canvas-documents-v1.py
+          python3 scripts/patch-workspace-canvas-contract-v2.py
+          rm -f \
+            scripts/apply-workspace-canvas-documents-v1.py \
+            scripts/patch-workspace-canvas-contract-v2.py \
+            .github/workflows/workspace-canvas-documents-v1.yml
+
+      - name: Install clean workspace
+        run: npm ci --workspaces --include-workspace-root --legacy-peer-deps --no-audit --no-fund
+
+      - name: Verify contracts, TypeScript, unit tests and production build
+        run: npm run verify
+
+      - name: Verify desktop Rust metadata
+        run: npm run desktop:metadata
+
+      - name: Install Chromium
+        run: npx playwright install chromium
+
+      - name: Verify desktop/mobile canvas, exports, documents and lifecycle
+        run: npm run e2e
+
+      - name: Verify landing budgets remain intact
+        run: npm run lighthouse:landing
+
+      - name: Upload one-shot QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prosmet-workspace-canvas-documents-${{ github.run_id }}
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+            apps/web/artifacts-*.png
+            apps/web/lighthouse
+          if-no-files-found: warn
+          retention-days: 21
+
+      - name: Commit exact verified source tree
+        run: |
+          set -Eeuo pipefail
+          rm -f apps/web/artifacts-*.png
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            apps/web/server.mjs \
+            apps/web/e2e/app.spec.ts \
+            apps/web/src/app/AppEntry.tsx \
+            apps/web/src/app/ProfessionalApp.tsx \
+            apps/web/src/features/estimate/EstimateEditor.tsx \
+            apps/web/src/features/estimate/PdfPreviewCanvas.tsx \
+            apps/web/src/features/estimate/branded-pdf.ts \
+            apps/web/src/features/estimate/branded-xlsx.ts \
+            apps/web/src/features/estimate/branded-xlsx.test.ts \
+            apps/web/src/features/workflow/WorkflowInspector.tsx \
+            apps/web/src/features/workflow/workflow-api.ts \
+            apps/web/src/features/workspace/WorkspaceCanvasFrame.tsx \
+            apps/web/src/workspace-canvas.css \
+            apps/desktop/src-tauri/tauri.conf.json \
+            scripts/greenfield-contract.mjs
+          git add -A \
+            scripts/apply-workspace-canvas-documents-v1.py \
+            scripts/patch-workspace-canvas-contract-v2.py \
+            .github/workflows/workspace-canvas-documents-v1.yml
+          git diff --cached --quiet && exit 0
+          git commit -m "feat(workspace): ship resizable canvases and production documents"
+          git push origin HEAD:feature/workspace-canvas-documents-v1
