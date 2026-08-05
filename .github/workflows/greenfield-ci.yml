@@ -7,92 +7,14 @@ on:
     branches: [greenfield/prosmet-v3]
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: prosmet-greenfield-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  apply_openapi_contract:
-    if: >-
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.head.ref == 'feature/openapi-contract-v1'
-    runs-on: ubuntu-latest
-    timeout-minutes: 70
-    env:
-      CI: "1"
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: feature/openapi-contract-v1
-          fetch-depth: 0
-          token: ${{ github.token }}
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.16.0
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-
-      - name: Apply and generate the OpenAPI production contract
-        run: |
-          set -Eeuo pipefail
-          node scripts/apply-openapi-contract-v1.mjs
-          node scripts/openapi-contract.mjs --write
-
-      - name: Verify source, contracts, browser and performance gates
-        run: |
-          set -Eeuo pipefail
-          npm ci --workspaces --include-workspace-root --legacy-peer-deps --no-audit --no-fund
-          npm run verify
-          npm run desktop:metadata
-          npx playwright install --with-deps chromium
-          npm run e2e
-          npm run lighthouse:landing
-
-      - name: Upload OpenAPI and browser evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: prosmet-openapi-contract-${{ github.run_id }}
-          path: |
-            apps/web/public/openapi.json
-            apps/web/playwright-report
-            apps/web/test-results
-            apps/web/artifacts-*.png
-            apps/web/lighthouse
-          if-no-files-found: warn
-          retention-days: 14
-
-      - name: Commit verified canonical tree
-        run: |
-          set -Eeuo pipefail
-          git fetch origin main
-          git show origin/main:.github/workflows/greenfield-ci.yml > .github/workflows/greenfield-ci.yml
-          git rm -f scripts/apply-openapi-contract-v1.mjs .github/workflows/dev-openapi-contract-v1.yml
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            .github/workflows/greenfield-ci.yml \
-            package.json \
-            apps/web/server.mjs \
-            apps/web/public/openapi.json \
-            apps/web/e2e/openapi.spec.ts \
-            scripts/openapi-source.mjs \
-            scripts/openapi-contract.mjs \
-            scripts/greenfield-contract.mjs \
-            docs/architecture/desktop-web-api-contract.md
-          git diff --cached --quiet && exit 0
-          git commit -m "feat(api): publish and enforce OpenAPI 3.1 contract"
-          git push origin HEAD:feature/openapi-contract-v1
-
   verify:
-    if: >-
-      github.event_name != 'pull_request' ||
-      github.event.pull_request.head.ref != 'feature/openapi-contract-v1'
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 55
     env:
