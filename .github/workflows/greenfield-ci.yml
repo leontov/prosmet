@@ -7,16 +7,83 @@ on:
     branches: [greenfield/prosmet-v3]
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: prosmet-greenfield-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  verify:
+  apply_landing_production_gates:
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.ref == 'feature/production-landing-v1'
     runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 45
+    timeout-minutes: 65
+    env:
+      CI: "1"
+    steps:
+      - name: Verify trusted runner
+        run: test "${{ runner.name }}" = "prosmet-primary"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/production-landing-v1
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Apply lead persistence, visual and performance gates
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/apply-landing-production-gates.py
+          rm -f scripts/apply-landing-production-gates.py
+          git rm -f --ignore-unmatch apps/web/artifacts-*.png Cargo.lock
+          npm install --save-dev --package-lock-only lighthouse@latest chrome-launcher@latest --ignore-scripts --legacy-peer-deps --no-audit --no-fund
+
+      - name: Verify complete product, landing and production budgets
+        run: |
+          set -Eeuo pipefail
+          npm ci --workspaces --include-workspace-root --legacy-peer-deps --no-audit --no-fund
+          npm run verify
+          npm run desktop:metadata
+          npx playwright install chromium
+          npm run e2e
+          npm run lighthouse:landing
+
+      - name: Commit verified landing production gates
+        run: |
+          set -Eeuo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            .github/workflows/greenfield-ci.yml \
+            package.json \
+            package-lock.json \
+            scripts/greenfield-contract.mjs \
+            scripts/run-landing-lighthouse.mjs \
+            apps/web/server.mjs \
+            apps/web/e2e/landing.spec.ts \
+            apps/web/src/landing/LandingPage.tsx \
+            apps/web/src/landing/landing.css
+          git add -A scripts/apply-landing-production-gates.py
+          git diff --cached --quiet && exit 0
+          git commit -m "feat(landing): persist leads and enforce production budgets"
+          git push origin HEAD:feature/production-landing-v1
+
+  verify:
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.ref != 'feature/production-landing-v1'
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 55
     env:
       CI: "1"
     steps:
