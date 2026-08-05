@@ -60,7 +60,7 @@ jobs:
           set -Eeuo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add apps/web/src/features/estimate/EstimateEditor.tsx apps/web/src/styles.css apps/web/e2e/app.spec.ts .github/workflows/greenfield-ci.yml
+          git add apps/web/src/features/estimate/EstimateEditor.tsx apps/web/src/styles.css apps/web/src/mobile-overrides.css apps/web/e2e/app.spec.ts .github/workflows/greenfield-ci.yml
           git add -A scripts/apply-mobile-estimate-title-autosize.py
           git diff --cached --quiet && exit 0
           git commit -m "fix(mobile): grow estimate item titles without clipping"
