@@ -31,9 +31,16 @@ type Props = {
 
 const sidebarKey = "prosmet.workspace.sidebar-width.v1";
 const canvasKey = "prosmet.workspace.canvas-width.v1";
+const sidebarDefault = 254;
+const canvasDefault = 680;
+const sidebarMinimum = 210;
+const sidebarMaximum = 420;
+const canvasMinimum = 520;
 
 function readNumber(key: string, fallback: number) {
-  const value = Number(window.localStorage.getItem(key));
+  const stored = window.localStorage.getItem(key);
+  if (stored === null || !stored.trim()) return fallback;
+  const value = Number(stored);
   return Number.isFinite(value) ? value : fallback;
 }
 
@@ -42,7 +49,8 @@ function clamp(value: number, minimum: number, maximum: number) {
 }
 
 function canvasMaximum() {
-  return Math.max(480, Math.min(960, window.innerWidth - 360));
+  const reservedWorkspace = window.innerWidth >= 1440 ? 560 : 480;
+  return Math.max(canvasMinimum, Math.min(920, window.innerWidth - reservedWorkspace));
 }
 
 export function WorkspaceCanvasFrame({
@@ -55,8 +63,16 @@ export function WorkspaceCanvasFrame({
   onCloseCanvas,
   onCycleTheme
 }: Props) {
-  const [sidebarWidth, setSidebarWidth] = useState(() => clamp(readNumber(sidebarKey, 254), 210, 420));
-  const [canvasWidth, setCanvasWidth] = useState(() => clamp(readNumber(canvasKey, 620), 440, canvasMaximum()));
+  const [sidebarWidth, setSidebarWidth] = useState(() => clamp(
+    readNumber(sidebarKey, sidebarDefault),
+    sidebarMinimum,
+    sidebarMaximum
+  ));
+  const [canvasWidth, setCanvasWidth] = useState(() => clamp(
+    readNumber(canvasKey, canvasDefault),
+    canvasMinimum,
+    canvasMaximum()
+  ));
   const [canvasFullscreen, setCanvasFullscreen] = useState(false);
   const drag = useRef<{
     kind: ResizeKind;
@@ -68,8 +84,8 @@ export function WorkspaceCanvasFrame({
 
   useEffect(() => {
     const onResize = () => {
-      setSidebarWidth((value) => clamp(value, 210, 420));
-      setCanvasWidth((value) => clamp(value, 440, canvasMaximum()));
+      setSidebarWidth((value) => clamp(value, sidebarMinimum, sidebarMaximum));
+      setCanvasWidth((value) => clamp(value, canvasMinimum, canvasMaximum()));
     };
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
@@ -97,9 +113,9 @@ export function WorkspaceCanvasFrame({
     if (!current || current.pointerId !== event.pointerId) return;
     const delta = event.clientX - current.startX;
     if (current.kind === "sidebar") {
-      setSidebarWidth(clamp(current.sidebarWidth + delta, 210, 420));
+      setSidebarWidth(clamp(current.sidebarWidth + delta, sidebarMinimum, sidebarMaximum));
     } else {
-      setCanvasWidth(clamp(current.canvasWidth - delta, 440, canvasMaximum()));
+      setCanvasWidth(clamp(current.canvasWidth - delta, canvasMinimum, canvasMaximum()));
     }
     event.preventDefault();
   };
@@ -121,14 +137,25 @@ export function WorkspaceCanvasFrame({
     event.preventDefault();
     const direction = event.key === "ArrowRight" ? 1 : -1;
     if (kind === "sidebar") {
-      const next = clamp(sidebarWidth + direction * 16, 210, 420);
+      const next = clamp(sidebarWidth + direction * 16, sidebarMinimum, sidebarMaximum);
       setSidebarWidth(next);
       window.localStorage.setItem(sidebarKey, String(next));
     } else {
-      const next = clamp(canvasWidth - direction * 20, 440, canvasMaximum());
+      const next = clamp(canvasWidth - direction * 20, canvasMinimum, canvasMaximum());
       setCanvasWidth(next);
       window.localStorage.setItem(canvasKey, String(next));
     }
+  };
+
+  const resetSidebarWidth = () => {
+    setSidebarWidth(sidebarDefault);
+    window.localStorage.setItem(sidebarKey, String(sidebarDefault));
+  };
+
+  const resetCanvasWidth = () => {
+    const next = clamp(canvasDefault, canvasMinimum, canvasMaximum());
+    setCanvasWidth(next);
+    window.localStorage.setItem(canvasKey, String(next));
   };
 
   const effectiveSidebarWidth = sidebarCollapsed ? 68 : sidebarWidth;
@@ -151,8 +178,8 @@ export function WorkspaceCanvasFrame({
             role="separator"
             aria-label="Изменить ширину левого сайдбара"
             aria-orientation="vertical"
-            aria-valuemin={210}
-            aria-valuemax={420}
+            aria-valuemin={sidebarMinimum}
+            aria-valuemax={sidebarMaximum}
             aria-valuenow={Math.round(sidebarWidth)}
             tabIndex={0}
             onPointerDown={(event) => beginResize("sidebar", event)}
@@ -160,7 +187,7 @@ export function WorkspaceCanvasFrame({
             onPointerUp={endResize}
             onPointerCancel={endResize}
             onKeyDown={(event) => resizeWithKeyboard("sidebar", event)}
-            onDoubleClick={() => setSidebarWidth(254)}
+            onDoubleClick={resetSidebarWidth}
           />
         ) : null}
       </section>
@@ -171,7 +198,7 @@ export function WorkspaceCanvasFrame({
           role="separator"
           aria-label="Изменить ширину правого канваса"
           aria-orientation="vertical"
-          aria-valuemin={440}
+          aria-valuemin={canvasMinimum}
           aria-valuemax={canvasMaximum()}
           aria-valuenow={Math.round(canvasWidth)}
           tabIndex={0}
@@ -180,7 +207,7 @@ export function WorkspaceCanvasFrame({
           onPointerUp={endResize}
           onPointerCancel={endResize}
           onKeyDown={(event) => resizeWithKeyboard("canvas", event)}
-          onDoubleClick={() => setCanvasWidth(620)}
+          onDoubleClick={resetCanvasWidth}
         />
       ) : null}
 
