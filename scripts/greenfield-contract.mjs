@@ -48,6 +48,10 @@ const required = [
   "apps/mobile/App.tsx",
   "apps/mobile/src/MobileNavigation.tsx",
   "apps/mobile/src/agent-session.ts",
+  "apps/mobile/src/application/user-session.ts",
+  "apps/mobile/src/application/user-session.test.ts",
+  "apps/mobile/src/domain/user-session.ts",
+  "apps/mobile/src/domain/user-session.test.ts",
   "apps/mobile/src/runtime/RuntimeProvider.tsx",
   "apps/mobile/src/screens/ChatScreen.tsx",
   "apps/mobile/src/screens/EstimateScreen.tsx",
@@ -136,6 +140,8 @@ const nativeSettings = await read("apps/mobile/src/screens/SettingsScreen.tsx");
 const nativeAccount = await read("apps/mobile/src/screens/AccountScreen.tsx");
 const nativeChat = await read("apps/mobile/src/screens/ChatScreen.tsx");
 const mobileSession = await read("apps/mobile/src/agent-session.ts");
+const mobileUserSession = await read("apps/mobile/src/application/user-session.ts");
+const mobileUserDomain = await read("apps/mobile/src/domain/user-session.ts");
 const playwright = await read("apps/web/playwright.config.ts");
 const e2e = await read("apps/web/e2e/app.spec.ts");
 const landing = await read("apps/web/src/landing/LandingPage.tsx");
@@ -207,6 +213,21 @@ for (const token of ["mobileApiFetch", "setMobileAdminToken", "setMobileApiBaseU
   if (!nativeSettings.includes(token) && !mobileSession.includes(token)) failures.push(`native-settings:working-action-missing:${token}`);
 }
 if (!mobileSession.includes("expo-secure-store")) failures.push("native:secure-store-missing");
+for (const token of [
+  "/api/auth/session",
+  "/api/auth/login",
+  "/api/auth/logout",
+  "/api/register",
+  "parseUserSession"
+]) {
+  if (!mobileUserSession.includes(token)) failures.push(`native-auth:user-session-gateway-missing:${token}`);
+}
+for (const token of ["validateRegistrationInput", "validateLoginInput", "normalizeUserEmail"]) {
+  if (!mobileUserDomain.includes(token)) failures.push(`native-auth:user-session-domain-missing:${token}`);
+}
+if (!nativeAccount.includes("Создать аккаунт ProSmet") || !nativeAccount.includes("logoutMobileUser")) {
+  failures.push("native-auth:registration-login-logout-ui-missing");
+}
 if (!webRuntime.includes("/api/agent") || webRuntime.includes("demoEstimate")) failures.push("web-runtime:real-agent-only-contract-failed");
 if (!nativeRuntime.includes('mobileApiFetch("/api/agent"') || nativeRuntime.includes("demoEstimate")) failures.push("native-runtime:real-agent-only-contract-failed");
 

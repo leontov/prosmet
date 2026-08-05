@@ -315,6 +315,37 @@ export type AccountProfile = {
   updatedAt: string;
 };
 
+export type RegisteredUserRole = "owner" | "member";
+export type RegisteredUserStatus = "active" | "locked" | "revoked";
+
+export type RegisteredUser = {
+  id: string;
+  name: string;
+  email: string;
+  company: string;
+  role: RegisteredUserRole;
+  status: RegisteredUserStatus;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type UserSessionStatus = {
+  authenticated: boolean;
+  user: RegisteredUser | null;
+};
+
+export type UserRegistrationInput = {
+  name: string;
+  email: string;
+  company: string;
+  password: string;
+};
+
+export type UserLoginInput = {
+  email: string;
+  password: string;
+};
+
 export type SystemStatus = {
   ok: true;
   app: string;
