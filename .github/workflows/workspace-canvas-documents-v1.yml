@@ -39,9 +39,11 @@ jobs:
       - name: Apply embedded canvas, PDF preview, XLSX and document editing patch
         run: |
           set -Eeuo pipefail
+          python3 scripts/instrument-workspace-patch.py
           python3 scripts/apply-workspace-canvas-documents-v1.py
           python3 scripts/patch-workspace-canvas-contract-v2.py
           rm -f \
+            scripts/instrument-workspace-patch.py \
             scripts/apply-workspace-canvas-documents-v1.py \
             scripts/patch-workspace-canvas-contract-v2.py \
             .github/workflows/workspace-canvas-documents-v1.yml
@@ -100,6 +102,7 @@ jobs:
             apps/desktop/src-tauri/tauri.conf.json \
             scripts/greenfield-contract.mjs
           git add -A \
+            scripts/instrument-workspace-patch.py \
             scripts/apply-workspace-canvas-documents-v1.py \
             scripts/patch-workspace-canvas-contract-v2.py \
             .github/workflows/workspace-canvas-documents-v1.yml
