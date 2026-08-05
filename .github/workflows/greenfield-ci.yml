@@ -45,17 +45,21 @@ jobs:
           set -Eeuo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          path = Path("apps/web/src/features/account/AccountView.tsx")
-          source = path.read_text(encoding="utf-8")
-          opening = '<section className={mobile ? "account mobile-account" : "account desktop-account"}>'
-          if source.count(opening) != 1:
-              raise SystemExit("AccountView root opening marker missing")
-          source = source.replace(opening, '<div className={mobile ? "account mobile-account" : "account desktop-account"}>', 1)
-          closing = '\n    </section>\n  );\n}\n\nfunction AccountField'
-          if source.count(closing) != 1:
-              raise SystemExit("AccountView root closing marker missing")
-          source = source.replace(closing, '\n    </div>\n  );\n}\n\nfunction AccountField', 1)
-          path.write_text(source, encoding="utf-8")
+          path = Path("scripts/apply-mobile-polish-registration-export-v2.py")
+          lines = path.read_text(encoding="utf-8").splitlines()
+          start = next((i for i, line in enumerate(lines) if "ns = re.sub" in line and "UserRegistrationPanel" in line), None)
+          if start is None:
+              raise SystemExit("Registration insertion patch marker missing")
+          end = next((i for i in range(start, min(len(lines), start + 8)) if lines[i].strip() == "s = ns"), None)
+          if end is None:
+              raise SystemExit("Registration insertion patch end marker missing")
+          replacement = [
+              '    marker = "\\n    </section>\\n  );\\n}\\n\\nfunction AccountField"',
+              '    if s.count(marker) != 1:',
+              '        raise SystemExit("AccountView insertion marker not found")',
+              '    s = s.replace(marker, "\\n      <UserRegistrationPanel />\\n    </section>\\n  );\\n}\\n\\nfunction AccountField", 1)',
+          ]
+          path.write_text("\n".join(lines[:start] + replacement + lines[end + 1:]) + "\n", encoding="utf-8")
           PY
           python3 scripts/apply-mobile-polish-registration-export-v2.py
           rm -f scripts/apply-mobile-polish-registration-export.py scripts/apply-mobile-polish-registration-export-v2.py README-polish-trigger*.txt
