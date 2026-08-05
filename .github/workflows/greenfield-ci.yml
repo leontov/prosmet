@@ -7,14 +7,96 @@ on:
     branches: [greenfield/prosmet-v3]
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: prosmet-greenfield-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  apply_mobile_brand_export_auth:
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.ref == 'feature/mobile-brand-export-auth-v1'
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 75
+    env:
+      CI: "1"
+    steps:
+      - name: Verify trusted runner
+        run: test "${{ runner.name }}" = "prosmet-primary"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/mobile-brand-export-auth-v1
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Apply mobile polish, branded exports and user auth
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/apply-mobile-brand-export-auth-v1.py
+          rm -f scripts/apply-mobile-brand-export-auth-v1.py
+          npm install --save pdfmake@0.2.20 --package-lock-only --ignore-scripts --legacy-peer-deps --no-audit --no-fund
+
+      - name: Verify complete product, export and registration suite
+        run: |
+          set -Eeuo pipefail
+          npm ci --workspaces --include-workspace-root --legacy-peer-deps --no-audit --no-fund
+          npm run verify
+          npm run desktop:metadata
+          npx playwright install chromium
+          npm run e2e
+          npm run lighthouse:landing
+
+      - name: Upload one-shot QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prosmet-mobile-brand-export-auth-${{ github.run_id }}
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+            apps/web/artifacts-*.png
+            apps/web/lighthouse
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Commit verified source patch
+        run: |
+          set -Eeuo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            package.json \
+            package-lock.json \
+            packages/contracts/src/index.ts \
+            scripts/greenfield-contract.mjs \
+            apps/web/server.mjs \
+            apps/web/e2e/app.spec.ts \
+            apps/web/src/app/AppEntry.tsx \
+            apps/web/src/features/account/AccountView.tsx \
+            apps/web/src/features/agents/agent-api.ts \
+            apps/web/src/features/estimate/EstimateEditor.tsx \
+            apps/web/src/mobile-brand-polish.css \
+            apps/web/src/types/pdfmake-build.d.ts
+          git add -A scripts/apply-mobile-brand-export-auth-v1.py
+          git diff --cached --quiet && exit 0
+          git commit -m "feat(mobile): polish brand UI exports and registration"
+          git push origin HEAD:feature/mobile-brand-export-auth-v1
+
   verify:
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.ref != 'feature/mobile-brand-export-auth-v1'
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 55
     env:
