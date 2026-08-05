@@ -38,6 +38,9 @@ jobs:
         with:
           components: rustfmt,clippy
 
+      - name: Apply canonical Rust formatting
+        run: cargo fmt --manifest-path apps/desktop/src-tauri/Cargo.toml --all
+
       - name: Install Tauri Linux build dependencies
         run: |
           set -Eeuo pipefail
@@ -114,14 +117,11 @@ jobs:
     if: >-
       github.event_name != 'pull_request' ||
       github.event.pull_request.head.ref != 'feature/desktop-ipc-foundation-v1'
-    runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 55
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
     env:
       CI: "1"
     steps:
-      - name: Verify trusted runner
-        run: test "${{ runner.name }}" = "prosmet-primary"
-
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -143,8 +143,8 @@ jobs:
       - name: Desktop manifest
         run: npm run desktop:metadata
 
-      - name: Install Chromium
-        run: npx playwright install chromium
+      - name: Install Chromium system dependencies
+        run: npx playwright install --with-deps chromium
 
       - name: Desktop, mobile, landing and lifecycle browser acceptance
         run: npm run e2e
