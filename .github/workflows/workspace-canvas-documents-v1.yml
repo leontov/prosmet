@@ -17,14 +17,11 @@ jobs:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       github.event.pull_request.head.ref == 'feature/workspace-canvas-documents-v1'
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-latest
     timeout-minutes: 80
     env:
       CI: "1"
     steps:
-      - name: Verify trusted runner
-        run: test "${{ runner.name }}" = "prosmet-primary"
-
       - uses: actions/checkout@v4
         with:
           ref: feature/workspace-canvas-documents-v1
@@ -58,8 +55,8 @@ jobs:
       - name: Verify desktop Rust metadata
         run: npm run desktop:metadata
 
-      - name: Install Chromium
-        run: npx playwright install chromium
+      - name: Install Chromium and Linux dependencies
+        run: npx playwright install --with-deps chromium
 
       - name: Verify desktop/mobile canvas, exports, documents and lifecycle
         run: npm run e2e
