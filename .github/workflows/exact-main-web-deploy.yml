@@ -2,15 +2,15 @@ name: ProSmet Exact Main Web Deploy
 
 on:
   push:
-    branches: [fix/public-root-404-v2]
+    branches: [ops/exact-main-web-deploy]
 
 permissions:
   contents: read
   issues: write
 
 concurrency:
-  group: prosmet-exact-main-web-deploy
-  cancel-in-progress: true
+  group: prosmet-exact-main-web-deploy-v2
+  cancel-in-progress: false
 
 env:
   CI: "true"
@@ -18,8 +18,35 @@ env:
   PRODUCTION_ORIGIN: https://kolibriai.online
 
 jobs:
+  announce:
+    name: Register deployment run
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Publish start marker to production ledger
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea
+        env:
+          RELEASE_SHA: ${{ env.EXPECTED_RELEASE_SHA }}
+        with:
+          script: |
+            const body = [
+              "## 🚀 EXACT-MAIN WEB DEPLOY STARTED",
+              "",
+              `- Release SHA: \`${process.env.RELEASE_SHA}\``,
+              `- Workflow run: https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              `- Trigger SHA: \`${context.sha}\``,
+              `- Public service: https://kolibriai.online`
+            ].join("\n");
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 53,
+              body
+            });
+
   deploy:
     name: Build and install exact main on Primary
+    needs: announce
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 80
     steps:
@@ -30,7 +57,7 @@ jobs:
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
-          ref: fix/public-root-404-v2
+          ref: ops/exact-main-web-deploy
           fetch-depth: 0
 
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
