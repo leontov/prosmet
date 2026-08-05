@@ -28,10 +28,14 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 concurrency:
   group: prosmet-local-llm-${{ github.ref }}
   cancel-in-progress: false
+
+env:
+  PROSMET_LLM_STATUS_CONTEXT: prosmet/local-llm-primary
 
 jobs:
   validate:
@@ -53,6 +57,32 @@ jobs:
           ! grep -REn --exclude='local-llm-provision.yml' --exclude='local-llm-and-free-tier.md' \
             '(sk-[A-Za-z0-9_.-]{20,}|AIza[0-9A-Za-z_-]{20,}|gsk_[0-9A-Za-z_-]{20,})' \
             deployment scripts
+
+      - name: Publish pending production provisioning status
+        if: github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -Eeuo pipefail
+          PAYLOAD="$(node - <<'NODE'
+          const payload = {
+            state: "pending",
+            context: process.env.PROSMET_LLM_STATUS_CONTEXT,
+            description: "Installing and verifying local LLM on prosmet-primary",
+            target_url: process.env.TARGET_URL
+          };
+          process.stdout.write(JSON.stringify(payload));
+          NODE
+          )"
+          curl --fail --silent --show-error \
+            --retry 5 --retry-all-errors --retry-delay 2 \
+            -X POST \
+            -H "accept: application/vnd.github+json" \
+            -H "authorization: Bearer $GH_TOKEN" \
+            -H "x-github-api-version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            --data "$PAYLOAD" >/dev/null
 
   provision:
     name: Install, connect and verify local LLM on Primary
@@ -149,3 +179,48 @@ jobs:
             agent-pool-provision.log
           if-no-files-found: warn
           retention-days: 30
+
+  report:
+    name: Publish local LLM provisioning result
+    if: always() && github.event_name != 'pull_request'
+    needs: [validate, provision]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Publish final commit status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VALIDATE_RESULT: ${{ needs.validate.result }}
+          PROVISION_RESULT: ${{ needs.provision.result }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -Eeuo pipefail
+          if [ "$VALIDATE_RESULT" = "success" ] && [ "$PROVISION_RESULT" = "success" ]; then
+            STATE=success
+            DESCRIPTION="Local LLM installed, connected and verified on prosmet-primary"
+          elif [ "$PROVISION_RESULT" = "cancelled" ]; then
+            STATE=error
+            DESCRIPTION="Local LLM provisioning was cancelled"
+          else
+            STATE=failure
+            DESCRIPTION="Local LLM provisioning failed; inspect the linked run"
+          fi
+          export STATE DESCRIPTION
+          PAYLOAD="$(node - <<'NODE'
+          const payload = {
+            state: process.env.STATE,
+            context: process.env.PROSMET_LLM_STATUS_CONTEXT,
+            description: process.env.DESCRIPTION,
+            target_url: process.env.TARGET_URL
+          };
+          process.stdout.write(JSON.stringify(payload));
+          NODE
+          )"
+          curl --fail --silent --show-error \
+            --retry 5 --retry-all-errors --retry-delay 2 \
+            -X POST \
+            -H "accept: application/vnd.github+json" \
+            -H "authorization: Bearer $GH_TOKEN" \
+            -H "x-github-api-version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            --data "$PAYLOAD" >/dev/null
