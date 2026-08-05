@@ -1,3 +1,67 @@
+@media (min-width: 768px) {
+  .pro-workspace-canvas-body {
+    container-type: inline-size;
+  }
+
+  .pro-workspace-canvas .document-header input {
+    width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .pro-workspace-canvas .estimate-section {
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scrollbar-gutter: stable;
+  }
+
+  .pro-workspace-canvas .estimate-table-head,
+  .pro-workspace-canvas .estimate-table-row {
+    min-width: 540px;
+    grid-template-columns:
+      30px
+      minmax(170px, 1fr)
+      50px
+      70px
+      82px
+      92px
+      34px;
+  }
+
+  .pro-workspace-canvas .estimate-table-head span,
+  .pro-workspace-canvas .estimate-table-row input,
+  .pro-workspace-canvas .estimate-table-row > strong {
+    padding-inline: 5px;
+  }
+
+  .pro-workspace-canvas .estimate-table-row input {
+    width: calc(100% - 4px);
+    margin-inline: 2px;
+    font-size: 11px;
+  }
+
+  .pro-workspace-canvas .estimate-table-row > button {
+    width: 32px;
+    height: 32px;
+  }
+
+  @container (min-width: 650px) {
+    .pro-workspace-canvas .estimate-table-head,
+    .pro-workspace-canvas .estimate-table-row {
+      min-width: 0;
+      grid-template-columns:
+        32px
+        minmax(190px, 1fr)
+        54px
+        74px
+        86px
+        100px
+        34px;
+    }
+  }
+}
+
 @media (min-width: 1181px) {
   .pro-workspace-frame.has-canvas {
     grid-template-columns:
