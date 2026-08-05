@@ -13,6 +13,7 @@ import {
   privateDecrypt,
   randomBytes,
   randomUUID,
+  scryptSync,
   timingSafeEqual
 } from "node:crypto";
 import { spawn } from "node:child_process";
@@ -350,6 +351,27 @@ function createLeadStore(databasePath) {
   }
 
   return { close, createLead, leads, removeLead };
+}
+
+
+function boundedUserString(value, maxLength = 320) { const text = String(value ?? "").trim(); return text ? text.slice(0, maxLength) : ""; }
+function normalizeRegisteredEmail(value) { return boundedUserString(value, 320).toLowerCase(); }
+function validRegisteredEmail(value) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(String(value || "")); }
+function hashRegisteredPassword(password) { const salt = randomBytes(16).toString("base64url"); const hash = scryptSync(String(password), salt, 64).toString("base64url"); return `scrypt.v1.${salt}.${hash}`; }
+function createUserStore(databasePath) {
+  const db = new DatabaseSync(databasePath); db.exec("PRAGMA foreign_keys = ON"); db.exec("PRAGMA journal_mode = WAL"); db.exec("PRAGMA synchronous = NORMAL");
+  db.exec(`CREATE TABLE IF NOT EXISTS registered_users (id TEXT PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, company TEXT NOT NULL, password_hash TEXT NOT NULL, role TEXT NOT NULL, status TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL); CREATE INDEX IF NOT EXISTS idx_registered_users_created ON registered_users(created_at DESC);`);
+  const insertUser = db.prepare(`INSERT INTO registered_users (id, name, email, company, password_hash, role, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  const findByEmailStmt = db.prepare(`SELECT id, name, email, company, role, status, created_at, updated_at FROM registered_users WHERE email = ?`);
+  const listUsersStmt = db.prepare(`SELECT id, name, email, company, role, status, created_at, updated_at FROM registered_users ORDER BY created_at DESC LIMIT ?`);
+  const deleteUserStmt = db.prepare("DELETE FROM registered_users WHERE id = ?");
+  const pub = (row) => row ? ({ id: String(row.id), name: String(row.name), email: String(row.email), company: String(row.company), role: String(row.role), status: String(row.status), createdAt: String(row.created_at), updatedAt: String(row.updated_at) }) : null;
+  function findByEmail(email) { return pub(findByEmailStmt.get(email)); }
+  function registerUser(input) { const now = nowIso(); const user = { id: randomUUID(), name: input.name, email: input.email, company: input.company, passwordHash: hashRegisteredPassword(input.password), role: "owner", status: "active", createdAt: now, updatedAt: now }; insertUser.run(user.id, user.name, user.email, user.company, user.passwordHash, user.role, user.status, user.createdAt, user.updatedAt); return pub({ id: user.id, name: user.name, email: user.email, company: user.company, role: user.role, status: user.status, created_at: user.createdAt, updated_at: user.updatedAt }); }
+  function users(limit = 100) { return listUsersStmt.all(Math.min(500, Math.max(1, Math.floor(asNumber(limit, 100))))).map(pub).filter(Boolean); }
+  function removeUser(id) { return Number(deleteUserStmt.run(id).changes) > 0; }
+  function close() { db.close(); }
+  return { close, findByEmail, registerUser, removeUser, users };
 }
 
 function calculateEstimateTotals(estimate) {
@@ -1000,6 +1022,7 @@ const estimateDatabaseFile = process.env.PROSMET_DATABASE_PATH || join(configRoo
 const estimateStore = createEstimateStore(estimateDatabaseFile);
 const workflowStore = createWorkflowStore(estimateDatabaseFile);
 const leadStore = createLeadStore(estimateDatabaseFile);
+const userStore = createUserStore(estimateDatabaseFile);
 const capabilityManifest = {
   vertical: "construction-estimates-ru",
   workflow: ["brief", "technology-card", "price-research", "estimate", "construction-documents"],
@@ -2574,6 +2597,20 @@ async function handleApi(request, response, url) {
     return sendJson(response, 200, { deleted: true, id: leadId });
   }
 
+
+  if (url.pathname === "/api/register" || url.pathname === "/api/users/register") {
+    if (request.method !== "POST") return sendError(response, 405, "METHOD_NOT_ALLOWED", "Method not allowed");
+    const body = await readJsonBody(request); const name = boundedUserString(body.name, 160); const email = normalizeRegisteredEmail(body.email); const company = boundedUserString(body.company, 220); const password = String(body.password || "");
+    if (!name || !email || !company || !password) return sendError(response, 400, "REGISTRATION_FIELDS_REQUIRED", "Укажите имя, email, компанию и пароль.");
+    if (!validRegisteredEmail(email)) return sendError(response, 400, "REGISTRATION_EMAIL_INVALID", "Укажите корректный email.");
+    if (password.length < 8 || password.length > 160) return sendError(response, 400, "REGISTRATION_PASSWORD_INVALID", "Пароль должен быть не короче 8 символов.");
+    if (userStore.findByEmail(email)) return sendError(response, 409, "REGISTRATION_EMAIL_EXISTS", "Пользователь с таким email уже зарегистрирован.");
+    return sendJson(response, 201, { registered: true, user: userStore.registerUser({ name, email, company, password }) });
+  }
+  if (url.pathname === "/api/users" && request.method === "GET") { if (!(await requireAdmin(request, response))) return; return sendJson(response, 200, { users: userStore.users(Number(url.searchParams.get("limit") || 100)), persistence: "sqlite" }); }
+  const registeredUserRoute = url.pathname.match(/^\/api\/users\/([^/]+)$/);
+  if (registeredUserRoute && request.method === "DELETE") { if (!(await requireAdmin(request, response))) return; const userId = decodeURIComponent(registeredUserRoute[1]); if (!userStore.removeUser(userId)) return sendError(response, 404, "REGISTERED_USER_NOT_FOUND", "Пользователь не найден."); return sendJson(response, 200, { deleted: true, id: userId }); }
+
   if (request.method === "GET" && url.pathname === "/api/estimates") {
     return sendJson(response, 200, {
       estimates: estimateStore.listEstimates("production"),
@@ -3028,6 +3065,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
     estimateStore.close();
     workflowStore.close();
     leadStore.close();
+    userStore.close();
     server.close(() => process.exit(0));
   });
 }

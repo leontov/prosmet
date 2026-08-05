@@ -15,6 +15,10 @@ const required = [
   "apps/web/src/app/App.tsx",
   "apps/web/src/mobile-navigation.css",
   "apps/web/src/agent-integrations.css",
+  "apps/web/src/mobile-brand-polish.css",
+  "apps/web/src/features/estimate/branded-export.ts",
+  "apps/web/src/features/account/UserRegistrationPanel.tsx",
+  "apps/web/e2e/registration-export.spec.ts",
   "apps/web/src/workspace-real.css",
   "apps/web/src/features/agents/agent-api.ts",
   "apps/web/src/features/chat/ChatSurface.tsx",
@@ -271,6 +275,10 @@ if (!landingE2e.includes('page.request.delete(`/api/leads/')) failures.push("lan
 
 
 if (!server.includes("content-encoding") || !server.includes("brotliCompressSync")) failures.push("server:static-compression-missing");
+for (const token of ["CREATE TABLE IF NOT EXISTS registered_users", 'url.pathname === "/api/register"', 'url.pathname === "/api/users"', "hashRegisteredPassword", "scryptSync"]) { if (!server.includes(token)) failures.push(`registration:server-contract-missing:${token}`); }
+if (!webAccount.includes("UserRegistrationPanel")) failures.push("registration:account-ui-missing");
+if (!webEstimate.includes("buildBrandedPrintHtml") || !webEstimate.includes("buildBrandedExcelHtml")) failures.push("exports:branded-pdf-excel-missing");
+
 if (failures.length) {
   console.error(JSON.stringify({ status: "FAIL", failures }, null, 2));
   process.exit(1);

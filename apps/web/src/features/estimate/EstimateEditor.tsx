@@ -15,6 +15,7 @@ import {
   XIcon
 } from "lucide-react";
 import { calculateEstimate, formatMoney, updateEstimateItem } from "../../lib/estimate";
+import { buildBrandedExcelHtml, buildBrandedPrintHtml, downloadHtmlFile, exportFileName } from "./branded-export";
 
 type Props = {
   mobile: boolean;
@@ -381,23 +382,15 @@ function estimateSummary(estimate: Estimate, total: number) {
 }
 
 function downloadExcel(estimate: Estimate, calculation: Calculation) {
-  const rows = estimate.sections.flatMap((section) => [
-    `<tr><th colspan="6">${escapeHtml(section.title)}</th></tr>`,
-    ...section.items.map((item) => `<tr><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.unit)}</td><td>${item.quantity}</td><td>${item.unitPrice}</td><td>${calculation.itemTotals[item.id] ?? 0}</td><td>${escapeHtml(item.category)}</td></tr>`)
-  ]).join("");
-  const html = `<!doctype html><html><head><meta charset="utf-8"></head><body><table><tr><th>Наименование</th><th>Ед.</th><th>Количество</th><th>Цена</th><th>Сумма</th><th>Категория</th></tr>${rows}<tr><th colspan="4">Итого</th><th>${calculation.total}</th><th></th></tr></table></body></html>`;
-  downloadBlob(new Blob(["\ufeff", html], { type: "application/vnd.ms-excel;charset=utf-8" }), `${safeFileName(estimate.title)}-v${estimate.revision}.xls`);
+const html = buildBrandedExcelHtml(estimate);
+  downloadHtmlFile(html, exportFileName(estimate, "xls"), "application/vnd.ms-excel");
 }
 
 function printEstimate(estimate: Estimate, calculation: Calculation) {
-  const popup = window.open("", "_blank", "noopener,noreferrer");
-  if (!popup) throw new Error("Браузер заблокировал окно печати");
-  const rows = estimate.sections.flatMap((section) => [
-    `<tr class="section"><th colspan="5">${escapeHtml(section.title)}</th></tr>`,
-    ...section.items.map((item) => `<tr><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.unit)}</td><td>${item.quantity}</td><td>${item.unitPrice.toLocaleString("ru-RU")} ₽</td><td>${formatMoney(calculation.itemTotals[item.id] ?? 0)}</td></tr>`)
-  ]).join("");
-  popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(estimate.title)}</title><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:32px;color:#171719}h1{font-size:24px;margin:0 0 8px}p{color:#666;margin:4px 0}table{width:100%;border-collapse:collapse;margin-top:24px;font-size:12px}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f5f5f5}.section th{padding-top:14px;background:#eee}.total{margin-top:20px;text-align:right;font-size:20px;font-weight:700}@page{size:A4;margin:16mm}</style></head><body><h1>${escapeHtml(estimate.title)}</h1><p>${escapeHtml(estimate.project)}</p><p>${escapeHtml(estimate.customer)} · ${escapeHtml(estimate.region)}</p><table><thead><tr><th>Наименование</th><th>Ед.</th><th>Количество</th><th>Цена</th><th>Сумма</th></tr></thead><tbody>${rows}</tbody></table><div class="total">Итого: ${formatMoney(calculation.total)}</div><script>window.onload=()=>{window.print();window.onafterprint=()=>window.close();};<\/script></body></html>`);
-  popup.document.close();
+const html = buildBrandedPrintHtml(estimate);
+  const popup = window.open("", "_blank", "noopener,noreferrer,width=920,height=1200");
+  if (popup) { popup.document.open(); popup.document.write(html); popup.document.close(); popup.focus(); window.setTimeout(() => popup.print(), 350); return; }
+  downloadHtmlFile(html, exportFileName(estimate, "pdf").replace(/\.pdf$/, "-print.html"), "text/html");
 }
 
 function downloadBlob(blob: Blob, filename: string) {

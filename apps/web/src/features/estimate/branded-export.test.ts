@@ -1,0 +1,4 @@
+import { describe, expect, it } from "vitest";
+import { buildBrandedExcelHtml, buildBrandedPrintHtml, exportBrand } from "./branded-export";
+const sample = { title: "Механизированная штукатурка стен", project: "Дом", region: "Татарстан", sections: [{ title: "Работы", items: [{ name: "Штукатурка гипсовая", unit: "м²", quantity: 358, unitPrice: 500 }] }], totals: { direct: 179000, overhead: 0, profit: 0, vat: 0, total: 179000 } };
+describe("branded exports", () => { it("creates Cyrillic PDF print HTML", () => { const html = buildBrandedPrintHtml(sample); expect(html).toContain("Механизированная"); expect(html).toContain("ProSmet"); expect(html).toContain(exportBrand.blue); }); it("creates branded Excel HTML", () => { const html = buildBrandedExcelHtml(sample); expect(html).toContain("<table>"); expect(html).toContain(exportBrand.green); }); });

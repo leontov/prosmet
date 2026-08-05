@@ -11,6 +11,7 @@ import {
   UserRoundIcon
 } from "lucide-react";
 import { fetchAccountProfile, fetchSystemStatus, saveAccountProfile } from "../agents/agent-api";
+import { UserRegistrationPanel } from "./UserRegistrationPanel";
 
 const emptyProfile: AccountProfile = {
   name: "",
@@ -114,6 +115,7 @@ export function AccountView({ mobile }: { mobile: boolean }) {
         <div className="status-row"><span><ShieldCheckIcon /> Роль</span><b>super_admin</b></div>
         <div className="status-row"><span>Версия production</span><b className="release-sha">{system?.releaseSha || "недоступно"}</b></div>
       </div>
+      <UserRegistrationPanel />
     </section>
   );
 }
