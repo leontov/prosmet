@@ -7,102 +7,14 @@ on:
     branches: [greenfield/prosmet-v3]
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: prosmet-greenfield-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  apply_landing_production_gates:
-    if: >-
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.head.ref == 'feature/production-landing-v1'
-    runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 70
-    env:
-      CI: "1"
-    steps:
-      - name: Verify trusted runner
-        run: test "${{ runner.name }}" = "prosmet-primary"
-
-      - uses: actions/checkout@v4
-        with:
-          ref: feature/production-landing-v1
-          fetch-depth: 0
-          token: ${{ github.token }}
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.16.0
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-
-      - name: Apply lead persistence, SEO, visual and performance gates
-        run: |
-          set -Eeuo pipefail
-          cp .github/workflows/greenfield-ci.yml /tmp/prosmet-landing-one-shot.yml
-          python3 scripts/apply-landing-production-gates.py
-          python3 scripts/patch-landing-gates-v2.py
-          rm -f scripts/apply-landing-production-gates.py scripts/patch-landing-gates-v2.py
-          git rm -f --ignore-unmatch apps/web/artifacts-*.png Cargo.lock
-          npm install --save-dev --package-lock-only lighthouse@12.8.2 chrome-launcher@1.0.0 --ignore-scripts --legacy-peer-deps --no-audit --no-fund
-
-      - name: Verify complete product, landing and production budgets
-        run: |
-          set -Eeuo pipefail
-          npm ci --workspaces --include-workspace-root --legacy-peer-deps --no-audit --no-fund
-          npm run verify
-          npm run desktop:metadata
-          npx playwright install chromium
-          npm run e2e
-          npm run lighthouse:landing
-
-      - name: Upload one-shot browser and Lighthouse evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: prosmet-landing-gates-${{ github.run_id }}
-          path: |
-            apps/web/playwright-report
-            apps/web/test-results
-            apps/web/artifacts-landing-*.png
-            apps/web/lighthouse
-          if-no-files-found: warn
-          retention-days: 14
-
-      - name: Commit verified landing production source
-        run: |
-          set -Eeuo pipefail
-          cp /tmp/prosmet-landing-one-shot.yml .github/workflows/greenfield-ci.yml
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            package.json \
-            package-lock.json \
-            scripts/greenfield-contract.mjs \
-            scripts/run-landing-lighthouse.mjs \
-            apps/web/server.mjs \
-            apps/web/e2e/landing.spec.ts \
-            apps/web/index.html \
-            apps/web/src/main.tsx \
-            apps/web/src/app/AppEntry.tsx \
-            apps/web/src/landing/LandingPage.tsx \
-            apps/web/src/landing/landing.css \
-            apps/web/public/robots.txt \
-            apps/web/public/sitemap.xml \
-            docs/business/launch-plan-30-days.md
-          git add -A scripts/apply-landing-production-gates.py scripts/patch-landing-gates-v2.py
-          git diff --cached --quiet && exit 0
-          git commit -m "feat(landing): persist leads and enforce production budgets"
-          git push origin HEAD:feature/production-landing-v1
-
   verify:
-    if: >-
-      github.event_name != 'pull_request' ||
-      github.event.pull_request.head.ref != 'feature/production-landing-v1'
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 55
     env:
@@ -135,10 +47,13 @@ jobs:
       - name: Install Chromium
         run: npx playwright install chromium
 
-      - name: Desktop and mobile browser acceptance
+      - name: Desktop, mobile, landing and lifecycle browser acceptance
         run: npm run e2e
 
-      - name: Upload browser evidence
+      - name: Landing Lighthouse and bundle budgets
+        run: npm run lighthouse:landing
+
+      - name: Upload browser and performance evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -147,5 +62,6 @@ jobs:
             apps/web/playwright-report
             apps/web/test-results
             apps/web/artifacts-*.png
+            apps/web/lighthouse
           if-no-files-found: warn
           retention-days: 14
