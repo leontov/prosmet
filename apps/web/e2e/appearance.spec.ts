@@ -1,7 +1,55 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
-async function horizontalOverflow(page: import("@playwright/test").Page) {
+const external = Boolean(process.env.PROSMET_BASE_URL);
+const adminToken = "e2e-admin";
+
+async function horizontalOverflow(page: Page) {
   return page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+}
+
+async function createVisualEstimate(page: Page, suffix: string) {
+  const registryResponse = await page.request.get("/api/agents");
+  expect(registryResponse.ok(), await registryResponse.text()).toBeTruthy();
+  const registry = await registryResponse.json() as { agents?: Array<{ id: string; name: string; active?: boolean }> };
+  let agent = registry.agents?.find((entry) => entry.name === "Fixture HTTP Agent");
+
+  if (!agent) {
+    const created = await page.request.post("/api/agents", {
+      headers: { "x-prosmet-admin-token": adminToken },
+      data: {
+        name: "Fixture HTTP Agent",
+        type: "http-agent",
+        enabled: true,
+        baseUrl: "http://127.0.0.1:4174/run",
+        timeoutMs: 30_000
+      }
+    });
+    expect(created.ok(), await created.text()).toBeTruthy();
+    agent = await created.json() as { id: string; name: string; active?: boolean };
+  }
+
+  if (!agent.active) {
+    const activated = await page.request.post(`/api/agents/${encodeURIComponent(agent.id)}/activate`, {
+      headers: { "x-prosmet-admin-token": adminToken }
+    });
+    expect(activated.ok(), await activated.text()).toBeTruthy();
+  }
+
+  const response = await page.request.post("/api/agent", {
+    data: {
+      requestId: `appearance-${suffix}-${Date.now()}`,
+      messages: [{
+        role: "user",
+        content: "Составь смету на механизированную штукатурку стен 358 м² в Республике Татарстан: работы, материалы и сопутствующие расходы."
+      }]
+    }
+  });
+  expect(response.ok(), await response.text()).toBeTruthy();
+  const result = await response.json() as { artifact?: { id?: string } | null };
+  expect(result.artifact?.id).toBeTruthy();
+  const estimateResponse = await page.request.get(`/api/estimates/${encodeURIComponent(result.artifact!.id!)}`);
+  expect(estimateResponse.ok(), await estimateResponse.text()).toBeTruthy();
+  return estimateResponse.json() as Promise<{ id: string; title: string }>;
 }
 
 test.describe("ProSmet web appearance", () => {
@@ -41,6 +89,7 @@ test.describe("ProSmet web appearance", () => {
     await expect(commandSurface).toBeVisible();
     await commandSurface.getByRole("textbox").fill("документы");
     await expect(commandSurface.getByRole("button", { name: /Открыть документы/ })).toBeVisible();
+    await page.screenshot({ path: "artifacts-web-appearance-desktop-command.png", fullPage: true });
     await page.keyboard.press("Escape");
     await expect(commandSurface).toBeHidden();
 
@@ -48,6 +97,32 @@ test.describe("ProSmet web appearance", () => {
     await expect(themeButton).toBeVisible();
     await themeButton.click();
     await expect.poll(() => page.evaluate(() => document.documentElement.dataset.prosmetTheme)).not.toBe("system");
+  });
+
+  test("desktop estimate and PDF stay inside a resizable right canvas", async ({ page }, testInfo) => {
+    test.skip(external || testInfo.project.name !== "desktop-chromium", "Local desktop canvas evidence runs once");
+    const estimate = await createVisualEstimate(page, "desktop");
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto("/app", { waitUntil: "networkidle" });
+
+    const estimateButton = page.locator(".pro-sidebar-history .history-item").filter({ hasText: estimate.title }).first();
+    await expect(estimateButton).toBeVisible();
+    await estimateButton.click();
+    await expect(page.getByRole("complementary", { name: estimate.title })).toBeVisible();
+    await expect(page.getByTestId("desktop-estimate-editor")).toBeVisible();
+    expect(await horizontalOverflow(page)).toBeLessThanOrEqual(1);
+    await page.screenshot({ path: "artifacts-web-appearance-desktop-estimate-canvas.png", fullPage: true });
+
+    const canvasResizer = page.getByRole("separator", { name: "Изменить ширину правого канваса" });
+    await canvasResizer.focus();
+    await page.keyboard.press("ArrowLeft");
+    await expect(canvasResizer).toBeFocused();
+
+    await page.getByRole("button", { name: "Скачать PDF" }).first().click();
+    const pdfPreview = page.getByRole("region", { name: "Предпросмотр PDF" });
+    await expect(pdfPreview).toBeVisible({ timeout: 20_000 });
+    await expect(pdfPreview.locator("iframe")).toBeVisible();
+    await page.screenshot({ path: "artifacts-web-appearance-desktop-pdf-canvas.png", fullPage: true });
   });
 
   test("mobile web matches the accepted on-demand drawer and single-canvas layout", async ({ page }, testInfo) => {
@@ -66,5 +141,23 @@ test.describe("ProSmet web appearance", () => {
     await drawer.getByRole("button", { name: "Проекты" }).click();
     await expect(page.getByTestId("projects-view")).toBeVisible();
     expect(await horizontalOverflow(page)).toBeLessThanOrEqual(1);
+    await page.screenshot({ path: "artifacts-web-appearance-mobile-projects.png", fullPage: true });
+  });
+
+  test("mobile estimate editor keeps full functionality in one native-feeling canvas", async ({ page }, testInfo) => {
+    test.skip(external || testInfo.project.name !== "mobile-chromium", "Local mobile editor evidence runs once");
+    const estimate = await createVisualEstimate(page, "mobile");
+    await page.goto("/app", { waitUntil: "networkidle" });
+    await page.getByRole("button", { name: "Открыть навигацию" }).click();
+    const drawer = page.getByRole("dialog", { name: "Навигация" });
+    await drawer.getByRole("button", { name: "Сметы" }).click();
+    const estimateButton = page.getByTestId("estimates-view").getByRole("button").filter({ hasText: estimate.title }).first();
+    await expect(estimateButton).toBeVisible();
+    await estimateButton.click();
+    await expect(page.getByTestId("mobile-estimate-editor")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Скачать PDF" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Скачать Excel" })).toBeVisible();
+    expect(await horizontalOverflow(page)).toBeLessThanOrEqual(1);
+    await page.screenshot({ path: "artifacts-web-appearance-mobile-estimate.png", fullPage: true });
   });
 });
