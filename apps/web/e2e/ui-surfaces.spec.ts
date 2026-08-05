@@ -80,6 +80,10 @@ async function openMobileDrawer(page: Page) {
   return drawer;
 }
 
+async function expectMobileTitle(page: Page, title: string) {
+  await expect(page.locator(".pro-mobile-topbar h1")).toHaveText(title);
+}
+
 test("projects, estimates, documents, prices and workflow are polished across desktop and mobile", async ({ page }, testInfo) => {
   test.skip(external, "The visual surface audit uses deterministic local fixture data");
   await configureFixtureAgent(page.request);
@@ -121,30 +125,31 @@ test("projects, estimates, documents, prices and workflow are polished across de
     let drawer = await openMobileDrawer(page);
     await page.screenshot({ path: "artifacts-drawer-mobile-chromium.png", fullPage: true });
     await drawer.getByRole("button", { name: /Проекты/ }).click();
-    await expect(page.getByRole("heading", { name: "Проекты" })).toBeVisible();
+    await expectMobileTitle(page, "Проекты");
     await assertNoPageOverflow(page);
     await page.screenshot({ path: "artifacts-projects-mobile-chromium.png", fullPage: true });
 
     drawer = await openMobileDrawer(page);
     await drawer.getByRole("button", { name: /Сметы/ }).click();
-    await expect(page.getByRole("heading", { name: "Сметы" })).toBeVisible();
+    await expectMobileTitle(page, "Сметы");
     await assertNoPageOverflow(page);
     await page.screenshot({ path: "artifacts-estimates-mobile-chromium.png", fullPage: true });
 
     drawer = await openMobileDrawer(page);
     await drawer.getByRole("button", { name: /Документы/ }).click();
-    await expect(page.getByRole("heading", { name: "Документы" })).toBeVisible();
+    await expectMobileTitle(page, "Документы");
     await assertNoPageOverflow(page);
     await page.screenshot({ path: "artifacts-documents-mobile-chromium.png", fullPage: true });
 
     drawer = await openMobileDrawer(page);
     await drawer.getByRole("button", { name: /^Цены/ }).click();
-    await expect(page.getByRole("heading", { name: "Справочник цен" })).toBeVisible();
+    await expectMobileTitle(page, "Справочник цен");
     await assertNoPageOverflow(page);
     await page.screenshot({ path: "artifacts-prices-mobile-chromium.png", fullPage: true });
 
     drawer = await openMobileDrawer(page);
     await drawer.getByRole("button", { name: /Проекты/ }).click();
+    await expectMobileTitle(page, "Проекты");
     await page.locator(".pro-project-row").first().click();
     await expect(page.getByRole("dialog", { name: "Процесс проекта" })).toBeVisible();
     await page.screenshot({ path: "artifacts-workflow-mobile-chromium.png", fullPage: true });
