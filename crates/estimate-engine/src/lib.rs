@@ -26,7 +26,10 @@ fn round_div(value: i128, divisor: i128) -> i64 {
 }
 
 pub fn calculate(input: &EstimateInput) -> Result<EstimateOutput, &'static str> {
-    if input.overhead_basis_points < 0 || input.profit_basis_points < 0 || input.vat_basis_points < 0 {
+    if input.overhead_basis_points < 0
+        || input.profit_basis_points < 0
+        || input.vat_basis_points < 0
+    {
         return Err("negative percentage");
     }
 
@@ -45,7 +48,10 @@ pub fn calculate(input: &EstimateInput) -> Result<EstimateOutput, &'static str> 
 
     let overhead = round_div(direct as i128 * input.overhead_basis_points as i128, 10_000);
     let profit_base = direct.checked_add(overhead).ok_or("overflow")?;
-    let profit = round_div(profit_base as i128 * input.profit_basis_points as i128, 10_000);
+    let profit = round_div(
+        profit_base as i128 * input.profit_basis_points as i128,
+        10_000,
+    );
     let subtotal = profit_base.checked_add(profit).ok_or("overflow")?;
     let vat = round_div(subtotal as i128 * input.vat_basis_points as i128, 10_000);
     let total = subtotal.checked_add(vat).ok_or("overflow")?;
@@ -67,13 +73,20 @@ mod tests {
     fn calculates_reference_estimate() {
         let result = calculate(&EstimateInput {
             lines: vec![
-                EstimateLine { quantity_milli: 56_000, unit_price_cents: 52_000 },
-                EstimateLine { quantity_milli: 56_000, unit_price_cents: 4_000 },
+                EstimateLine {
+                    quantity_milli: 56_000,
+                    unit_price_cents: 52_000,
+                },
+                EstimateLine {
+                    quantity_milli: 56_000,
+                    unit_price_cents: 4_000,
+                },
             ],
             overhead_basis_points: 500,
             profit_basis_points: 1_000,
             vat_basis_points: 2_000,
-        }).expect("calculation");
+        })
+        .expect("calculation");
 
         assert_eq!(result.direct_cents, 3_136_000);
         assert_eq!(result.overhead_cents, 156_800);
@@ -85,7 +98,10 @@ mod tests {
     #[test]
     fn rejects_negative_values() {
         let result = calculate(&EstimateInput {
-            lines: vec![EstimateLine { quantity_milli: -1, unit_price_cents: 100 }],
+            lines: vec![EstimateLine {
+                quantity_milli: -1,
+                unit_price_cents: 100,
+            }],
             overhead_basis_points: 0,
             profit_basis_points: 0,
             vat_basis_points: 0,
