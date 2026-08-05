@@ -1,0 +1,460 @@
+name: ProSmet Home Exact Main Deploy
+
+on:
+  push:
+    branches: [ops/home-exact-main-deploy]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: prosmet-home-exact-main-deploy
+  cancel-in-progress: false
+
+env:
+  CI: "true"
+  EXPECTED_RELEASE_SHA: aee966c356377be3d2e676679912bd705907c1ae
+  PRODUCTION_ORIGIN: https://kolibriai.online
+
+jobs:
+  announce:
+    name: Register Home deployment run
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Publish deployment start marker
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea
+        env:
+          RELEASE_SHA: ${{ env.EXPECTED_RELEASE_SHA }}
+        with:
+          script: |
+            const body = [
+              "## 🚀 HOME → PRIMARY EXACT-MAIN DEPLOY STARTED",
+              "",
+              `- Release SHA: \`${process.env.RELEASE_SHA}\``,
+              `- Workflow run: https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              `- Public service: https://kolibriai.online`,
+              "",
+              "The trusted Home runner will build the immutable browser release, transfer it over the existing Home-to-Primary SSH certificate route, switch port 3200 with rollback protection, reconcile the canonical HTTPS edge, and hand off to external browser acceptance."
+            ].join("\n");
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 53,
+              body
+            });
+
+  deploy:
+    name: Build on Home and activate on Primary
+    needs: announce
+    runs-on: [self-hosted, home]
+    timeout-minutes: 90
+    env:
+      PRIMARY_WG_IP: 10.99.0.10
+      PRIMARY_PUBLIC_IP: 78.17.4.108
+    steps:
+      - name: Verify trusted Home runner
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          labels="${{ join(runner.labels, ',') }}"
+          printf 'runner=%s\nhost=%s\nuser=%s\nlabels=%s\n' \
+            "${RUNNER_NAME:-unknown}" "$(hostname -s)" "$(id -un)" "$labels"
+          printf '%s' "$labels" | grep -Eq '(^|,)home(,|$)'
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.EXPECTED_RELEASE_SHA }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.16.0
+
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+        with:
+          toolchain: 1.97.1
+          components: rustfmt
+
+      - name: Verify and package immutable exact-main browser release
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_RELEASE_SHA"
+          npm ci --workspaces --include-workspace-root --legacy-peer-deps --no-audit --no-fund
+          npm run verify
+          npm run desktop:metadata
+
+          PACKAGE_ROOT="$RUNNER_TEMP/prosmet-release-$EXPECTED_RELEASE_SHA"
+          ARCHIVE="$RUNNER_TEMP/prosmet-release-$EXPECTED_RELEASE_SHA.tgz"
+          rm -rf "$PACKAGE_ROOT" "$ARCHIVE"
+          mkdir -p "$PACKAGE_ROOT"
+          cp -a apps/web/dist "$PACKAGE_ROOT/dist"
+          cp apps/web/server.mjs "$PACKAGE_ROOT/server.mjs"
+          cp deployment/ensure-public-edge.sh "$PACKAGE_ROOT/ensure-public-edge.sh"
+          chmod 0755 "$PACKAGE_ROOT/ensure-public-edge.sh"
+          printf '%s\n' "$EXPECTED_RELEASE_SHA" > "$PACKAGE_ROOT/SHA"
+          cat > "$PACKAGE_ROOT/release.json" <<EOF
+          {"releaseSha":"$EXPECTED_RELEASE_SHA","repository":"${{ github.repository }}","runId":"${{ github.run_id }}","builder":"home","immutable":true,"webVisualRelease":true}
+          EOF
+          test -s "$PACKAGE_ROOT/dist/index.html"
+          grep -Fq '<div id="root"></div>' "$PACKAGE_ROOT/dist/index.html"
+          tar -C "$PACKAGE_ROOT" -czf "$ARCHIVE" .
+          test -s "$ARCHIVE"
+          sha256sum "$ARCHIVE" | tee release-archive.sha256
+          printf 'RELEASE_ARCHIVE=%s\n' "$ARCHIVE" >> "$GITHUB_ENV"
+
+      - name: Select trusted Home-to-Primary root SSH route
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          install -d -m 0700 "$HOME/.ssh"
+          targets=(
+            "root@${PRIMARY_WG_IP}"
+            "root@${PRIMARY_PUBLIC_IP}"
+            "root@primary"
+            "primary"
+          )
+          selected=""
+          for target in "${targets[@]}"; do
+            echo "Trying trusted route: $target"
+            if ssh \
+              -o BatchMode=yes \
+              -o ConnectTimeout=8 \
+              -o ConnectionAttempts=1 \
+              -o ServerAliveInterval=5 \
+              -o ServerAliveCountMax=2 \
+              -o StrictHostKeyChecking=accept-new \
+              "$target" \
+              'set -Eeuo pipefail; test "$(id -u)" = 0; test -d /home/actions-runner; command -v bash >/dev/null; printf "remote_user=%s\nremote_host=%s\n" "$(id -un)" "$(hostname -s)"'; then
+              selected="$target"
+              break
+            fi
+          done
+          if [ -z "$selected" ]; then
+            echo "No trusted Home-to-Primary root SSH certificate route succeeded." >&2
+            exit 1
+          fi
+          printf 'REMOTE_TARGET=%s\n' "$selected" >> "$GITHUB_ENV"
+          printf 'selected_route=%s\n' "$selected" | tee home-primary-route.txt
+
+      - name: Transfer immutable release to Primary
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          REMOTE_ARCHIVE="/tmp/prosmet-${EXPECTED_RELEASE_SHA}-${GITHUB_RUN_ID}.tgz"
+          printf 'REMOTE_ARCHIVE=%s\n' "$REMOTE_ARCHIVE" >> "$GITHUB_ENV"
+          scp \
+            -o BatchMode=yes \
+            -o ConnectTimeout=15 \
+            -o ServerAliveInterval=5 \
+            -o ServerAliveCountMax=2 \
+            -o StrictHostKeyChecking=accept-new \
+            "$RELEASE_ARCHIVE" "$REMOTE_TARGET:$REMOTE_ARCHIVE"
+
+      - name: Preflight, switch, verify and rollback safely on Primary
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          ssh \
+            -o BatchMode=yes \
+            -o ConnectTimeout=20 \
+            -o ServerAliveInterval=5 \
+            -o ServerAliveCountMax=3 \
+            -o StrictHostKeyChecking=accept-new \
+            "$REMOTE_TARGET" \
+            "RELEASE_SHA='$EXPECTED_RELEASE_SHA' RUN_ID='$GITHUB_RUN_ID' REMOTE_ARCHIVE='$REMOTE_ARCHIVE' bash -s" <<'REMOTE'
+          set -Eeuo pipefail
+
+          SERVICE_USER=actions-runner
+          SERVICE_HOME=/home/actions-runner
+          RELEASE_ROOT="$SERVICE_HOME/.prosmet-greenfield"
+          RELEASE_DIR="$RELEASE_ROOT/releases/${RELEASE_SHA}-home-${RUN_ID}"
+          CONFIG_ROOT="$RELEASE_ROOT/config"
+          CURRENT_LINK="$RELEASE_ROOT/current"
+          PID_FILE="$RELEASE_ROOT/production.pid"
+          LOG_FILE="$RELEASE_ROOT/production.log"
+          CANDIDATE_LOG="$RELEASE_ROOT/candidate-${RUN_ID}.log"
+
+          test "$(id -u)" = 0
+          id "$SERVICE_USER" >/dev/null
+          mkdir -p "$RELEASE_ROOT/releases" "$CONFIG_ROOT"
+          chmod 700 "$RELEASE_ROOT" "$CONFIG_ROOT"
+
+          OLD_RELEASE="$(readlink -f "$CURRENT_LINK" 2>/dev/null || true)"
+          OLD_SHA=""
+          if [ -n "$OLD_RELEASE" ] && [ -s "$OLD_RELEASE/SHA" ]; then
+            OLD_SHA="$(cat "$OLD_RELEASE/SHA")"
+          fi
+
+          CURRENT_PID=""
+          if [ -s "$PID_FILE" ]; then
+            candidate="$(cat "$PID_FILE" 2>/dev/null || true)"
+            if printf '%s' "$candidate" | grep -Eq '^[0-9]+$' && kill -0 "$candidate" 2>/dev/null; then
+              CURRENT_PID="$candidate"
+            fi
+          fi
+          if [ -z "$CURRENT_PID" ] && command -v lsof >/dev/null 2>&1; then
+            CURRENT_PID="$(lsof -tiTCP:3200 -sTCP:LISTEN 2>/dev/null | head -n 1 || true)"
+          fi
+
+          NODE_BIN=""
+          if [ -n "$CURRENT_PID" ] && [ -e "/proc/$CURRENT_PID/exe" ]; then
+            NODE_BIN="$(readlink -f "/proc/$CURRENT_PID/exe" || true)"
+          fi
+          if [ -z "$NODE_BIN" ]; then NODE_BIN="$(command -v node || true)"; fi
+          if [ -z "$NODE_BIN" ] && [ -x /usr/bin/node ]; then NODE_BIN=/usr/bin/node; fi
+          test -x "$NODE_BIN"
+
+          rm -rf "$RELEASE_DIR"
+          mkdir -p "$RELEASE_DIR"
+          tar -xzf "$REMOTE_ARCHIVE" -C "$RELEASE_DIR"
+          rm -f "$REMOTE_ARCHIVE"
+          test "$(cat "$RELEASE_DIR/SHA")" = "$RELEASE_SHA"
+          test -s "$RELEASE_DIR/dist/index.html"
+          grep -Fq '<div id="root"></div>' "$RELEASE_DIR/dist/index.html"
+          chown -R "$SERVICE_USER:$SERVICE_USER" "$RELEASE_DIR" "$CONFIG_ROOT"
+
+          start_server() {
+            local release_dir="$1"
+            local release_sha="$2"
+            local port="$3"
+            local log_file="$4"
+            local pid_file="$5"
+            runuser -u "$SERVICE_USER" -- sh -c \
+              "cd '$release_dir' && nohup env -u RUNNER_TRACKING_ID HOME='$SERVICE_HOME' PORT='$port' PROSMET_RELEASE_SHA='$release_sha' PROSMET_CONFIG_DIR='$CONFIG_ROOT' PROSMET_PUBLIC_AGENT_ACCESS=true '$NODE_BIN' server.mjs </dev/null >'$log_file' 2>&1 & echo \$! >'$pid_file'"
+          }
+
+          wait_local() {
+            local port="$1"
+            local sha="$2"
+            local attempts="${3:-60}"
+            for attempt in $(seq 1 "$attempts"); do
+              root_status="$(curl --silent --show-error --output "/tmp/prosmet-root-${port}.html" --write-out '%{http_code}' "http://127.0.0.1:${port}/" || true)"
+              health_status="$(curl --silent --show-error --output "/tmp/prosmet-health-${port}.json" --write-out '%{http_code}' "http://127.0.0.1:${port}/api/health" || true)"
+              if [ "$root_status" = 200 ] && [ "$health_status" = 200 ] \
+                && grep -Fq '<div id="root"></div>' "/tmp/prosmet-root-${port}.html" \
+                && grep -q "$sha" "/tmp/prosmet-health-${port}.json" \
+                && grep -q '"ui":"greenfield"' "/tmp/prosmet-health-${port}.json"; then
+                return 0
+              fi
+              sleep 1
+            done
+            return 1
+          }
+
+          CANDIDATE_PID_FILE="$RELEASE_ROOT/candidate-${RUN_ID}.pid"
+          rm -f "$CANDIDATE_PID_FILE" "$CANDIDATE_LOG"
+          start_server "$RELEASE_DIR" "$RELEASE_SHA" 3201 "$CANDIDATE_LOG" "$CANDIDATE_PID_FILE"
+          CANDIDATE_PID="$(cat "$CANDIDATE_PID_FILE")"
+          if ! wait_local 3201 "$RELEASE_SHA" 60; then
+            cat "$CANDIDATE_LOG" >&2 || true
+            kill "$CANDIDATE_PID" 2>/dev/null || true
+            exit 1
+          fi
+          kill "$CANDIDATE_PID" 2>/dev/null || true
+          for attempt in $(seq 1 20); do
+            kill -0 "$CANDIDATE_PID" 2>/dev/null || break
+            sleep 0.25
+          done
+          kill -9 "$CANDIDATE_PID" 2>/dev/null || true
+
+          if [ -n "$CURRENT_PID" ]; then
+            kill "$CURRENT_PID" 2>/dev/null || true
+            for attempt in $(seq 1 30); do
+              kill -0 "$CURRENT_PID" 2>/dev/null || break
+              sleep 0.25
+            done
+            kill -9 "$CURRENT_PID" 2>/dev/null || true
+          fi
+          if command -v fuser >/dev/null 2>&1; then fuser -k 3200/tcp || true; fi
+
+          rm -f "$PID_FILE"
+          start_server "$RELEASE_DIR" "$RELEASE_SHA" 3200 "$LOG_FILE" "$PID_FILE"
+          NEW_PID="$(cat "$PID_FILE")"
+
+          rollback() {
+            echo "New release failed local acceptance; attempting rollback." >&2
+            kill "$NEW_PID" 2>/dev/null || true
+            if [ -n "$OLD_RELEASE" ] && [ -s "$OLD_RELEASE/server.mjs" ] && [ -n "$OLD_SHA" ]; then
+              start_server "$OLD_RELEASE" "$OLD_SHA" 3200 "$RELEASE_ROOT/rollback.log" "$PID_FILE"
+              if wait_local 3200 "$OLD_SHA" 60; then
+                ln -sfn "$OLD_RELEASE" "$RELEASE_ROOT/current.rollback"
+                mv -Tf "$RELEASE_ROOT/current.rollback" "$CURRENT_LINK"
+                echo "Rollback restored release $OLD_SHA" >&2
+              else
+                cat "$RELEASE_ROOT/rollback.log" >&2 || true
+              fi
+            fi
+          }
+
+          if ! wait_local 3200 "$RELEASE_SHA" 90; then
+            cat "$LOG_FILE" >&2 || true
+            rollback
+            exit 1
+          fi
+
+          if tr '\0' '\n' < "/proc/$NEW_PID/environ" | grep -q '^RUNNER_TRACKING_ID='; then
+            echo "Production process inherited runner tracking state." >&2
+            rollback
+            exit 1
+          fi
+
+          ln -sfn "$RELEASE_DIR" "$RELEASE_ROOT/current.next"
+          mv -Tf "$RELEASE_ROOT/current.next" "$CURRENT_LINK"
+
+          runuser -u "$SERVICE_USER" -- env \
+            HOME="$SERVICE_HOME" \
+            PROSMET_EXPECTED_RELEASE_SHA="$RELEASE_SHA" \
+            bash "$RELEASE_DIR/ensure-public-edge.sh" kolibriai.online 3200
+
+          for attempt in $(seq 1 90); do
+            public_root_status="$(curl --silent --show-error --output /tmp/prosmet-public-root.html --write-out '%{http_code}' https://kolibriai.online/ || true)"
+            public_health_status="$(curl --silent --show-error --output /tmp/prosmet-public-health.json --write-out '%{http_code}' https://kolibriai.online/api/health || true)"
+            if [ "$public_root_status" = 200 ] && [ "$public_health_status" = 200 ] \
+              && grep -Fq '<div id="root"></div>' /tmp/prosmet-public-root.html \
+              && grep -q "$RELEASE_SHA" /tmp/prosmet-public-health.json; then
+              cat /tmp/prosmet-public-health.json
+              exit 0
+            fi
+            sleep 2
+          done
+
+          cat "$SERVICE_HOME/.prosmet/caddy/caddy.log" >&2 2>/dev/null || true
+          cat /tmp/prosmet-public-health.json >&2 2>/dev/null || true
+          exit 1
+          REMOTE
+
+      - name: Verify public exact SHA from Home
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          curl --fail --silent --show-error --retry 8 --retry-delay 3 --retry-all-errors \
+            "$PRODUCTION_ORIGIN/" > home-public-root.html
+          grep -Fq '<div id="root"></div>' home-public-root.html
+          curl --fail --silent --show-error --retry 8 --retry-delay 3 --retry-all-errors \
+            "$PRODUCTION_ORIGIN/api/health" > home-public-health.json
+          grep -q "$EXPECTED_RELEASE_SHA" home-public-health.json
+          grep -q '"ui":"greenfield"' home-public-health.json
+
+      - name: Upload Home deployment evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: prosmet-home-deploy-${{ github.run_id }}
+          path: |
+            release-archive.sha256
+            home-primary-route.txt
+            home-public-root.html
+            home-public-health.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  external:
+    name: Verify exact release externally
+    needs: deploy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.EXPECTED_RELEASE_SHA }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.16.0
+
+      - name: Verify every resolved IPv4 and exact health SHA
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          getent ahostsv4 kolibriai.online | tee external-dns-v4.txt
+          mapfile -t ADDRESSES < <(awk '{print $1}' external-dns-v4.txt | sort -u)
+          test "${#ADDRESSES[@]}" -gt 0
+          for address in "${ADDRESSES[@]}"; do
+            safe="${address//./-}"
+            curl --fail --silent --show-error --retry 8 --retry-delay 3 --retry-all-errors \
+              --resolve "kolibriai.online:443:${address}" \
+              "$PRODUCTION_ORIGIN/" > "external-root-${safe}.html"
+            grep -Fq '<div id="root"></div>' "external-root-${safe}.html"
+            curl --fail --silent --show-error --retry 8 --retry-delay 3 --retry-all-errors \
+              --resolve "kolibriai.online:443:${address}" \
+              "$PRODUCTION_ORIGIN/api/health" > "external-health-${safe}.json"
+            grep -q "$EXPECTED_RELEASE_SHA" "external-health-${safe}.json"
+            grep -q '"ui":"greenfield"' "external-health-${safe}.json"
+          done
+
+      - name: Run live desktop and mobile Chromium acceptance
+        env:
+          PROSMET_BASE_URL: https://kolibriai.online
+          PROSMET_CRITICAL_PATH: "false"
+        run: |
+          set -Eeuo pipefail
+          npm ci --workspaces --include-workspace-root --legacy-peer-deps --no-audit --no-fund
+          npx playwright install --with-deps chromium
+          npm run e2e
+
+      - name: Delayed persistence verification
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sleep 30
+          curl --fail --silent --show-error --retry 8 --retry-delay 3 --retry-all-errors \
+            "$PRODUCTION_ORIGIN/api/health" > external-health-delayed.json
+          grep -q "$EXPECTED_RELEASE_SHA" external-health-delayed.json
+          grep -q '"ui":"greenfield"' external-health-delayed.json
+          curl --fail --silent --show-error "$PRODUCTION_ORIGIN/" > external-root-delayed.html
+          grep -Fq '<div id="root"></div>' external-root-delayed.html
+
+      - name: Upload external deployment evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: prosmet-home-deploy-external-${{ github.run_id }}
+          path: |
+            external-dns-v4.txt
+            external-root-*.html
+            external-health-*.json
+            apps/web/playwright-report
+            apps/web/test-results
+            apps/web/artifacts-*.png
+          if-no-files-found: warn
+          retention-days: 30
+
+  report:
+    name: Publish immutable Home deployment result
+    if: always()
+    needs: [announce, deploy, external]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Write deployment result to production ledger
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea
+        env:
+          RELEASE_SHA: ${{ env.EXPECTED_RELEASE_SHA }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+          EXTERNAL_RESULT: ${{ needs.external.result }}
+        with:
+          script: |
+            const passed = process.env.DEPLOY_RESULT === "success" && process.env.EXTERNAL_RESULT === "success";
+            const body = [
+              `## ${passed ? "✅ HOME → PRIMARY PRODUCTION PASS" : "❌ HOME → PRIMARY PRODUCTION FAIL"}`,
+              "",
+              `- Release SHA: \`${process.env.RELEASE_SHA}\``,
+              `- Workflow run: https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              `- Home build and Primary activation: \`${process.env.DEPLOY_RESULT}\``,
+              `- External IPv4/browser/persistence acceptance: \`${process.env.EXTERNAL_RESULT}\``,
+              `- Public service: https://kolibriai.online`,
+              `- Health endpoint: https://kolibriai.online/api/health`,
+              "",
+              passed
+                ? "The immutable exact-main web release was built on Home, transferred over the trusted Home-to-Primary route, activated on port 3200 with rollback protection, exposed through the canonical HTTPS edge, verified on every public IPv4, accepted in desktop/mobile Chromium, and confirmed after a delayed persistence probe."
+                : "The Home-to-Primary release was not accepted. Inspect the linked run; this SHA must not be treated as deployed."
+            ].join("\n");
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 53,
+              body
+            });
