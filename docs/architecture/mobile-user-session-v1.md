@@ -23,6 +23,10 @@ Passwords remain only in transient component state, are never written to SecureS
 
 `apps/mobile/src/domain/user-session.ts` validates critical auth responses before they enter application state. An authenticated response must include a complete user ID, name, email, company, role, status and timestamps.
 
+## Verification boundary
+
+The canonical source tree intentionally excludes generated browser screenshots, Lighthouse reports and Cargo build output. Those files remain CI artifacts rather than version-controlled application source. The final pull-request head must pass the hosted Greenfield quality workflow after this cleanup.
+
 ## Current boundary
 
 This slice establishes registration, login, restore and logout. It does not claim completion of typed navigation, multi-tenant estimate ownership, offline cache, native file export/share or Maestro device E2E; those remain separate milestones in issue #71.
