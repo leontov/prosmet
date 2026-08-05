@@ -15,13 +15,24 @@ type PdfMake = {
   vfs?: Record<string, string>;
   createPdf: (definition: unknown) => { download: (filename: string) => void };
 };
-type PdfFonts = { vfs?: Record<string, string>; pdfMake?: { vfs?: Record<string, string> } };
+type PdfFonts = {
+  vfs?: Record<string, string>;
+  pdfMake?: { vfs?: Record<string, string> };
+  [filename: string]: unknown;
+};
 
 const numeric = (value: unknown) => Number.isFinite(Number(value)) ? Number(value) : 0;
 const money = (value: number) => `${Math.round(value).toLocaleString("ru-RU")} ₽`;
 
 function normalized(value: unknown): EstimateLike {
   return value && typeof value === "object" ? value as EstimateLike : {};
+}
+
+function directFontVfs(value: PdfFonts): Record<string, string> | undefined {
+  const entries = Object.entries(value).filter(
+    ([name, content]) => name.endsWith(".ttf") && typeof content === "string"
+  ) as Array<[string, string]>;
+  return entries.length ? Object.fromEntries(entries) : undefined;
 }
 
 export function buildBrandedPdfDefinition(value: unknown) {
@@ -146,7 +157,7 @@ export async function downloadBrandedPdf(value: unknown) {
   ]);
   const pdfMake = (pdfMakeModule.default ?? pdfMakeModule) as unknown as PdfMake;
   const fonts = (fontsModule.default ?? fontsModule) as unknown as PdfFonts;
-  const vfs = fonts.pdfMake?.vfs ?? fonts.vfs ?? pdfMake.vfs;
+  const vfs = fonts.pdfMake?.vfs ?? fonts.vfs ?? directFontVfs(fonts) ?? pdfMake.vfs;
   if (!vfs) throw new Error("Не удалось загрузить шрифты PDF.");
   pdfMake.vfs = vfs;
   pdfMake.createPdf(buildBrandedPdfDefinition(value)).download(exportFileName(value, "pdf"));
