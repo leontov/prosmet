@@ -9,7 +9,7 @@ import {
   View
 } from "react-native";
 import type { AccountProfile, SystemStatus } from "@prosmet/contracts";
-import { mobileApiFetch } from "../agent-session";
+import { mobileAdminApiFetch, mobileApiFetch } from "../agent-session";
 import { theme } from "../theme";
 
 const emptyProfile: AccountProfile = {
@@ -40,7 +40,7 @@ export function AccountScreen() {
     try {
       const [systemResponse, accountResponse] = await Promise.all([
         mobileApiFetch("/api/system"),
-        mobileApiFetch("/api/account")
+        mobileAdminApiFetch("/api/account")
       ]);
       setSystem(await readJson<SystemStatus>(systemResponse));
       setProfile(await readJson<AccountProfile>(accountResponse));
@@ -61,7 +61,7 @@ export function AccountScreen() {
     setBusy(true);
     setMessage(null);
     try {
-      const response = await mobileApiFetch("/api/account", {
+      const response = await mobileAdminApiFetch("/api/account", {
         method: "PUT",
         body: JSON.stringify({
           name: profile.name,

@@ -20,6 +20,7 @@ import { theme } from "../theme";
 import {
   getMobileAdminToken,
   getMobileApiBaseUrl,
+  mobileAdminApiFetch,
   mobileApiFetch,
   setMobileAdminToken,
   setMobileApiBaseUrl
@@ -59,7 +60,11 @@ export function SettingsScreen() {
     setBusy("load");
     setError(null);
     try {
-      setRegistry(await json<AgentRegistryResponse>(await mobileApiFetch("/api/agents")));
+      const storedAdminToken = await getMobileAdminToken();
+      const response = storedAdminToken
+        ? await mobileAdminApiFetch("/api/agents")
+        : await mobileApiFetch("/api/agents");
+      setRegistry(await json<AgentRegistryResponse>(response));
     } catch (cause) {
       setRegistry(null);
       setError(cause instanceof Error ? cause.message : "Не удалось загрузить агентов");
@@ -109,7 +114,7 @@ export function SettingsScreen() {
         timeoutMs: 120000,
         secret: secret.trim() || null
       };
-      await json<AgentDescriptor>(await mobileApiFetch("/api/agents", { method: "POST", body: JSON.stringify(payload) }));
+      await json<AgentDescriptor>(await mobileAdminApiFetch("/api/agents", { method: "POST", body: JSON.stringify(payload) }));
       setName(""); setEndpoint(""); setModel(""); setSecret("");
       await load();
     } catch (cause) {
@@ -123,7 +128,7 @@ export function SettingsScreen() {
     setBusy(`test:${agent.id}`);
     setError(null);
     try {
-      const result = await json<AgentTestResult>(await mobileApiFetch(`/api/agents/${encodeURIComponent(agent.id)}/test`, { method: "POST" }));
+      const result = await json<AgentTestResult>(await mobileAdminApiFetch(`/api/agents/${encodeURIComponent(agent.id)}/test`, { method: "POST" }));
       setResults((current) => ({ ...current, [agent.id]: result }));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Проверка агента завершилась ошибкой");
@@ -136,7 +141,7 @@ export function SettingsScreen() {
     setBusy(`activate:${agent.id}`);
     setError(null);
     try {
-      await json<AgentDescriptor>(await mobileApiFetch(`/api/agents/${encodeURIComponent(agent.id)}/activate`, { method: "POST" }));
+      await json<AgentDescriptor>(await mobileAdminApiFetch(`/api/agents/${encodeURIComponent(agent.id)}/activate`, { method: "POST" }));
       await load();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Не удалось активировать агента");
@@ -153,7 +158,7 @@ export function SettingsScreen() {
       onPress: () => void (async () => {
         setBusy(`delete:${agent.id}`);
         try {
-          await json<{ deleted: true }>(await mobileApiFetch(`/api/agents/${encodeURIComponent(agent.id)}`, { method: "DELETE" }));
+          await json<{ deleted: true }>(await mobileAdminApiFetch(`/api/agents/${encodeURIComponent(agent.id)}`, { method: "DELETE" }));
           await load();
         } catch (cause) {
           setError(cause instanceof Error ? cause.message : "Не удалось удалить агента");
