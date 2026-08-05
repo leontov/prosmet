@@ -146,7 +146,8 @@ export async function downloadBrandedPdf(value: unknown) {
   ]);
   const pdfMake = (pdfMakeModule.default ?? pdfMakeModule) as unknown as PdfMake;
   const fonts = (fontsModule.default ?? fontsModule) as unknown as PdfFonts;
-  pdfMake.vfs = fonts.pdfMake?.vfs ?? fonts.vfs ?? pdfMake.vfs;
-  if (!pdfMake.vfs) throw new Error("Не удалось загрузить шрифты PDF.");
+  const vfs = fonts.pdfMake?.vfs ?? fonts.vfs ?? pdfMake.vfs;
+  if (!vfs) throw new Error("Не удалось загрузить шрифты PDF.");
+  pdfMake.vfs = vfs;
   pdfMake.createPdf(buildBrandedPdfDefinition(value)).download(exportFileName(value, "pdf"));
 }
