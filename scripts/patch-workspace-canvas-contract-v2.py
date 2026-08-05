@@ -16,6 +16,7 @@ replace_once(
 const webRuntime = await read("apps/web/src/runtime/RuntimeProvider.tsx");''',
     '''const webApp = await read("apps/web/src/app/App.tsx");
 const professionalApp = await read("apps/web/src/app/ProfessionalApp.tsx");
+const workspaceCanvas = await read("apps/web/src/features/workspace/WorkspaceCanvasFrame.tsx");
 const brandedXlsx = await read("apps/web/src/features/estimate/branded-xlsx.ts");
 const webRuntime = await read("apps/web/src/runtime/RuntimeProvider.tsx");''',
 )
@@ -28,6 +29,15 @@ replace_once(
     contract,
     '''if (!webEstimate.includes("downloadBrandedPdf") || !webEstimate.includes("buildBrandedExcelHtml")) failures.push("exports:branded-pdf-excel-missing");''',
     '''if (!webEstimate.includes("createBrandedPdfBlob") || !webEstimate.includes("downloadBrandedXlsx")) failures.push("exports:branded-pdf-excel-missing");''',
+)
+replace_once(
+    contract,
+    '''for (const token of ["WorkspaceCanvasFrame", "canvasFullscreen", "prosmet.workspace.sidebar-width.v1"]) {
+  if (!professionalApp.includes(token)) failures.push(`workspace:canvas-contract-missing:${token}`);
+}''',
+    '''for (const token of ["WorkspaceCanvasFrame", "canvasFullscreen", "prosmet.workspace.sidebar-width.v1"]) {
+  if (![professionalApp, workspaceCanvas].some((source) => source.includes(token))) failures.push(`workspace:canvas-contract-missing:${token}`);
+}''',
 )
 replace_once(
     contract,
