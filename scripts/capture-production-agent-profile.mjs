@@ -5,10 +5,19 @@ const baseUrl = String(process.env.PROSMET_BASE_URL || "").replace(/\/+$/, "");
 const adminToken = String(process.env.PROSMET_E2E_ADMIN_TOKEN || "").trim();
 const evidenceDirectory = process.env.PROSMET_EVIDENCE_DIR;
 const requestedMinimumTimeout = Number(process.env.PROSMET_AGENT_MIN_TIMEOUT_MS || 0);
+const configuredAttempts = Number(process.env.PROSMET_AGENT_PREFLIGHT_ATTEMPTS || 6);
+const preflightAttempts = Math.min(10, Math.max(1, Math.floor(configuredAttempts || 6)));
 
 if (!baseUrl || !adminToken || !evidenceDirectory) {
   throw new Error("PROSMET_BASE_URL, PROSMET_E2E_ADMIN_TOKEN and PROSMET_EVIDENCE_DIR are required");
 }
+
+const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+const retryableStatus = (status) => status === 408 || status === 425 || status === 429 || status >= 500;
+const errorSummary = (body) => {
+  const message = body?.error?.message || body?.message || null;
+  return typeof message === "string" ? message.slice(0, 500) : null;
+};
 
 const response = await fetch(`${baseUrl}/api/agents`, {
   headers: { "x-prosmet-admin-token": adminToken }
@@ -65,18 +74,65 @@ if (requestedMinimumTimeout > 0 && Number(active.timeoutMs) < requestedMinimumTi
   await saveProfile();
 }
 
-const preflightStartedAt = Date.now();
-const preflight = await fetch(`${baseUrl}/api/agents/${encodeURIComponent(active.id)}/test`, {
-  method: "POST",
-  headers: { "x-prosmet-admin-token": adminToken }
-});
-const preflightBody = await preflight.json().catch(() => null);
+const attempts = [];
+let successfulPreflight = null;
+
+for (let attempt = 1; attempt <= preflightAttempts; attempt += 1) {
+  const startedAt = Date.now();
+  try {
+    const preflight = await fetch(`${baseUrl}/api/agents/${encodeURIComponent(active.id)}/test`, {
+      method: "POST",
+      headers: { "x-prosmet-admin-token": adminToken }
+    });
+    const body = await preflight.json().catch(() => null);
+    const result = {
+      attempt,
+      ok: preflight.ok,
+      status: preflight.status,
+      latencyMs: Date.now() - startedAt,
+      errorCode: preflight.ok ? null : body?.error?.code || null,
+      errorMessage: preflight.ok ? null : errorSummary(body)
+    };
+    attempts.push(result);
+
+    if (preflight.ok) {
+      successfulPreflight = result;
+      break;
+    }
+    if (!retryableStatus(preflight.status)) break;
+  } catch (error) {
+    attempts.push({
+      attempt,
+      ok: false,
+      status: null,
+      latencyMs: Date.now() - startedAt,
+      errorCode: "NETWORK_ERROR",
+      errorMessage: error instanceof Error ? error.message.slice(0, 500) : "Unknown network error"
+    });
+  }
+
+  if (attempt < preflightAttempts) {
+    const delayMs = Math.min(30_000, 1_500 * 2 ** (attempt - 1));
+    await sleep(delayMs);
+  }
+}
+
+const lastAttempt = attempts.at(-1) || null;
 profile.preflight = {
-  ok: preflight.ok,
-  latencyMs: Date.now() - preflightStartedAt,
-  errorCode: preflight.ok ? null : preflightBody?.error?.code || null
+  ok: Boolean(successfulPreflight),
+  attempts,
+  attemptCount: attempts.length,
+  latencyMs: successfulPreflight?.latencyMs ?? lastAttempt?.latencyMs ?? null,
+  errorCode: successfulPreflight ? null : lastAttempt?.errorCode || null,
+  finalStatus: successfulPreflight?.status ?? lastAttempt?.status ?? null
 };
 await saveProfile();
-if (!preflight.ok) {
-  throw new Error(`Active production agent preflight failed: HTTP ${preflight.status}`);
+
+if (!successfulPreflight) {
+  const detail = [
+    lastAttempt?.status ? `HTTP ${lastAttempt.status}` : "network failure",
+    lastAttempt?.errorCode,
+    lastAttempt?.errorMessage
+  ].filter(Boolean).join(" · ");
+  throw new Error(`Active production agent preflight failed after ${attempts.length} attempt(s): ${detail}`);
 }
