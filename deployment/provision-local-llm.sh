@@ -33,6 +33,8 @@ mkdir -p "$STATE_ROOT"
 chmod 0700 "$STATE_ROOT"
 require_command curl
 require_command node
+require_command sha256sum
+require_command timeout
 
 install_ollama() {
   if command -v ollama >/dev/null 2>&1; then
@@ -44,13 +46,16 @@ install_ollama() {
 
   local installer checksum
   installer="$(mktemp)"
-  trap 'rm -f "${installer:-}"' RETURN
   curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
     https://ollama.com/install.sh -o "$installer"
-  [[ -s "$installer" ]] || fail "downloaded Ollama installer is empty"
+  [[ -s "$installer" ]] || {
+    rm -f "$installer"
+    fail "downloaded Ollama installer is empty"
+  }
   checksum="$(sha256sum "$installer" | awk '{print $1}')"
   printf 'prosmet-local-llm: downloaded official Ollama installer sha256=%s\n' "$checksum"
   sudo -n sh "$installer"
+  rm -f "$installer"
   command -v ollama >/dev/null 2>&1 || fail "Ollama installation completed without an ollama executable"
 }
 
@@ -132,7 +137,6 @@ smoke_test() {
   local request_file response_file started_at completed_at latency_ms
   request_file="$(mktemp)"
   response_file="$(mktemp)"
-  trap 'rm -f "${request_file:-}" "${response_file:-}"' RETURN
 
   node - "$MODEL" "$request_file" <<'NODE'
 const fs = require("node:fs");
@@ -186,6 +190,7 @@ if (!/OK/i.test(String(envelope?.text || ""))) {
 }
 NODE
 
+  rm -f "$request_file" "$response_file"
   printf '%s\n' "$latency_ms"
 }
 
