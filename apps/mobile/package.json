@@ -7,7 +7,12 @@
     "start": "expo start",
     "android": "expo run:android",
     "ios": "expo run:ios",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run src/domain/user-session.test.ts src/application/user-session.test.ts",
+    "test:watch": "vitest src/domain/user-session.test.ts src/application/user-session.test.ts",
+    "test:coverage": "vitest run --coverage src/domain/user-session.test.ts src/application/user-session.test.ts",
+    "test:integration": "vitest run src/application/user-session.test.ts",
+    "verify": "npm run typecheck && npm run test"
   },
   "dependencies": {
     "@assistant-ui/react-native": "0.1.33",
@@ -22,6 +27,8 @@
   "devDependencies": {
     "@types/node": "26.1.2",
     "@types/react": "19.2.18",
-    "typescript": "npm:@typescript/typescript6@^6.0.2"
+    "@vitest/coverage-v8": "^4.1.10",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
+    "vitest": "^4.1.10"
   }
 }
