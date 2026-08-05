@@ -7,14 +7,80 @@ on:
     branches: [greenfield/prosmet-v3]
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
-  group: prosmet-greenfield-${{ github.ref }}
+  group: prosmet-mobile-polish-registration-export-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  apply_mobile_polish_registration_export:
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.ref == 'feature/mobile-polish-registration-export-v1'
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 70
+    env:
+      CI: "1"
+    steps:
+      - name: Verify trusted runner
+        run: test "${{ runner.name }}" = "prosmet-primary"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/mobile-polish-registration-export-v1
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Apply production-safe mobile, export and registration patch
+        run: |
+          set -Eeuo pipefail
+          python3 scripts/apply-mobile-polish-registration-export-v2.py
+          rm -f scripts/apply-mobile-polish-registration-export.py scripts/apply-mobile-polish-registration-export-v2.py README-polish-trigger*.txt
+
+      - name: Verify complete product, exports, registration and mobile UI
+        run: |
+          set -Eeuo pipefail
+          npm ci --workspaces --include-workspace-root --legacy-peer-deps --no-audit --no-fund
+          npm run verify
+          npm run desktop:metadata
+          npx playwright install chromium
+          npm run e2e
+          npm run lighthouse:landing
+
+      - name: Commit verified source patch only
+        run: |
+          set -Eeuo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            apps/web/server.mjs \
+            apps/web/src/app/AppEntry.tsx \
+            apps/web/src/features/account/AccountView.tsx \
+            apps/web/src/features/account/UserRegistrationPanel.tsx \
+            apps/web/src/features/estimate/EstimateEditor.tsx \
+            apps/web/src/features/estimate/branded-export.ts \
+            apps/web/src/features/estimate/branded-export.test.ts \
+            apps/web/src/mobile-brand-polish.css \
+            apps/web/e2e/registration-export.spec.ts \
+            scripts/greenfield-contract.mjs
+          git add -A scripts/apply-mobile-polish-registration-export.py scripts/apply-mobile-polish-registration-export-v2.py README-polish-trigger*.txt
+          git diff --cached --quiet && exit 0
+          git commit -m "feat: polish mobile UI, branded exports and user registration"
+          git push origin HEAD:feature/mobile-polish-registration-export-v1
+
   verify:
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.ref != 'feature/mobile-polish-registration-export-v1'
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 55
     env:
