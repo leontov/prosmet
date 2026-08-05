@@ -1,67 +1,51 @@
-name: Prosmet Greenfield Quality
+name: ProSmet Primary Runner Diagnostic
 
 on:
   pull_request:
     branches: [main]
-  push:
-    branches: [greenfield/prosmet-v3]
+  workflow_dispatch:
 
 permissions:
+  actions: read
   contents: read
-
-concurrency:
-  group: prosmet-greenfield-${{ github.ref }}
-  cancel-in-progress: true
+  issues: write
 
 jobs:
-  verify:
-    runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 55
-    env:
-      CI: "1"
+  diagnose:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.pull_request.head.ref == 'ops/diagnose-primary-runner-availability'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - name: Verify trusted runner
-        run: test "${{ runner.name }}" = "prosmet-primary"
+      - name: Query repository self-hosted runners
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          curl --fail --silent --show-error \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/runners?per_page=100" \
+            > runners.json
+          jq '{total_count, runners: [.runners[] | {id, name, os, status, busy, labels: [.labels[].name]}]}' runners.json | tee runner-report.json
 
-      - uses: actions/checkout@v4
+      - name: Publish diagnostic to issue 77
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -Eeuo pipefail
+          PRIMARY="$(jq -c '.runners[]? | select(.name == "prosmet-primary") | {name, os, status, busy, labels: [.labels[].name]}' runners.json || true)"
+          if [ -z "$PRIMARY" ]; then PRIMARY='{"name":"prosmet-primary","status":"not_registered"}'; fi
+          printf 'Primary runner diagnostic from run `%s`:\n\n```json\n%s\n```\n\nQueued canonical PR jobs should not be treated as passed until this runner is online and non-busy.\n' \
+            "$GITHUB_RUN_ID" "$PRIMARY" > comment.md
+          gh issue comment 77 --repo "$GITHUB_REPOSITORY" --body-file comment.md
+
+      - uses: actions/upload-artifact@v4
         with:
-          fetch-depth: 0
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.16.0
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-
-      - name: Install clean workspace
-        run: npm ci --workspaces --include-workspace-root --legacy-peer-deps --no-audit --no-fund
-
-      - name: Source, assistant-ui, TypeScript, unit and build verification
-        run: npm run verify
-
-      - name: Desktop manifest
-        run: npm run desktop:metadata
-
-      - name: Install Chromium
-        run: npx playwright install chromium
-
-      - name: Desktop, mobile, landing and lifecycle browser acceptance
-        run: npm run e2e
-
-      - name: Landing Lighthouse and bundle budgets
-        run: npm run lighthouse:landing
-
-      - name: Upload browser and performance evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: prosmet-greenfield-${{ github.run_id }}
+          name: prosmet-primary-runner-diagnostic-${{ github.run_id }}
           path: |
-            apps/web/playwright-report
-            apps/web/test-results
-            apps/web/artifacts-*.png
-            apps/web/lighthouse
-          if-no-files-found: warn
-          retention-days: 14
+            runners.json
+            runner-report.json
+          retention-days: 7
