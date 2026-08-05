@@ -15,6 +15,8 @@ import {
   XIcon
 } from "lucide-react";
 import { calculateEstimate, formatMoney, updateEstimateItem } from "../../lib/estimate";
+import { buildBrandedExcelHtml, downloadHtmlFile, exportFileName } from "./branded-export";
+import { downloadBrandedPdf } from "./branded-pdf";
 
 type Props = {
   mobile: boolean;
@@ -28,6 +30,23 @@ type Calculation = ReturnType<typeof calculateEstimate>;
 export function EstimateEditor({ mobile, estimate, onChange, onClose }: Props) {
   const calculation = useMemo(() => calculateEstimate(estimate), [estimate]);
   const [shareOpen, setShareOpen] = useState(false);
+  const [exporting, setExporting] = useState<"pdf" | "excel" | null>(null);
+  const [exportNotice, setExportNotice] = useState<string | null>(null);
+
+  const runExport = async (kind: "pdf" | "excel", operation: () => void | Promise<void>) => {
+    setExporting(kind);
+    setExportNotice(null);
+    try {
+      await operation();
+      setExportNotice(kind === "pdf"
+        ? "PDF создан и отправлен в загрузки."
+        : "Excel создан в фирменных цветах ProSmet.");
+    } catch (error) {
+      setExportNotice(error instanceof Error ? error.message : "Не удалось сформировать файл.");
+    } finally {
+      setExporting(null);
+    }
+  };
 
   const saveVersion = () => onChange({
     ...estimate,
@@ -74,8 +93,10 @@ export function EstimateEditor({ mobile, estimate, onChange, onClose }: Props) {
     onSave: saveVersion,
     onApprove: approve,
     onDeliver: deliver,
-    onPrint: () => printEstimate(estimate, calculation),
-    onExcel: () => downloadExcel(estimate, calculation)
+    onPrint: () => void runExport("pdf", () => downloadBrandedPdf({ ...estimate, totals: calculation })),
+    onExcel: () => void runExport("excel", () => downloadExcel(estimate, calculation)),
+    exporting,
+    exportNotice
   };
 
   return (
@@ -109,18 +130,20 @@ type EditorProps = {
   onDeliver: () => void;
   onPrint: () => void;
   onExcel: () => void;
+  exporting: "pdf" | "excel" | null;
+  exportNotice: string | null;
 };
 
 function DesktopEditor(props: EditorProps) {
-  const { estimate, calculation, onChange, updateItem, removeItem, addItem, onClose, onSave, onApprove, onDeliver, onPrint, onExcel } = props;
+  const { estimate, calculation, onChange, updateItem, removeItem, addItem, onClose, onSave, onApprove, onDeliver, onPrint, onExcel, exporting, exportNotice } = props;
   return (
     <div className="desktop-estimate-editor" data-testid="desktop-estimate-editor">
       <header className="estimate-topbar">
         <button type="button" className="icon-button" onClick={onClose} aria-label="Закрыть смету"><ArrowLeftIcon /></button>
         <div className="estimate-topbar-title"><strong>{estimate.title}</strong><span>Версия {estimate.revision} · {statusLabel(estimate.status)} · сохранено в базе данных</span></div>
         <div className="estimate-topbar-actions">
-          <button type="button" className="icon-button" aria-label="Печать или PDF" onClick={onPrint}><FileTextIcon /></button>
-          <button type="button" className="icon-button" aria-label="Скачать Excel" onClick={onExcel}><FileSpreadsheetIcon /></button>
+          <button type="button" className="icon-button" aria-label="Скачать PDF" onClick={onPrint} disabled={exporting === "pdf"}><FileTextIcon /></button>
+          <button type="button" className="icon-button" aria-label="Скачать Excel" onClick={onExcel} disabled={exporting === "excel"}><FileSpreadsheetIcon /></button>
           <button type="button" className="secondary-button" onClick={onDeliver}><Share2Icon /> Передать</button>
           <button type="button" className="primary-button" onClick={onSave}><SaveIcon /> Сохранить версию</button>
         </div>
@@ -182,7 +205,9 @@ function DesktopEditor(props: EditorProps) {
             <button type="button" className="secondary-button" onClick={onApprove} disabled={estimate.status === "approved"}><ShieldCheckIcon /> {estimate.status === "approved" ? "Утверждена" : "Утвердить"}</button>
             <button type="button" className="secondary-button" onClick={onDeliver}><SendIcon /> Передать клиенту</button>
           </div>
-          <p>Сохранение версии, утверждение и передача клиенту — три разных действия.</p>
+          {exportNotice
+            ? <p className="estimate-export-notice" role="status">{exportNotice}</p>
+            : <p>Сохранение версии, утверждение и передача клиенту — три разных действия.</p>}
         </aside>
       </div>
     </div>
@@ -236,7 +261,7 @@ function AutoResizeTextarea({
 }
 
 function MobileEditor(props: EditorProps) {
-  const { estimate, calculation, onChange, updateItem, removeItem, addItem, onClose, onSave, onApprove, onDeliver } = props;
+  const { estimate, calculation, onChange, updateItem, removeItem, addItem, onClose, onSave, onApprove, onDeliver, onPrint, onExcel, exporting, exportNotice } = props;
   return (
     <div className="mobile-estimate-editor" data-testid="mobile-estimate-editor">
       <header className="mobile-estimate-topbar">
@@ -252,6 +277,18 @@ function MobileEditor(props: EditorProps) {
           <p>{estimate.project}<br />{estimate.region}</p>
           <div><span>Итого</span><strong>{formatMoney(calculation.total)}</strong></div>
         </section>
+
+        <section className="mobile-export-panel" aria-label="Экспорт сметы">
+          <button type="button" onClick={onPrint} disabled={exporting === "pdf"} aria-label="Скачать PDF">
+            <FileTextIcon />
+            <span><strong>{exporting === "pdf" ? "Создаём PDF…" : "PDF"}</strong><small>Фирменная форма ProSmet</small></span>
+          </button>
+          <button type="button" onClick={onExcel} disabled={exporting === "excel"} aria-label="Скачать Excel">
+            <FileSpreadsheetIcon />
+            <span><strong>{exporting === "excel" ? "Создаём Excel…" : "Excel"}</strong><small>Редактируемая таблица</small></span>
+          </button>
+        </section>
+        {exportNotice ? <p className="mobile-export-notice" role="status">{exportNotice}</p> : null}
 
         <details className="mobile-meta">
           <summary>Данные объекта <span>{estimate.customer || "Не указан"}</span></summary>
@@ -381,23 +418,12 @@ function estimateSummary(estimate: Estimate, total: number) {
 }
 
 function downloadExcel(estimate: Estimate, calculation: Calculation) {
-  const rows = estimate.sections.flatMap((section) => [
-    `<tr><th colspan="6">${escapeHtml(section.title)}</th></tr>`,
-    ...section.items.map((item) => `<tr><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.unit)}</td><td>${item.quantity}</td><td>${item.unitPrice}</td><td>${calculation.itemTotals[item.id] ?? 0}</td><td>${escapeHtml(item.category)}</td></tr>`)
-  ]).join("");
-  const html = `<!doctype html><html><head><meta charset="utf-8"></head><body><table><tr><th>Наименование</th><th>Ед.</th><th>Количество</th><th>Цена</th><th>Сумма</th><th>Категория</th></tr>${rows}<tr><th colspan="4">Итого</th><th>${calculation.total}</th><th></th></tr></table></body></html>`;
-  downloadBlob(new Blob(["\ufeff", html], { type: "application/vnd.ms-excel;charset=utf-8" }), `${safeFileName(estimate.title)}-v${estimate.revision}.xls`);
+const html = buildBrandedExcelHtml(estimate);
+  downloadHtmlFile(html, exportFileName(estimate, "xls"), "application/vnd.ms-excel");
 }
 
 function printEstimate(estimate: Estimate, calculation: Calculation) {
-  const popup = window.open("", "_blank", "noopener,noreferrer");
-  if (!popup) throw new Error("Браузер заблокировал окно печати");
-  const rows = estimate.sections.flatMap((section) => [
-    `<tr class="section"><th colspan="5">${escapeHtml(section.title)}</th></tr>`,
-    ...section.items.map((item) => `<tr><td>${escapeHtml(item.name)}</td><td>${escapeHtml(item.unit)}</td><td>${item.quantity}</td><td>${item.unitPrice.toLocaleString("ru-RU")} ₽</td><td>${formatMoney(calculation.itemTotals[item.id] ?? 0)}</td></tr>`)
-  ]).join("");
-  popup.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(estimate.title)}</title><style>body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:32px;color:#171719}h1{font-size:24px;margin:0 0 8px}p{color:#666;margin:4px 0}table{width:100%;border-collapse:collapse;margin-top:24px;font-size:12px}th,td{border:1px solid #ddd;padding:8px;text-align:left}th{background:#f5f5f5}.section th{padding-top:14px;background:#eee}.total{margin-top:20px;text-align:right;font-size:20px;font-weight:700}@page{size:A4;margin:16mm}</style></head><body><h1>${escapeHtml(estimate.title)}</h1><p>${escapeHtml(estimate.project)}</p><p>${escapeHtml(estimate.customer)} · ${escapeHtml(estimate.region)}</p><table><thead><tr><th>Наименование</th><th>Ед.</th><th>Количество</th><th>Цена</th><th>Сумма</th></tr></thead><tbody>${rows}</tbody></table><div class="total">Итого: ${formatMoney(calculation.total)}</div><script>window.onload=()=>{window.print();window.onafterprint=()=>window.close();};<\/script></body></html>`);
-  popup.document.close();
+  return downloadBrandedPdf({ ...estimate, totals: calculation });
 }
 
 function downloadBlob(blob: Blob, filename: string) {

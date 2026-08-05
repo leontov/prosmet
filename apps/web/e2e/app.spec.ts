@@ -1,5 +1,5 @@
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 const external = Boolean(process.env.PROSMET_BASE_URL);
@@ -129,7 +129,7 @@ async function openMobileMenu(page: Page) {
 }
 
 test("greenfield shell uses real agent integration and the mobile reference layout", async ({ page }, testInfo) => {
-  if (external && verifyCriticalPath) testInfo.setTimeout(240_000);
+  testInfo.setTimeout(external && verifyCriticalPath ? 240_000 : 120_000);
   const violations: string[] = [];
   const evidence: CriticalPathEvidence = {
     schemaVersion: 1,
@@ -325,6 +325,27 @@ test("greenfield shell uses real agent integration and the mobile reference layo
     await editor.locator(`#mobile-quantity-${firstItem.id}`).fill(String(changedQuantity));
     const editResponse = await editResponsePromise;
     expect(editResponse.ok(), await editResponse.text()).toBeTruthy();
+  }
+
+  const pdfDownloadPromise = page.waitForEvent("download", { timeout: 45_000 });
+  await editor.getByRole("button", { name: "Скачать PDF" }).first().click();
+  const pdfDownload = await pdfDownloadPromise;
+  expect(pdfDownload.suggestedFilename()).toMatch(/\.pdf$/);
+  const pdfPath = await pdfDownload.path();
+  if (pdfPath) {
+    expect((await stat(pdfPath)).size).toBeGreaterThan(5_000);
+    expect((await readFile(pdfPath)).subarray(0, 5).toString("ascii")).toBe("%PDF-");
+  }
+
+  const excelDownloadPromise = page.waitForEvent("download", { timeout: 30_000 });
+  await editor.getByRole("button", { name: "Скачать Excel" }).first().click();
+  const excelDownload = await excelDownloadPromise;
+  expect(excelDownload.suggestedFilename()).toMatch(/\.xls$/);
+  const excelPath = await excelDownload.path();
+  if (excelPath) {
+    const excelBytes = await readFile(excelPath);
+    expect(excelBytes.length).toBeGreaterThan(1_000);
+    expect(excelBytes.toString("utf8")).toContain("ProSmet");
   }
 
   const saveResponsePromise = page.waitForResponse((response) =>

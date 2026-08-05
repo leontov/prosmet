@@ -1,0 +1,392 @@
+:root {
+  --prosmet-brand-blue: #1267e5;
+  --prosmet-brand-cyan: #2cc7f0;
+  --prosmet-brand-green: #107c55;
+  --prosmet-brand-gold: #d8a21d;
+  --prosmet-brand-ink: #0d0f12;
+  --prosmet-brand-soft: #f4f7fb;
+  --prosmet-brand-line: #dbe6f3;
+}
+
+.estimate-export-notice {
+  color: var(--prosmet-brand-green) !important;
+  font-weight: 750;
+}
+
+.registration-panel {
+  display: grid;
+  grid-template-columns: minmax(0, .95fr) minmax(280px, .75fr);
+  gap: 22px;
+  margin-top: 22px;
+  border: 1px solid rgba(18, 103, 229, .14);
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(44, 199, 240, .17), transparent 34%),
+    linear-gradient(135deg, #fff, #f7fbff 68%, rgba(18, 103, 229, .07));
+  padding: 24px;
+  box-shadow: 0 22px 60px rgba(13, 15, 18, .08);
+}
+
+.registration-panel__copy > span {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  border-radius: 999px;
+  background: rgba(18, 103, 229, .10);
+  color: var(--prosmet-brand-blue);
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.registration-panel__copy h2 {
+  margin: 16px 0 0;
+  font-size: clamp(24px, 4vw, 36px);
+  line-height: 1.05;
+  letter-spacing: -.05em;
+}
+
+.registration-panel__copy p {
+  margin: 12px 0 0;
+  color: #667085;
+  line-height: 1.55;
+}
+
+.registration-panel__form {
+  display: grid;
+  gap: 12px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, .82);
+  padding: 16px;
+  box-shadow: inset 0 0 0 1px rgba(18, 103, 229, .09);
+}
+
+.registration-panel__form label {
+  display: grid;
+  gap: 6px;
+  color: #667085;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.registration-panel__form input {
+  min-height: 44px;
+  border: 1px solid rgba(18, 103, 229, .18);
+  border-radius: 14px;
+  background: #fff;
+  padding: 0 13px;
+  color: var(--prosmet-brand-ink);
+  outline: 0;
+}
+
+.registration-panel__form input:focus {
+  border-color: var(--prosmet-brand-blue);
+  box-shadow: 0 0 0 4px rgba(18, 103, 229, .11);
+}
+
+.registration-panel__form > button {
+  min-height: 46px;
+  border: 0;
+  border-radius: 15px;
+  background: linear-gradient(135deg, var(--prosmet-brand-blue), var(--prosmet-brand-green));
+  color: #fff;
+  font-weight: 850;
+  box-shadow: 0 14px 28px rgba(18, 103, 229, .18);
+}
+
+.registration-panel__switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+  border-radius: 13px;
+  background: #eef3fa;
+  padding: 4px;
+}
+
+.registration-panel__switch button {
+  min-height: 36px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #667085;
+  font-weight: 750;
+}
+
+.registration-panel__switch button[aria-selected="true"] {
+  background: #fff;
+  color: var(--prosmet-brand-blue);
+  box-shadow: 0 5px 14px rgba(13, 15, 18, .08);
+}
+
+.registration-panel__session {
+  display: grid;
+  align-content: center;
+  gap: 6px;
+  border-radius: 22px;
+  background: linear-gradient(135deg, #0d0f12, #1267e5 70%, #107c55);
+  padding: 20px;
+  color: #fff;
+  box-shadow: 0 20px 42px rgba(18, 103, 229, .20);
+}
+
+.registration-panel__session strong {
+  font-size: 22px;
+  letter-spacing: -.04em;
+}
+
+.registration-panel__session span {
+  font-size: 13px;
+}
+
+.registration-panel__session small {
+  color: rgba(255, 255, 255, .72);
+}
+
+.registration-panel__session button {
+  width: max-content;
+  min-height: 40px;
+  margin-top: 8px;
+  border: 1px solid rgba(255, 255, 255, .24);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, .12);
+  padding: 0 14px;
+  color: #fff;
+  font-weight: 750;
+}
+
+.registration-panel__error {
+  margin: 0;
+  color: #b42318;
+  font-size: 12px;
+}
+
+.registration-panel__success {
+  margin: 0;
+  color: var(--prosmet-brand-green);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.registration-panel__session .registration-panel__success {
+  color: #c9ffe3;
+}
+
+.registration-panel__session .registration-panel__error {
+  color: #ffd1cd;
+}
+
+@media (max-width: 760px) {
+  .pro-mobile-root {
+    background:
+      radial-gradient(circle at 12% 4%, rgba(18, 103, 229, .18), transparent 30%),
+      radial-gradient(circle at 94% 1%, rgba(44, 199, 240, .13), transparent 25%),
+      #edf4fc !important;
+  }
+
+  .pro-mobile-stage,
+  [data-testid="mobile-shell"] {
+    background: linear-gradient(180deg, #fff 0%, #f9fbff 55%, #f5f8fc 100%) !important;
+  }
+
+  .pro-mobile-drawer {
+    background: linear-gradient(180deg, #fff 0%, #f4f8fe 100%) !important;
+  }
+
+  .pro-mobile-drawer > header > div > span {
+    background: linear-gradient(135deg, var(--prosmet-brand-blue), var(--prosmet-brand-green)) !important;
+    box-shadow: 0 12px 26px rgba(18, 103, 229, .22);
+  }
+
+  .pro-mobile-drawer > nav > button.active {
+    background: linear-gradient(90deg, rgba(18, 103, 229, .12), rgba(16, 124, 85, .08)) !important;
+    color: var(--prosmet-brand-ink) !important;
+  }
+
+  .pro-mobile-drawer > nav > button.active svg {
+    color: var(--prosmet-brand-blue);
+  }
+
+  .chat-reference-topbar,
+  .pro-mobile-topbar {
+    background: rgba(255, 255, 255, .92) !important;
+    backdrop-filter: blur(18px) saturate(145%);
+  }
+
+  .chat-reference-menu,
+  .chat-reference-voice,
+  .chat-reference-chat-actions > button,
+  .pro-mobile-topbar > button {
+    border-color: rgba(18, 103, 229, .18) !important;
+    box-shadow: 0 12px 28px rgba(13, 15, 18, .08) !important;
+  }
+
+  .mobile-reference-action-icon {
+    border-radius: 10px;
+    background: rgba(18, 103, 229, .08);
+    color: var(--prosmet-brand-blue) !important;
+  }
+
+  .mobile-reference-action:nth-child(2) .mobile-reference-action-icon {
+    background: rgba(16, 124, 85, .09);
+    color: var(--prosmet-brand-green) !important;
+  }
+
+  .mobile-reference-action:nth-child(3) .mobile-reference-action-icon {
+    background: rgba(216, 162, 29, .11);
+    color: #9b6d00 !important;
+  }
+
+  .mobile-reference-composer {
+    border-color: rgba(18, 103, 229, .28) !important;
+    box-shadow: 0 16px 42px rgba(18, 103, 229, .12) !important;
+  }
+
+  .mobile-reference-send {
+    background: linear-gradient(135deg, var(--prosmet-brand-blue), #0a84ff) !important;
+    box-shadow: 0 9px 20px rgba(18, 103, 229, .28) !important;
+  }
+
+  .mobile-estimate-editor {
+    background: linear-gradient(180deg, #f6faff, #eef4fb) !important;
+  }
+
+  .mobile-estimate-hero {
+    border-color: rgba(18, 103, 229, .15) !important;
+    background:
+      radial-gradient(circle at 92% 0%, rgba(44, 199, 240, .23), transparent 34%),
+      linear-gradient(135deg, #fff, #f3f8ff) !important;
+    box-shadow: 0 20px 42px rgba(18, 103, 229, .12) !important;
+  }
+
+  .mobile-estimate-hero > div strong,
+  .mobile-grand-total strong,
+  .mobile-estimate-section > header > strong {
+    color: var(--prosmet-brand-blue) !important;
+  }
+
+  .mobile-estimate-item,
+  .mobile-meta,
+  .mobile-estimate-section,
+  .mobile-price-summary,
+  .mobile-card,
+  .mobile-panel {
+    border-color: rgba(18, 103, 229, .13) !important;
+    box-shadow: 0 14px 34px rgba(13, 15, 18, .07) !important;
+  }
+
+  .mobile-estimate-item {
+    background:
+      linear-gradient(90deg, rgba(18, 103, 229, .13), rgba(18, 103, 229, .13)) left / 4px 100% no-repeat,
+      linear-gradient(180deg, #fff, #f9fbff) !important;
+  }
+
+  .mobile-item-head > textarea,
+  .mobile-item-head > input {
+    color: var(--prosmet-brand-ink) !important;
+  }
+
+  .mobile-item-fields label > div {
+    border-color: rgba(18, 103, 229, .15) !important;
+    background: #f8fbff !important;
+  }
+
+  .mobile-add-position {
+    border-color: rgba(18, 103, 229, .18) !important;
+    background: linear-gradient(135deg, #fff, #eef6ff) !important;
+    color: var(--prosmet-brand-blue) !important;
+  }
+
+  .mobile-export-panel {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin: 12px 14px;
+  }
+
+  .mobile-export-panel button {
+    min-height: 76px;
+    display: grid;
+    grid-template-columns: 38px minmax(0, 1fr);
+    align-items: center;
+    gap: 9px;
+    border: 1px solid rgba(18, 103, 229, .14);
+    border-radius: 20px;
+    background: linear-gradient(135deg, #fff, #eef6ff);
+    padding: 12px;
+    color: var(--prosmet-brand-ink);
+    text-align: left;
+    box-shadow: 0 14px 34px rgba(13, 15, 18, .08);
+  }
+
+  .mobile-export-panel button:last-child {
+    background: linear-gradient(135deg, #fff, #effbf6);
+  }
+
+  .mobile-export-panel button:disabled {
+    cursor: wait;
+    opacity: .62;
+  }
+
+  .mobile-export-panel svg {
+    width: 24px;
+    height: 24px;
+    color: var(--prosmet-brand-blue);
+  }
+
+  .mobile-export-panel button:last-child svg {
+    color: var(--prosmet-brand-green);
+  }
+
+  .mobile-export-panel strong,
+  .mobile-export-panel small {
+    display: block;
+  }
+
+  .mobile-export-panel strong {
+    font-size: 14px;
+    letter-spacing: -.02em;
+  }
+
+  .mobile-export-panel small {
+    margin-top: 3px;
+    color: #667085;
+    font-size: 10px;
+  }
+
+  .mobile-export-notice {
+    margin: 0 14px 12px;
+    border: 1px solid rgba(16, 124, 85, .12);
+    border-radius: 14px;
+    background: rgba(16, 124, 85, .08);
+    padding: 10px 12px;
+    color: var(--prosmet-brand-green);
+    font-size: 12px;
+    font-weight: 750;
+  }
+
+  .mobile-primary-action,
+  .pro-mobile-drawer-chat {
+    border: 0 !important;
+    background: linear-gradient(135deg, var(--prosmet-brand-blue), var(--prosmet-brand-green)) !important;
+    color: #fff !important;
+    box-shadow: 0 14px 30px rgba(18, 103, 229, .20) !important;
+  }
+
+  .mobile-estimate-actions {
+    border-top-color: rgba(18, 103, 229, .10) !important;
+    background: rgba(255, 255, 255, .90) !important;
+    backdrop-filter: blur(20px) saturate(150%);
+    box-shadow: 0 -12px 34px rgba(13, 15, 18, .08) !important;
+  }
+
+  .registration-panel {
+    grid-template-columns: 1fr;
+    margin: 14px 0 0;
+    border-radius: 24px;
+    padding: 18px;
+  }
+
+  .registration-panel__copy h2 {
+    font-size: 25px;
+  }
+}

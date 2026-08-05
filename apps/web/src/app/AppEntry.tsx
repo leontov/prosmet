@@ -12,6 +12,7 @@ import "../professional-app.css";
 import "../assistant-ui-conformance.css";
 import "../professional-polish.css";
 import "../professional-polish-v2.css";
+import "../mobile-brand-polish.css";
 
 export default function AppEntry() {
   return <ReferenceApp />;
