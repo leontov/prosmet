@@ -1,12 +1,21 @@
 [package]
 name = "prosmet-desktop"
 version = "0.1.0"
-description = "Prosmet Greenfield desktop shell"
+description = "ProSmet production desktop shell"
 edition = "2024"
+
+[lib]
+name = "prosmet_desktop"
+path = "src/lib.rs"
+
+[[bin]]
+name = "prosmet-desktop"
+path = "src/main.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+serde = { version = "1", features = ["derive"] }
 tauri = { version = "2.9.0", features = [] }
 prosmet-estimate-engine = { path = "../../../crates/estimate-engine" }

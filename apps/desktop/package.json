@@ -3,7 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "desktop:dev": "tauri dev",
+    "desktop:build": "tauri build",
+    "desktop:test": "cargo test --manifest-path src-tauri/Cargo.toml",
+    "desktop:lint": "cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check && cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings",
+    "desktop:security": "node ../../scripts/desktop-ipc-contract.mjs",
+    "desktop:verify": "npm run desktop:security && npm run desktop:lint && npm run desktop:test"
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.11.4"
