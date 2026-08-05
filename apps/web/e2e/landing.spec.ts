@@ -8,7 +8,7 @@ test.describe("production landing", () => {
     await page.goto("/landing");
   });
 
-  test("shows the product promise and interactive estimate demo", async ({ page }, testInfo) => {
+  test("shows the complete product story and interactive estimate demo", async ({ page }, testInfo) => {
     await expect(page.getByRole("heading", { name: /От запроса до КС-3/ })).toBeVisible();
     await expect(page.getByText("Ремонт ванной комнаты", { exact: true })).toBeVisible();
     await expect(page.getByText("Предварительная стоимость", { exact: true })).toBeVisible();
@@ -18,6 +18,29 @@ test.describe("production landing", () => {
     await page.getByRole("button", { name: "Запустить демонстрацию" }).click();
     await expect(page.getByText(/Проверяю состав работ/)).toBeVisible();
     await expect(page.getByText("Расчёт готов", { exact: true })).toBeVisible();
+
+    const enterpriseHeading = page.getByRole("heading", {
+      name: "Ваши стандарты, цены и документы становятся корпоративным AI-контуром."
+    });
+    await enterpriseHeading.scrollIntoViewIfNeeded();
+    await expect(enterpriseHeading).toBeVisible();
+
+    const pricingHeading = page.getByRole("heading", {
+      name: "Начните с результата. Масштабируйте после доказанной ценности."
+    });
+    await pricingHeading.scrollIntoViewIfNeeded();
+    await expect(pricingHeading).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Starter", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Enterprise", exact: true })).toBeVisible();
+
+    const finalHeading = page.getByRole("heading", {
+      name: "Первую полноценную смету можно создать сегодня."
+    });
+    await finalHeading.scrollIntoViewIfNeeded();
+    await expect(finalHeading).toBeVisible();
+
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await expect(page.getByRole("heading", { name: /От запроса до КС-3/ })).toBeVisible();
     await page.screenshot({ path: `artifacts-landing-${testInfo.project.name}.png`, fullPage: true });
   });
 
