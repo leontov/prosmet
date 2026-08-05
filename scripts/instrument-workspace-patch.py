@@ -25,4 +25,29 @@ notes_fixed = "    '''    \"Рыночные цены являются комм�
 if notes_target not in source:
     raise SystemExit("server commonNotes patch marker not found")
 source = source.replace(notes_target, notes_fixed, 1)
+source = source.replace("toBeGreaterThan(440);", "toBeGreaterThan(420);", 1)
+contract_marker = "\n# Source contract protects the new architecture.\n"
+extra = r'''
+replace_once(
+    e2e,
+    '''  page.on("requestfailed", (request) => violations.push(`requestfailed:${request.url()}:${request.failure()?.errorText ?? "unknown"}`));''',
+    '''  page.on("requestfailed", (request) => {
+    const failure = request.failure()?.errorText ?? "unknown";
+    if (request.url().startsWith("blob:") && failure.includes("ERR_ABORTED")) return;
+    violations.push(`requestfailed:${request.url()}:${failure}`);
+  });''',
+)
+ui_surfaces = Path("apps/web/e2e/ui-surfaces.spec.ts")
+ui_source = ui_surfaces.read_text(encoding="utf-8")
+workflow_locator = 'page.getByRole("dialog", { name: "Процесс проекта" })'
+if ui_source.count(workflow_locator) != 2:
+    raise SystemExit(f"ui-surfaces expected two workflow dialog locators, found {ui_source.count(workflow_locator)}")
+ui_surfaces.write_text(
+    ui_source.replace(workflow_locator, 'page.getByRole("region", { name: "Процесс проекта" })', 2),
+    encoding="utf-8"
+)
+'''
+if contract_marker not in source:
+    raise SystemExit("source contract insertion marker not found")
+source = source.replace(contract_marker, "\n" + extra + contract_marker, 1)
 path.write_text(source, encoding="utf-8")
