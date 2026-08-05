@@ -16,6 +16,7 @@ import "../mobile-brand-polish.css";
 import "../workspace-canvas.css";
 import "../desktop-product-polish.css";
 import "../mobile-product-polish.css";
+import "../web-appearance-fixes.css";
 
 export default function AppEntry() {
   return <ReferenceApp />;
