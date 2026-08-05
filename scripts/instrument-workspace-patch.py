@@ -20,4 +20,9 @@ professional.write_text(source.replace(callback_target, "      onOpenDocument={o
 if callback_line not in source:
     raise SystemExit("ProfessionalApp document callback patch marker not found")
 source = source.replace(callback_line, callback_block, 1)
+notes_target = "    '''      \"Рыночные цены являются коммерческими ориентирами на дату расчёта и могут требовать подтверждения счетами поставщиков.\"\n    ];''',"
+notes_fixed = "    '''    \"Рыночные цены являются коммерческими ориентирами на дату расчёта и могут требовать подтверждения счетами поставщиков.\"\n  ];''',"
+if notes_target not in source:
+    raise SystemExit("server commonNotes patch marker not found")
+source = source.replace(notes_target, notes_fixed, 1)
 path.write_text(source, encoding="utf-8")
