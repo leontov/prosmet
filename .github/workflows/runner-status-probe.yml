@@ -1,0 +1,62 @@
+name: ProSmet Runner Status Probe
+
+on:
+  push:
+    branches: [ops/public-health-probe]
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+concurrency:
+  group: prosmet-runner-status-probe
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Inspect repository self-hosted runner status
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea
+        with:
+          script: |
+            let body;
+            try {
+              const response = await github.rest.actions.listSelfHostedRunnersForRepo({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                per_page: 100
+              });
+              const runners = response.data.runners.map((runner) => ({
+                name: runner.name,
+                status: runner.status,
+                busy: runner.busy,
+                labels: runner.labels.map((label) => label.name).sort()
+              }));
+              body = [
+                '## 🖥️ PROSMET RUNNER STATUS',
+                '',
+                `- Probe run: https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                `- Registered runners: \`${runners.length}\``,
+                '',
+                '```json',
+                JSON.stringify(runners, null, 2),
+                '```'
+              ].join('\n');
+            } catch (error) {
+              body = [
+                '## ⚠️ PROSMET RUNNER STATUS UNAVAILABLE',
+                '',
+                `- Probe run: https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                `- HTTP status: \`${error.status || 'unknown'}\``,
+                `- Message: ${String(error.message || error).slice(0, 300)}`
+              ].join('\n');
+            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 53,
+              body
+            });
