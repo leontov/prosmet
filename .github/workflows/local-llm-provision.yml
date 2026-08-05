@@ -50,7 +50,6 @@ jobs:
           set -Eeuo pipefail
           bash -n deployment/provision-local-llm.sh
           node --check scripts/provision-agent-pool.mjs
-          test -x deployment/provision-local-llm.sh || chmod 0755 deployment/provision-local-llm.sh
           ! grep -REn --exclude='local-llm-provision.yml' --exclude='local-llm-and-free-tier.md' \
             '(sk-[A-Za-z0-9_.-]{20,}|AIza[0-9A-Za-z_-]{20,}|gsk_[0-9A-Za-z_-]{20,})' \
             deployment scripts
@@ -62,16 +61,14 @@ jobs:
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 75
     env:
-      PROSMET_LOCAL_LLM_MODEL: ${{ github.event.inputs.model || vars.PROSMMET_LOCAL_LLM_MODEL || 'qwen3.5:9b' }}
-      PROSMET_LOCAL_LLM_ACTIVATE: ${{ github.event.inputs.activation || vars.PROSMMET_LOCAL_LLM_ACTIVATE || 'auto' }}
+      PROSMET_LOCAL_LLM_MODEL: ${{ github.event.inputs.model || vars.PROSMET_LOCAL_LLM_MODEL || 'qwen3.5:9b' }}
+      PROSMET_LOCAL_LLM_ACTIVATE: ${{ github.event.inputs.activation || vars.PROSMET_LOCAL_LLM_ACTIVATE || 'auto' }}
       PROSMET_LOCAL_LLM_BASE_URL: http://127.0.0.1:11434
       PROSMET_BASE_URL: http://127.0.0.1:3200
-      PROSMET_ADMIN_TOKEN_FILE: $HOME/.prosmet-greenfield/config/admin.token
-      PROSMET_AGENT_POOL_EVIDENCE: $HOME/.prosmet-greenfield/agent-pool-evidence.json
-      PROSMET_QWEN_API_KEY: ${{ secrets.PROSMMET_QWEN_API_KEY }}
-      PROSMET_GROQ_API_KEY: ${{ secrets.PROSMMET_GROQ_API_KEY }}
-      PROSMET_GEMINI_API_KEY: ${{ secrets.PROSMMET_GEMINI_API_KEY }}
-      PROSMET_OPENROUTER_API_KEY: ${{ secrets.PROSMMET_OPENROUTER_API_KEY }}
+      PROSMET_QWEN_API_KEY: ${{ secrets.PROSMET_QWEN_API_KEY }}
+      PROSMET_GROQ_API_KEY: ${{ secrets.PROSMET_GROQ_API_KEY }}
+      PROSMET_GEMINI_API_KEY: ${{ secrets.PROSMET_GEMINI_API_KEY }}
+      PROSMET_OPENROUTER_API_KEY: ${{ secrets.PROSMET_OPENROUTER_API_KEY }}
     steps:
       - name: Verify trusted runner
         run: |
@@ -113,9 +110,9 @@ jobs:
       - name: Register local model and optional official free-tier providers
         run: |
           set -Eeuo pipefail
-          test -s "$PROSMET_ADMIN_TOKEN_FILE"
+          test -s "$HOME/.prosmet-greenfield/config/admin.token"
           node scripts/provision-agent-pool.mjs | tee agent-pool-provision.log
-          cp "$PROSMET_AGENT_POOL_EVIDENCE" agent-pool-evidence.json
+          cp "$HOME/.prosmet-greenfield/agent-pool-evidence.json" agent-pool-evidence.json
 
       - name: Verify active control-plane state without exposing credentials
         run: |
