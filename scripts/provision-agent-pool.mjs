@@ -17,7 +17,7 @@ function requiredText(value, label) {
 }
 
 async function loadAdminToken() {
-  const inline = String(process.env.PROSMMET_ADMIN_TOKEN || process.env.PROSMET_ADMIN_TOKEN || "").trim();
+  const inline = String(process.env.PROSMET_ADMIN_TOKEN || "").trim();
   if (inline) return inline;
   return requiredText(await readFile(adminTokenFile, "utf8"), `admin token in ${adminTokenFile}`);
 }
