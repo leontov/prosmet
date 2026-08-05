@@ -1,0 +1,55 @@
+name: ProSmet Exact Main V3 Monitor
+
+on:
+  push:
+    branches: [ops/monitor-exact-main-v3]
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+jobs:
+  monitor:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Locate exact-main V3 workflow runs
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea
+        with:
+          script: |
+            const runs = await github.paginate(
+              github.rest.actions.listWorkflowRunsForRepo,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                per_page: 100
+              }
+            );
+            const selected = runs
+              .filter((run) => run.name === 'ProSmet Exact Main Web Deploy V3')
+              .slice(0, 10)
+              .map((run) => ({
+                id: run.id,
+                status: run.status,
+                conclusion: run.conclusion,
+                headBranch: run.head_branch,
+                headSha: run.head_sha,
+                event: run.event,
+                createdAt: run.created_at,
+                updatedAt: run.updated_at,
+                url: run.html_url
+              }));
+            const lines = selected.length
+              ? selected.map((run) => `- run \`${run.id}\`: \`${run.status}\` / \`${run.conclusion || 'pending'}\`, branch \`${run.headBranch}\`, SHA \`${run.headSha}\`, ${run.url}`)
+              : ['- no matching workflow runs found'];
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 53,
+              body: [
+                '## 🔎 EXACT-MAIN V3 RUN MONITOR',
+                '',
+                ...lines
+              ].join('\n')
+            });
