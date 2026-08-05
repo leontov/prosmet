@@ -14,12 +14,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  apply_mobile_polish_registration_export:
+  apply_real_pdf_auth_polish:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.ref == 'feature/mobile-polish-registration-export-v1'
     runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 70
+    timeout-minutes: 80
     env:
       CI: "1"
     steps:
@@ -40,31 +40,24 @@ jobs:
         with:
           components: rustfmt
 
-      - name: Apply production-safe mobile, export and registration patch
+      - name: Apply real PDF, auth session and regression patches
         run: |
           set -Eeuo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          path = Path("scripts/apply-mobile-polish-registration-export-v2.py")
-          lines = path.read_text(encoding="utf-8").splitlines()
-          start = next((i for i, line in enumerate(lines) if "ns = re.sub" in line and "UserRegistrationPanel" in line), None)
-          if start is None:
-              raise SystemExit("Registration insertion patch marker missing")
-          end = next((i for i in range(start, min(len(lines), start + 8)) if lines[i].strip() == "s = ns"), None)
-          if end is None:
-              raise SystemExit("Registration insertion patch end marker missing")
-          replacement = [
-              '    marker = "\\n    </section>\\n  );\\n}\\n\\nfunction AccountField"',
-              '    if s.count(marker) != 1:',
-              '        raise SystemExit("AccountView insertion marker not found")',
-              '    s = s.replace(marker, "\\n      <UserRegistrationPanel />\\n    </section>\\n  );\\n}\\n\\nfunction AccountField", 1)',
-          ]
-          path.write_text("\n".join(lines[:start] + replacement + lines[end + 1:]) + "\n", encoding="utf-8")
-          PY
-          python3 scripts/apply-mobile-polish-registration-export-v2.py
-          rm -f scripts/apply-mobile-polish-registration-export-v2.py
+          python3 scripts/patch-editor-real-pdf.py
+          python3 scripts/patch-user-auth.py
+          python3 scripts/patch-contract-auth-pdf.py
+          python3 scripts/patch-export-e2e.py
+          rm -f \
+            scripts/patch-editor-real-pdf.py \
+            scripts/patch-user-auth.py \
+            scripts/patch-contract-auth-pdf.py \
+            scripts/patch-export-e2e.py
+          git rm -f --ignore-unmatch docs/qa/mobile-polish-registration-export-v*.md
+          npm install --package-lock-only --workspaces --include-workspace-root \
+            --legacy-peer-deps --ignore-scripts --no-audit --no-fund
+          git show origin/main:.github/workflows/greenfield-ci.yml > .github/workflows/greenfield-ci.yml
 
-      - name: Verify complete product, exports, registration and mobile UI
+      - name: Verify source, real file downloads and full product
         run: |
           set -Eeuo pipefail
           npm ci --workspaces --include-workspace-root --legacy-peer-deps --no-audit --no-fund
@@ -74,25 +67,52 @@ jobs:
           npm run e2e
           npm run lighthouse:landing
 
-      - name: Commit verified source patch only
+      - name: Upload browser, export and performance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prosmet-real-pdf-auth-polish-${{ github.run_id }}
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results
+            apps/web/artifacts-*.png
+            apps/web/lighthouse
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Commit verified production source and canonical CI
         run: |
           set -Eeuo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add \
+            .github/workflows/greenfield-ci.yml \
+            package-lock.json \
+            apps/web/package.json \
             apps/web/server.mjs \
+            apps/web/e2e/app.spec.ts \
+            apps/web/e2e/registration-export.spec.ts \
+            apps/web/e2e/registration-session.spec.ts \
+            apps/web/e2e/registration-ui.spec.ts \
             apps/web/src/app/AppEntry.tsx \
             apps/web/src/features/account/AccountView.tsx \
             apps/web/src/features/account/UserRegistrationPanel.tsx \
             apps/web/src/features/estimate/EstimateEditor.tsx \
             apps/web/src/features/estimate/branded-export.ts \
             apps/web/src/features/estimate/branded-export.test.ts \
+            apps/web/src/features/estimate/branded-pdf.ts \
             apps/web/src/mobile-brand-polish.css \
-            apps/web/e2e/registration-export.spec.ts \
-            scripts/greenfield-contract.mjs
-          git add -u -- scripts/apply-mobile-polish-registration-export-v2.py
+            apps/web/src/types/pdfmake-build.d.ts \
+            scripts/greenfield-contract.mjs \
+            docs/qa/mobile-polish-registration-export.md
+          git add -u -- \
+            scripts/patch-editor-real-pdf.py \
+            scripts/patch-user-auth.py \
+            scripts/patch-contract-auth-pdf.py \
+            scripts/patch-export-e2e.py \
+            docs/qa
           git diff --cached --quiet && exit 0
-          git commit -m "feat: polish mobile UI, branded exports and user registration"
+          git commit -m "feat: ship real PDF exports, user sessions and mobile polish"
           git push origin HEAD:feature/mobile-polish-registration-export-v1
 
   verify:
@@ -100,7 +120,7 @@ jobs:
       github.event_name != 'pull_request' ||
       github.event.pull_request.head.ref != 'feature/mobile-polish-registration-export-v1'
     runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 55
+    timeout-minutes: 60
     env:
       CI: "1"
     steps:
@@ -131,7 +151,7 @@ jobs:
       - name: Install Chromium
         run: npx playwright install chromium
 
-      - name: Desktop, mobile, landing and lifecycle browser acceptance
+      - name: Desktop, mobile, exports, registration, landing and lifecycle acceptance
         run: npm run e2e
 
       - name: Landing Lighthouse and bundle budgets
