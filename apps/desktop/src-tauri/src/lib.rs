@@ -1,5 +1,7 @@
-use prosmet_estimate_engine::{calculate, EstimateInput, EstimateLine, EstimateOutput};
+use prosmet_estimate_engine::{EstimateInput, EstimateLine, EstimateOutput, calculate};
 use serde::{Deserialize, Serialize};
+
+pub mod commands;
 
 const MAX_ESTIMATE_LINES: usize = 10_000;
 const MAX_BASIS_POINTS: i64 = 100_000;
@@ -128,6 +130,22 @@ pub fn calculate_estimate_totals(
     Ok(map_output(output))
 }
 
+pub fn calculate_line_total(
+    quantity_milli: i64,
+    unit_price_cents: i64,
+) -> Result<i64, IpcError> {
+    calculate_estimate_totals(EstimateCalculationInput {
+        lines: vec![EstimateLineInput {
+            quantity_milli,
+            unit_price_cents,
+        }],
+        overhead_basis_points: 0,
+        profit_basis_points: 0,
+        vat_basis_points: 0,
+    })
+    .map(|output| output.total_cents)
+}
+
 fn map_engine_error(message: &'static str) -> IpcError {
     let code = match message {
         "negative percentage" => "NEGATIVE_PERCENTAGE",
@@ -148,38 +166,12 @@ fn map_output(output: EstimateOutput) -> EstimateCalculationOutput {
     }
 }
 
-#[tauri::command]
-pub fn get_app_metadata() -> AppMetadata {
-    app_metadata()
-}
-
-#[tauri::command]
-pub fn calculate_estimate(
-    input: EstimateCalculationInput,
-) -> Result<EstimateCalculationOutput, IpcError> {
-    calculate_estimate_totals(input)
-}
-
-#[tauri::command]
-pub fn calculate_line(quantity_milli: i64, unit_price_cents: i64) -> Result<i64, IpcError> {
-    calculate_estimate_totals(EstimateCalculationInput {
-        lines: vec![EstimateLineInput {
-            quantity_milli,
-            unit_price_cents,
-        }],
-        overhead_basis_points: 0,
-        profit_basis_points: 0,
-        vat_basis_points: 0,
-    })
-    .map(|output| output.total_cents)
-}
-
 pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            get_app_metadata,
-            calculate_estimate,
-            calculate_line
+            commands::get_app_metadata,
+            commands::calculate_estimate,
+            commands::calculate_line
         ])
         .run(tauri::generate_context!())
         .expect("error while running ProSmet desktop");
@@ -228,7 +220,7 @@ mod tests {
 
     #[test]
     fn preserves_the_legacy_calculate_line_command() {
-        let result = calculate_line(1_500, 20_000).expect("line calculation");
+        let result = calculate_line_total(1_500, 20_000).expect("line calculation");
         assert_eq!(result, 30_000);
     }
 
@@ -237,14 +229,18 @@ mod tests {
         let mut percentage = reference_input();
         percentage.vat_basis_points = MAX_BASIS_POINTS + 1;
         assert_eq!(
-            calculate_estimate_totals(percentage).expect_err("percentage must fail").code,
+            calculate_estimate_totals(percentage)
+                .expect_err("percentage must fail")
+                .code,
             "PERCENTAGE_LIMIT_EXCEEDED"
         );
 
         let mut line = reference_input();
         line.lines[0].quantity_milli = -1;
         assert_eq!(
-            calculate_estimate_totals(line).expect_err("negative line must fail").code,
+            calculate_estimate_totals(line)
+                .expect_err("negative line must fail")
+                .code,
             "NEGATIVE_LINE_VALUE"
         );
     }
@@ -264,7 +260,9 @@ mod tests {
             vat_basis_points: 0,
         };
         assert_eq!(
-            calculate_estimate_totals(input).expect_err("line limit must fail").code,
+            calculate_estimate_totals(input)
+                .expect_err("line limit must fail")
+                .code,
             "LINE_LIMIT_EXCEEDED"
         );
     }
