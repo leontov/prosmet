@@ -21,6 +21,11 @@
     "e2e": "npm run e2e -w @prosmet/web",
     "verify": "node scripts/greenfield-contract.mjs && node scripts/assistant-ui-style-contract.mjs && npm run typecheck && npm run test && npm run build",
     "desktop:metadata": "cargo metadata --manifest-path apps/desktop/src-tauri/Cargo.toml --format-version 1 --no-deps",
-    "format:check": "cargo fmt --all --check"
+    "format:check": "cargo fmt --all --check",
+    "lighthouse:landing": "node scripts/run-landing-lighthouse.mjs"
+  },
+  "devDependencies": {
+    "chrome-launcher": "^1.0.0",
+    "lighthouse": "^12.8.2"
   }
 }

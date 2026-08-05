@@ -23,6 +23,11 @@ const required = [
   "apps/web/src/features/account/AccountView.tsx",
   "apps/web/src/features/settings/SettingsView.tsx",
   "apps/web/e2e/fixture-agent.mjs",
+  "apps/web/e2e/landing.spec.ts",
+  "apps/web/src/landing/LandingPage.tsx",
+  "scripts/run-landing-lighthouse.mjs",
+  "apps/web/public/robots.txt",
+  "apps/web/public/sitemap.xml",
   "apps/mobile/App.tsx",
   "apps/mobile/src/MobileNavigation.tsx",
   "apps/mobile/src/agent-session.ts",
@@ -111,6 +116,8 @@ const nativeChat = await read("apps/mobile/src/screens/ChatScreen.tsx");
 const mobileSession = await read("apps/mobile/src/agent-session.ts");
 const playwright = await read("apps/web/playwright.config.ts");
 const e2e = await read("apps/web/e2e/app.spec.ts");
+const landing = await read("apps/web/src/landing/LandingPage.tsx");
+const landingE2e = await read("apps/web/e2e/landing.spec.ts");
 const deployment = await read(".github/workflows/greenfield-deploy.yml");
 const rootRecovery = await read(".github/workflows/public-root-recovery.yml");
 const edge = await read("deployment/ensure-public-edge.sh");
@@ -247,6 +254,23 @@ if (server.includes("CREATE UNIQUE INDEX IF NOT EXISTS idx_workflow_project_iden
 if (!server.includes('stableEntityId("project", ownerId, estimate.id, title, region)')) failures.push("server:project-estimate-bound-identity-missing");
 if (!server.includes("DROP INDEX IF EXISTS idx_workflow_project_identity")) failures.push("server:project-identity-migration-missing");
 
+
+for (const token of [
+  "CREATE TABLE IF NOT EXISTS sales_leads",
+  'url.pathname === "/api/leads"',
+  "leadStore.createLead",
+  "leadStore.leads",
+  "leadStore.removeLead",
+  "consumeLeadRateLimit"
+]) {
+  if (!server.includes(token)) failures.push(`landing:lead-api-contract-missing:${token}`);
+}
+if (!landing.includes('fetch("/api/leads"')) failures.push("landing:lead-form-not-persisted");
+if (!landingE2e.includes('page.request.get("/api/leads?limit=50"')) failures.push("landing:lead-persistence-e2e-missing");
+if (!landingE2e.includes('page.request.delete(`/api/leads/')) failures.push("landing:lead-cleanup-e2e-missing");
+
+
+if (!server.includes("content-encoding") || !server.includes("brotliCompressSync")) failures.push("server:static-compression-missing");
 if (failures.length) {
   console.error(JSON.stringify({ status: "FAIL", failures }, null, 2));
   process.exit(1);

@@ -1,0 +1,6 @@
+.growth-section,
+.growth-final-cta,
+.growth-footer {
+  content-visibility: visible !important;
+  contain-intrinsic-size: none !important;
+}

@@ -20,6 +20,7 @@ import { createInterface } from "node:readline";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { brotliCompressSync, constants as zlibConstants, gzipSync } from "node:zlib";
 
 function nowIso() {
   return new Date().toISOString();
@@ -264,6 +265,92 @@ function createEstimateStore(databasePath) {
   };
 }
 
+
+
+function createLeadStore(databasePath) {
+  const db = new DatabaseSync(databasePath);
+  db.exec("PRAGMA foreign_keys = ON");
+  db.exec("PRAGMA journal_mode = WAL");
+  db.exec("PRAGMA synchronous = NORMAL");
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS sales_leads (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      contact TEXT NOT NULL,
+      company TEXT NOT NULL,
+      source TEXT NOT NULL,
+      status TEXT NOT NULL,
+      user_agent TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_sales_leads_created
+      ON sales_leads(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_sales_leads_status
+      ON sales_leads(status, created_at DESC);
+  `);
+
+  const insertLead = db.prepare(`
+    INSERT INTO sales_leads (
+      id, name, contact, company, source, status, user_agent, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const selectLeads = db.prepare(`
+    SELECT id, name, contact, company, source, status, user_agent, created_at
+      FROM sales_leads
+     ORDER BY created_at DESC
+     LIMIT ?
+  `);
+  const deleteLead = db.prepare("DELETE FROM sales_leads WHERE id = ?");
+
+  function createLead(input) {
+    const lead = {
+      id: randomUUID(),
+      name: input.name,
+      contact: input.contact,
+      company: input.company,
+      source: input.source,
+      status: "new",
+      userAgent: input.userAgent,
+      createdAt: nowIso()
+    };
+    insertLead.run(
+      lead.id,
+      lead.name,
+      lead.contact,
+      lead.company,
+      lead.source,
+      lead.status,
+      lead.userAgent,
+      lead.createdAt
+    );
+    return lead;
+  }
+
+  function leads(limit = 100) {
+    const boundedLimit = Math.min(500, Math.max(1, Math.floor(asNumber(limit, 100))));
+    return selectLeads.all(boundedLimit).map((row) => ({
+      id: String(row.id),
+      name: String(row.name),
+      contact: String(row.contact),
+      company: String(row.company),
+      source: String(row.source),
+      status: String(row.status),
+      userAgent: String(row.user_agent),
+      createdAt: String(row.created_at)
+    }));
+  }
+
+  function removeLead(id) {
+    return Number(deleteLead.run(id).changes) > 0;
+  }
+
+  function close() {
+    db.close();
+  }
+
+  return { close, createLead, leads, removeLead };
+}
 
 function calculateEstimateTotals(estimate) {
   const direct = (estimate?.sections || []).reduce(
@@ -912,6 +999,7 @@ const expectedQwenKeySha256 = process.env.PROSMET_QWEN_KEY_SHA256?.trim() || "";
 const estimateDatabaseFile = process.env.PROSMET_DATABASE_PATH || join(configRoot, "prosmet.sqlite");
 const estimateStore = createEstimateStore(estimateDatabaseFile);
 const workflowStore = createWorkflowStore(estimateDatabaseFile);
+const leadStore = createLeadStore(estimateDatabaseFile);
 const capabilityManifest = {
   vertical: "construction-estimates-ru",
   workflow: ["brief", "technology-card", "price-research", "estimate", "construction-documents"],
@@ -939,6 +1027,9 @@ const capabilityManifest = {
 };
 const publicAgentAccess = process.env.PROSMET_PUBLIC_AGENT_ACCESS === "true";
 const maxBodyBytes = 2 * 1024 * 1024;
+const leadRateWindowMs = 10 * 60 * 1000;
+const leadRateMaxRequests = 5;
+const leadRateLimits = new Map();
 
 const mime = {
   ".html": "text/html; charset=utf-8",
@@ -946,6 +1037,8 @@ const mime = {
   ".css": "text/css; charset=utf-8",
   ".json": "application/json; charset=utf-8",
   ".svg": "image/svg+xml",
+  ".xml": "application/xml; charset=utf-8",
+  ".txt": "text/plain; charset=utf-8",
   ".png": "image/png",
   ".ico": "image/x-icon",
   ".map": "application/json; charset=utf-8"
@@ -1384,6 +1477,41 @@ function optionalString(value, maxLength = 4000) {
   const text = String(value).trim();
   if (!text) return null;
   return text.slice(0, maxLength);
+}
+
+
+function leadClientKey(request) {
+  const forwarded = Array.isArray(request.headers["x-forwarded-for"])
+    ? request.headers["x-forwarded-for"][0]
+    : request.headers["x-forwarded-for"];
+  const address = String(forwarded || request.socket.remoteAddress || "unknown").split(",")[0].trim();
+  const userAgent = String(request.headers["user-agent"] || "unknown").slice(0, 240);
+  return createHash("sha256").update(`${address}\u0000${userAgent}`).digest("hex");
+}
+
+function consumeLeadRateLimit(request) {
+  const now = Date.now();
+  if (leadRateLimits.size > 1000) {
+    for (const [key, value] of leadRateLimits) {
+      if (now - value.startedAt >= leadRateWindowMs) leadRateLimits.delete(key);
+    }
+  }
+  const key = leadClientKey(request);
+  let state = leadRateLimits.get(key);
+  if (!state || now - state.startedAt >= leadRateWindowMs) {
+    state = { count: 0, startedAt: now };
+  }
+  state.count += 1;
+  leadRateLimits.set(key, state);
+  return state.count <= leadRateMaxRequests;
+}
+
+function validLeadContact(value) {
+  const text = String(value || "").trim();
+  if (!text || text.length > 320) return false;
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(text)) return true;
+  const digits = text.replace(/\D/g, "");
+  return digits.length >= 7 && digits.length <= 15;
 }
 
 async function normalizeAgentInput(input, existing = null) {
@@ -2394,6 +2522,58 @@ async function handleApi(request, response, url) {
     return sendJson(response, 200, capabilityManifest);
   }
 
+
+  if (url.pathname === "/api/leads") {
+    if (request.method === "POST") {
+      if (!consumeLeadRateLimit(request)) {
+        return sendError(response, 429, "LEAD_RATE_LIMIT", "Слишком много заявок. Повторите попытку позже.");
+      }
+      const body = await readJsonBody(request);
+      if (optionalString(body.website, 200)) {
+        return sendJson(response, 202, { accepted: true, persisted: false });
+      }
+      const name = optionalString(body.name, 160);
+      const contact = optionalString(body.contact, 320);
+      const company = optionalString(body.company, 320);
+      const source = optionalString(body.source, 80) || "landing-enterprise";
+      if (!name || !contact || !company) {
+        return sendError(response, 400, "LEAD_FIELDS_REQUIRED", "Укажите имя, контакт и компанию.");
+      }
+      if (!validLeadContact(contact)) {
+        return sendError(response, 400, "LEAD_CONTACT_INVALID", "Укажите корректный телефон или email.");
+      }
+      const lead = leadStore.createLead({
+        name,
+        contact,
+        company,
+        source,
+        userAgent: String(request.headers["user-agent"] || "").slice(0, 500)
+      });
+      return sendJson(response, 201, {
+        accepted: true,
+        persisted: true,
+        lead: { id: lead.id, status: lead.status, createdAt: lead.createdAt }
+      });
+    }
+    if (request.method === "GET") {
+      if (!(await requireAdmin(request, response))) return;
+      return sendJson(response, 200, {
+        leads: leadStore.leads(Number(url.searchParams.get("limit") || 100)),
+        persistence: "sqlite"
+      });
+    }
+  }
+
+  const leadRoute = url.pathname.match(/^\/api\/leads\/([^/]+)$/);
+  if (leadRoute && request.method === "DELETE") {
+    if (!(await requireAdmin(request, response))) return;
+    const leadId = decodeURIComponent(leadRoute[1]);
+    if (!leadStore.removeLead(leadId)) {
+      return sendError(response, 404, "LEAD_NOT_FOUND", "Заявка не найдена.");
+    }
+    return sendJson(response, 200, { deleted: true, id: leadId });
+  }
+
   if (request.method === "GET" && url.pathname === "/api/estimates") {
     return sendJson(response, 200, {
       estimates: estimateStore.listEstimates("production"),
@@ -2729,6 +2909,28 @@ async function handleApi(request, response, url) {
   return false;
 }
 
+
+const compressibleStaticExtensions = new Set([".html", ".js", ".css", ".json", ".svg", ".xml", ".txt", ".map"]);
+const staticCompressionCache = new Map();
+
+function compressedStaticPayload(filePath, extension, content, request) {
+  if (!compressibleStaticExtensions.has(extension) || content.byteLength < 1024) {
+    return { body: content, encoding: null };
+  }
+  const accepted = String(request.headers["accept-encoding"] || "").toLowerCase();
+  const encoding = accepted.includes("br") ? "br" : accepted.includes("gzip") ? "gzip" : null;
+  if (!encoding) return { body: content, encoding: null };
+  const cacheKey = `${filePath}:${encoding}`;
+  let body = staticCompressionCache.get(cacheKey);
+  if (!body) {
+    body = encoding === "br"
+      ? brotliCompressSync(content, { params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 5 } })
+      : gzipSync(content, { level: 6 });
+    staticCompressionCache.set(cacheKey, body);
+  }
+  return { body, encoding };
+}
+
 const server = createServer(async (request, response) => {
   const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
 
@@ -2761,16 +2963,22 @@ const server = createServer(async (request, response) => {
     try {
       const content = await readFile(filePath);
       const extension = extname(filePath);
-      response.writeHead(200, {
+      const payload = compressedStaticPayload(filePath, extension, content, request);
+      const headers = {
         "content-type": mime[extension] || "application/octet-stream",
         "cache-control": extension === ".html" ? "no-store" : "public, max-age=31536000, immutable",
         "content-security-policy": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
         "referrer-policy": "strict-origin-when-cross-origin",
         "x-content-type-options": "nosniff",
         "x-frame-options": "DENY"
-      });
+      };
+      if (payload.encoding) {
+        headers["content-encoding"] = payload.encoding;
+        headers.vary = "accept-encoding";
+      }
+      response.writeHead(200, headers);
       if (request.method === "HEAD") return response.end();
-      response.end(content);
+      response.end(payload.body);
     } catch {
       response.writeHead(404);
       response.end("Not found");
@@ -2819,6 +3027,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
     for (const { client } of codexClients.values()) client.close();
     estimateStore.close();
     workflowStore.close();
+    leadStore.close();
     server.close(() => process.exit(0));
   });
 }
