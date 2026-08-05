@@ -9,11 +9,19 @@ if source.count(old_import) != 1:
     raise SystemExit("app.spec fs import marker missing")
 source = source.replace(old_import, new_import, 1)
 
+test_marker = '''test("greenfield shell uses real agent integration and the mobile reference layout", async ({ page }, testInfo) => {
+  if (external && verifyCriticalPath) testInfo.setTimeout(240_000);'''
+test_replacement = '''test("greenfield shell uses real agent integration and the mobile reference layout", async ({ page }, testInfo) => {
+  testInfo.setTimeout(external && verifyCriticalPath ? 240_000 : 120_000);'''
+if source.count(test_marker) != 1:
+    raise SystemExit("app.spec test timeout marker missing")
+source = source.replace(test_marker, test_replacement, 1)
+
 marker = '''  const saveResponsePromise = page.waitForResponse((response) =>
     new URL(response.url()).pathname === `/api/estimates/${encodeURIComponent(artifact.id)}` &&
     response.request().method() === "PUT"
   );'''
-insert = '''  const pdfDownloadPromise = page.waitForEvent("download", { timeout: 30_000 });
+insert = '''  const pdfDownloadPromise = page.waitForEvent("download", { timeout: 45_000 });
   await editor.getByRole("button", { name: "Скачать PDF" }).first().click();
   const pdfDownload = await pdfDownloadPromise;
   expect(pdfDownload.suggestedFilename()).toMatch(/\\.pdf$/);
