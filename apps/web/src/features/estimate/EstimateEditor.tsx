@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Estimate, EstimateItem } from "@prosmet/contracts";
 import {
   ArrowLeftIcon,
@@ -189,6 +189,52 @@ function DesktopEditor(props: EditorProps) {
   );
 }
 
+function resizeTextarea(field: HTMLTextAreaElement | null) {
+  if (!field) return;
+  field.style.maxHeight = "none";
+  field.style.height = "0px";
+  field.style.height = `${field.scrollHeight}px`;
+}
+
+function AutoResizeTextarea({
+  id,
+  name,
+  ariaLabel,
+  value,
+  onChange
+}: {
+  id: string;
+  name: string;
+  ariaLabel: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const fieldRef = useRef<HTMLTextAreaElement>(null);
+
+  useLayoutEffect(() => {
+    const field = fieldRef.current;
+    resizeTextarea(field);
+    const frame = window.requestAnimationFrame(() => resizeTextarea(field));
+    return () => window.cancelAnimationFrame(frame);
+  }, [value]);
+
+  return (
+    <textarea
+      ref={fieldRef}
+      id={id}
+      name={name}
+      aria-label={ariaLabel}
+      rows={1}
+      value={value}
+      onChange={(event) => {
+        const field = event.currentTarget;
+        onChange(field.value);
+        resizeTextarea(field);
+      }}
+    />
+  );
+}
+
 function MobileEditor(props: EditorProps) {
   const { estimate, calculation, onChange, updateItem, removeItem, addItem, onClose, onSave, onApprove, onDeliver } = props;
   return (
@@ -224,13 +270,12 @@ function MobileEditor(props: EditorProps) {
                 <article key={item.id} className="mobile-estimate-item">
                   <div className="mobile-item-head">
                     <span>{index + 1}</span>
-                    <textarea
+                    <AutoResizeTextarea
                       id={`mobile-name-${item.id}`}
                       name={`mobile-name-${item.id}`}
-                      aria-label={`Название позиции ${index + 1}`}
-                      rows={2}
+                      ariaLabel={`Название позиции ${index + 1}`}
                       value={item.name}
-                      onChange={(event) => updateItem(section.id, item.id, { name: event.target.value })}
+                      onChange={(value) => updateItem(section.id, item.id, { name: value })}
                     />
                     <button type="button" onClick={() => removeItem(section.id, item.id)} aria-label={`Удалить ${item.name}`}><Trash2Icon /></button>
                   </div>
