@@ -1,0 +1,285 @@
+name: ProSmet Exact Main Web Deploy
+
+on:
+  push:
+    branches: [fix/public-root-404-v2]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: prosmet-exact-main-web-deploy
+  cancel-in-progress: true
+
+env:
+  CI: "true"
+  EXPECTED_RELEASE_SHA: aee966c356377be3d2e676679912bd705907c1ae
+  PRODUCTION_ORIGIN: https://kolibriai.online
+
+jobs:
+  deploy:
+    name: Build and install exact main on Primary
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 80
+    steps:
+      - name: Verify trusted runner
+        run: |
+          set -Eeuo pipefail
+          test "${{ runner.name }}" = "prosmet-primary"
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: fix/public-root-404-v2
+          fetch-depth: 0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.16.0
+
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c
+        with:
+          toolchain: 1.97.1
+          components: rustfmt
+
+      - name: Select immutable current main revision
+        id: release
+        run: |
+          set -Eeuo pipefail
+          git fetch --no-tags origin main
+          RELEASE_SHA="$(git rev-parse origin/main)"
+          test "$RELEASE_SHA" = "$EXPECTED_RELEASE_SHA"
+          git checkout --force "$RELEASE_SHA"
+          git clean -ffdx
+          test "$(git rev-parse HEAD)" = "$EXPECTED_RELEASE_SHA"
+          RELEASE_DIR="$HOME/.prosmet-greenfield/releases/${RELEASE_SHA}-${GITHUB_RUN_ID}"
+          CONFIG_ROOT="$HOME/.prosmet-greenfield/config"
+          printf 'RELEASE_SHA=%s\n' "$RELEASE_SHA" >> "$GITHUB_ENV"
+          printf 'RELEASE_DIR=%s\n' "$RELEASE_DIR" >> "$GITHUB_ENV"
+          printf 'CONFIG_ROOT=%s\n' "$CONFIG_ROOT" >> "$GITHUB_ENV"
+          printf 'sha=%s\n' "$RELEASE_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Install and verify exact source
+        run: |
+          set -Eeuo pipefail
+          npm ci --workspaces --include-workspace-root --legacy-peer-deps --no-audit --no-fund
+          npm run verify
+          npm run desktop:metadata
+          npx playwright install chromium
+          npm run e2e
+
+      - name: Install immutable web release
+        run: |
+          set -Eeuo pipefail
+          rm -rf "$RELEASE_DIR"
+          mkdir -p "$RELEASE_DIR"
+          cp -a apps/web/dist "$RELEASE_DIR/dist"
+          cp apps/web/server.mjs "$RELEASE_DIR/server.mjs"
+          cp deployment/ensure-public-edge.sh "$RELEASE_DIR/ensure-public-edge.sh"
+          chmod 0755 "$RELEASE_DIR/ensure-public-edge.sh"
+          printf '%s\n' "$RELEASE_SHA" > "$RELEASE_DIR/SHA"
+          cat > "$RELEASE_DIR/release.json" <<EOF
+          {"releaseSha":"$RELEASE_SHA","repository":"${{ github.repository }}","runId":"${{ github.run_id }}","exactMain":true,"webVisualRelease":true}
+          EOF
+          test -s "$RELEASE_DIR/dist/index.html"
+          grep -Fq '<div id="root"></div>' "$RELEASE_DIR/dist/index.html"
+
+      - name: Atomically switch persistent service on port 3200
+        run: |
+          set -Eeuo pipefail
+          if command -v fuser >/dev/null 2>&1; then fuser -k 3200/tcp || true; fi
+          if command -v lsof >/dev/null 2>&1; then
+            PIDS="$(lsof -tiTCP:3200 -sTCP:LISTEN || true)"
+            if [ -n "$PIDS" ]; then kill $PIDS || true; fi
+          fi
+          sleep 1
+          mkdir -p "$HOME/.prosmet-greenfield" "$CONFIG_ROOT"
+          chmod 700 "$HOME/.prosmet-greenfield" "$CONFIG_ROOT"
+          cd "$RELEASE_DIR"
+          nohup env -u RUNNER_TRACKING_ID \
+            PORT=3200 \
+            PROSMET_RELEASE_SHA="$RELEASE_SHA" \
+            PROSMET_CONFIG_DIR="$CONFIG_ROOT" \
+            PROSMET_PUBLIC_AGENT_ACCESS=true \
+            node server.mjs \
+            </dev/null > "$HOME/.prosmet-greenfield/production.log" 2>&1 &
+          PID=$!
+          disown "$PID" 2>/dev/null || true
+          printf '%s\n' "$PID" > "$HOME/.prosmet-greenfield/production.pid"
+          sleep 2
+          kill -0 "$PID"
+          if tr '\0' '\n' < "/proc/$PID/environ" | grep -q '^RUNNER_TRACKING_ID='; then
+            echo "Persistent process still contains RUNNER_TRACKING_ID" >&2
+            exit 1
+          fi
+          ln -sfn "$RELEASE_DIR" "$HOME/.prosmet-greenfield/current.next"
+          mv -Tf "$HOME/.prosmet-greenfield/current.next" "$HOME/.prosmet-greenfield/current"
+
+      - name: Verify local release and reconcile HTTPS edge
+        run: |
+          set -Eeuo pipefail
+          for attempt in $(seq 1 60); do
+            ROOT_STATUS="$(curl --silent --show-error --output local-root.html --dump-header local-root-headers.txt --write-out '%{http_code}' http://127.0.0.1:3200/ || true)"
+            HEALTH_STATUS="$(curl --silent --show-error --output local-health.json --dump-header local-health-headers.txt --write-out '%{http_code}' http://127.0.0.1:3200/api/health || true)"
+            if [ "$ROOT_STATUS" = "200" ] && [ "$HEALTH_STATUS" = "200" ] \
+              && grep -Fq '<div id="root"></div>' local-root.html \
+              && grep -q "$RELEASE_SHA" local-health.json \
+              && grep -q '"ui":"greenfield"' local-health.json; then
+              break
+            fi
+            if [ "$attempt" = "60" ]; then
+              cat "$HOME/.prosmet-greenfield/production.log" || true
+              exit 1
+            fi
+            sleep 1
+          done
+          PROSMET_EXPECTED_RELEASE_SHA="$RELEASE_SHA" \
+            bash "$RELEASE_DIR/ensure-public-edge.sh" kolibriai.online 3200
+          cp "$HOME/.prosmet/caddy/status.json" edge-status.json
+          cp "$HOME/.prosmet/caddy/edge-diagnostics.txt" edge-diagnostics.txt 2>/dev/null || true
+
+      - name: Verify public HTTPS and post-cleanup-safe process
+        run: |
+          set -Eeuo pipefail
+          for attempt in $(seq 1 60); do
+            PUBLIC_ROOT_STATUS="$(curl --silent --show-error --output public-root.html --dump-header public-root-headers.txt --write-out '%{http_code}' "$PRODUCTION_ORIGIN/" || true)"
+            PUBLIC_HEALTH_STATUS="$(curl --silent --show-error --output public-health.json --dump-header public-health-headers.txt --write-out '%{http_code}' "$PRODUCTION_ORIGIN/api/health" || true)"
+            if [ "$PUBLIC_ROOT_STATUS" = "200" ] && [ "$PUBLIC_HEALTH_STATUS" = "200" ] \
+              && grep -Fq '<div id="root"></div>' public-root.html \
+              && grep -q "$RELEASE_SHA" public-health.json \
+              && grep -q '"ui":"greenfield"' public-health.json; then
+              exit 0
+            fi
+            sleep 2
+          done
+          cat public-root-headers.txt public-health-headers.txt public-health.json || true
+          exit 1
+
+      - name: Upload Primary deployment evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: prosmet-exact-main-primary-${{ github.run_id }}
+          path: |
+            local-root.html
+            local-root-headers.txt
+            local-health.json
+            local-health-headers.txt
+            public-root.html
+            public-root-headers.txt
+            public-health.json
+            public-health-headers.txt
+            edge-status.json
+            edge-diagnostics.txt
+            apps/web/playwright-report
+            apps/web/test-results
+            apps/web/artifacts-*.png
+          if-no-files-found: warn
+          retention-days: 30
+
+  external:
+    name: Verify exact release from external hosted runner
+    needs: deploy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ env.EXPECTED_RELEASE_SHA }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.16.0
+
+      - name: Verify every resolved IPv4 and exact health SHA
+        run: |
+          set -Eeuo pipefail
+          getent ahostsv4 kolibriai.online | tee external-dns-v4.txt
+          mapfile -t ADDRESSES < <(awk '{print $1}' external-dns-v4.txt | sort -u)
+          test "${#ADDRESSES[@]}" -gt 0
+          for address in "${ADDRESSES[@]}"; do
+            safe="${address//./-}"
+            curl --fail --silent --show-error --retry 8 --retry-delay 3 --retry-all-errors \
+              --resolve "kolibriai.online:443:${address}" \
+              "$PRODUCTION_ORIGIN/" > "external-root-${safe}.html"
+            grep -Fq '<div id="root"></div>' "external-root-${safe}.html"
+            curl --fail --silent --show-error --retry 8 --retry-delay 3 --retry-all-errors \
+              --resolve "kolibriai.online:443:${address}" \
+              "$PRODUCTION_ORIGIN/api/health" > "external-health-${safe}.json"
+            grep -q "$EXPECTED_RELEASE_SHA" "external-health-${safe}.json"
+            grep -q '"ui":"greenfield"' "external-health-${safe}.json"
+          done
+
+      - name: Run external desktop and mobile browser acceptance
+        env:
+          PROSMET_BASE_URL: https://kolibriai.online
+          PROSMET_CRITICAL_PATH: "false"
+        run: |
+          set -Eeuo pipefail
+          npm ci --workspaces --include-workspace-root --legacy-peer-deps --no-audit --no-fund
+          npx playwright install --with-deps chromium
+          npm run e2e
+
+      - name: Delayed persistence probe
+        run: |
+          set -Eeuo pipefail
+          sleep 30
+          curl --fail --silent --show-error --retry 8 --retry-delay 3 --retry-all-errors \
+            "$PRODUCTION_ORIGIN/api/health" > external-health-delayed.json
+          grep -q "$EXPECTED_RELEASE_SHA" external-health-delayed.json
+          grep -q '"ui":"greenfield"' external-health-delayed.json
+          curl --fail --silent --show-error "$PRODUCTION_ORIGIN/" > external-root-delayed.html
+          grep -Fq '<div id="root"></div>' external-root-delayed.html
+
+      - name: Upload external evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: prosmet-exact-main-external-${{ github.run_id }}
+          path: |
+            external-dns-v4.txt
+            external-root-*.html
+            external-health-*.json
+            apps/web/playwright-report
+            apps/web/test-results
+            apps/web/artifacts-*.png
+          if-no-files-found: warn
+          retention-days: 30
+
+  publish:
+    name: Publish immutable deployment result
+    if: always()
+    needs: [deploy, external]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Write exact-SHA result to production ledger
+        uses: actions/github-script@60a0d83039c74a4aee543508d2ffcb1c3799cdea
+        env:
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+          EXTERNAL_RESULT: ${{ needs.external.result }}
+          RELEASE_SHA: ${{ env.EXPECTED_RELEASE_SHA }}
+        with:
+          script: |
+            const passed = process.env.DEPLOY_RESULT === "success" && process.env.EXTERNAL_RESULT === "success";
+            const status = passed ? "✅ EXACT-MAIN WEB DEPLOY PASS" : "❌ EXACT-MAIN WEB DEPLOY FAIL";
+            const body = [
+              `## ${status}`,
+              "",
+              `- Release SHA: \`${process.env.RELEASE_SHA}\``,
+              `- Workflow run: https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              `- Primary deployment: \`${process.env.DEPLOY_RESULT}\``,
+              `- External acceptance: \`${process.env.EXTERNAL_RESULT}\``,
+              `- Public service: https://kolibriai.online`,
+              `- Health endpoint: https://kolibriai.online/api/health`,
+              "",
+              passed
+                ? "The exact current main web release is installed on Primary, exposed through the canonical HTTPS edge, verified on every public IPv4, checked in desktop/mobile Chromium, and confirmed after a delayed persistence probe."
+                : "The exact-main deployment was not accepted. Inspect the linked workflow before treating this SHA as online."
+            ].join("\n");
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: 53,
+              body
+            });
