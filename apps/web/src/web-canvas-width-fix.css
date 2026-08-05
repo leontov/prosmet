@@ -1,0 +1,8 @@
+@media (min-width: 1181px) {
+  .pro-workspace-frame.has-canvas {
+    grid-template-columns:
+      minmax(0, 1fr)
+      5px
+      min(var(--prosmet-canvas-width), calc(100vw - 620px));
+  }
+}
