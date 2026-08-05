@@ -27,7 +27,7 @@ if notes_target not in source:
 source = source.replace(notes_target, notes_fixed, 1)
 source = source.replace("toBeGreaterThan(440);", "toBeGreaterThan(420);", 1)
 contract_marker = "\n# Source contract protects the new architecture.\n"
-extra = r'''
+extra = r"""
 replace_once(
     e2e,
     '''  page.on("requestfailed", (request) => violations.push(`requestfailed:${request.url()}:${request.failure()?.errorText ?? "unknown"}`));''',
@@ -46,7 +46,7 @@ ui_surfaces.write_text(
     ui_source.replace(workflow_locator, 'page.getByRole("region", { name: "Процесс проекта" })', 2),
     encoding="utf-8"
 )
-'''
+"""
 if contract_marker not in source:
     raise SystemExit("source contract insertion marker not found")
 source = source.replace(contract_marker, "\n" + extra + contract_marker, 1)
