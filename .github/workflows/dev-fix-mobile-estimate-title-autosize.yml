@@ -1,0 +1,165 @@
+name: Prosmet Dev Fix Mobile Estimate Title Autosize
+
+on:
+  push:
+    branches: [fix/mobile-estimate-title-autosize]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: prosmet-dev-fix-mobile-estimate-title-autosize
+  cancel-in-progress: true
+
+jobs:
+  apply:
+    if: github.event.head_commit.message == 'chore(ci): run mobile estimate title autosize'
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 55
+    env:
+      CI: "1"
+    steps:
+      - name: Verify trusted runner
+        run: test "${{ runner.name }}" = "prosmet-primary"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/mobile-estimate-title-autosize
+          fetch-depth: 0
+          token: ${{ github.token }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+
+      - name: Apply autosizing title field and deterministic regression
+        run: |
+          set -Eeuo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: Path, old: str, new: str) -> None:
+              source = path.read_text(encoding="utf-8")
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f"{path}: expected one replacement target, found {count}")
+              path.write_text(source.replace(old, new), encoding="utf-8")
+
+          editor = Path("apps/web/src/features/estimate/EstimateEditor.tsx")
+          replace_once(
+              editor,
+              'import { useMemo, useState } from "react";',
+              'import { useLayoutEffect, useMemo, useRef, useState } from "react";'
+          )
+
+          component = '''function AutoResizeTextarea({
+            id,
+            name,
+            ariaLabel,
+            value,
+            onChange
+          }: {
+            id: string;
+            name: string;
+            ariaLabel: string;
+            value: string;
+            onChange: (value: string) => void;
+          }) {
+            const fieldRef = useRef<HTMLTextAreaElement>(null);
+
+            useLayoutEffect(() => {
+              const field = fieldRef.current;
+              if (!field) return;
+              field.style.height = "auto";
+              field.style.height = `${field.scrollHeight}px`;
+            }, [value]);
+
+            return (
+              <textarea
+                ref={fieldRef}
+                id={id}
+                name={name}
+                aria-label={ariaLabel}
+                rows={1}
+                value={value}
+                onChange={(event) => {
+                  const field = event.currentTarget;
+                  onChange(field.value);
+                  field.style.height = "auto";
+                  field.style.height = `${field.scrollHeight}px`;
+                }}
+              />
+            );
+          }
+
+          '''
+          replace_once(
+              editor,
+              "function MobileEditor(props: EditorProps) {",
+              component + "function MobileEditor(props: EditorProps) {"
+          )
+
+          old_textarea = '''                    <textarea
+                      id={`mobile-name-${item.id}`}
+                      name={`mobile-name-${item.id}`}
+                      aria-label={`Название позиции ${index + 1}`}
+                      rows={2}
+                      value={item.name}
+                      onChange={(event) => updateItem(section.id, item.id, { name: event.target.value })}
+                    />'''
+          new_textarea = '''                    <AutoResizeTextarea
+                      id={`mobile-name-${item.id}`}
+                      name={`mobile-name-${item.id}`}
+                      ariaLabel={`Название позиции ${index + 1}`}
+                      value={item.name}
+                      onChange={(value) => updateItem(section.id, item.id, { name: value })}
+                    />'''
+          replace_once(editor, old_textarea, new_textarea)
+
+          styles = Path("apps/web/src/styles.css")
+          old_style = '''  .mobile-item-head > input { width: 100%; min-height: 44px; border: 0; background: transparent; padding: 2px 0 0; color: var(--text); font-size: 16px; font-weight: 700; line-height: 1.35; outline: 0; }'''
+          new_style = '''  .mobile-item-head > input { width: 100%; min-height: 44px; border: 0; background: transparent; padding: 2px 0 0; color: var(--text); font-size: 16px; font-weight: 700; line-height: 1.35; outline: 0; }
+  .mobile-item-head > textarea { width: 100%; min-height: 44px; display: block; overflow: hidden; resize: none; border: 0; background: transparent; padding: 2px 0 0; color: var(--text); font-size: 16px; font-weight: 700; line-height: 1.35; outline: 0; }'''
+          replace_once(styles, old_style, new_style)
+
+          e2e = Path("apps/web/e2e/app.spec.ts")
+          old_test = '''    const titleField = card.locator("textarea").first();
+    const titleGeometry = await titleField.evaluate((element) => ({'''
+          new_test = '''    const titleField = card.locator("textarea").first();
+    if (!external) {
+      const longMobileItemName = "Механизированная штукатурка стен по маякам гипсовым составом с подготовкой основания и устройством защитных углов";
+      const titleEditResponsePromise = page.waitForResponse((response) =>
+        new URL(response.url()).pathname === `/api/estimates/${encodeURIComponent(artifact.id)}` &&
+        response.request().method() === "PUT"
+      );
+      await titleField.fill(longMobileItemName);
+      const titleEditResponse = await titleEditResponsePromise;
+      expect(titleEditResponse.ok(), await titleEditResponse.text()).toBeTruthy();
+      await expect(titleField).toHaveValue(longMobileItemName);
+    }
+    const titleGeometry = await titleField.evaluate((element) => ({'''
+          replace_once(e2e, old_test, new_test)
+          PY
+
+      - name: Verify complete source and browser suite
+        run: |
+          set -Eeuo pipefail
+          npm ci --workspaces --include-workspace-root --legacy-peer-deps --no-audit --no-fund
+          npm run verify
+          npm run desktop:metadata
+          npx playwright install chromium
+          npm run e2e
+
+      - name: Commit verified production fix
+        run: |
+          set -Eeuo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/web/src/features/estimate/EstimateEditor.tsx apps/web/src/styles.css apps/web/e2e/app.spec.ts
+          git diff --cached --quiet && exit 0
+          git commit -m "fix(mobile): grow estimate item titles without clipping"
+          git push origin HEAD:fix/mobile-estimate-title-autosize
