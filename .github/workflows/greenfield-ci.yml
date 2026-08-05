@@ -7,120 +7,16 @@ on:
     branches: [greenfield/prosmet-v3]
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: prosmet-mobile-polish-registration-export-${{ github.ref }}
+  group: prosmet-greenfield-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  apply_real_pdf_auth_polish:
-    if: >-
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.head.ref == 'feature/mobile-polish-registration-export-v1'
-    runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 80
-    env:
-      CI: "1"
-    steps:
-      - name: Verify trusted runner
-        run: test "${{ runner.name }}" = "prosmet-primary"
-
-      - uses: actions/checkout@v4
-        with:
-          ref: feature/mobile-polish-registration-export-v1
-          fetch-depth: 0
-          token: ${{ github.token }}
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.16.0
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-
-      - name: Apply real PDF, auth session and regression patches
-        run: |
-          set -Eeuo pipefail
-          python3 scripts/patch-editor-real-pdf.py
-          python3 scripts/patch-user-auth.py
-          python3 scripts/patch-contract-auth-pdf.py
-          python3 scripts/patch-export-e2e.py
-          rm -f \
-            scripts/patch-editor-real-pdf.py \
-            scripts/patch-user-auth.py \
-            scripts/patch-contract-auth-pdf.py \
-            scripts/patch-export-e2e.py
-          git rm -f --ignore-unmatch docs/qa/mobile-polish-registration-export-v*.md
-          npm install --package-lock-only --workspaces --include-workspace-root \
-            --legacy-peer-deps --ignore-scripts --no-audit --no-fund
-          git show origin/main:.github/workflows/greenfield-ci.yml > .github/workflows/greenfield-ci.yml
-
-      - name: Verify source, real file downloads and full product
-        run: |
-          set -Eeuo pipefail
-          npm ci --workspaces --include-workspace-root --legacy-peer-deps --no-audit --no-fund
-          npm run verify
-          npm run desktop:metadata
-          npx playwright install chromium
-          npm run e2e
-          npm run lighthouse:landing
-
-      - name: Upload browser, export and performance evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: prosmet-real-pdf-auth-polish-${{ github.run_id }}
-          path: |
-            apps/web/playwright-report
-            apps/web/test-results
-            apps/web/artifacts-*.png
-            apps/web/lighthouse
-          if-no-files-found: warn
-          retention-days: 14
-
-      - name: Commit verified production source and canonical CI
-        run: |
-          set -Eeuo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            .github/workflows/greenfield-ci.yml \
-            package-lock.json \
-            apps/web/package.json \
-            apps/web/server.mjs \
-            apps/web/e2e/app.spec.ts \
-            apps/web/e2e/registration-export.spec.ts \
-            apps/web/e2e/registration-session.spec.ts \
-            apps/web/e2e/registration-ui.spec.ts \
-            apps/web/src/app/AppEntry.tsx \
-            apps/web/src/features/account/AccountView.tsx \
-            apps/web/src/features/account/UserRegistrationPanel.tsx \
-            apps/web/src/features/estimate/EstimateEditor.tsx \
-            apps/web/src/features/estimate/branded-export.ts \
-            apps/web/src/features/estimate/branded-export.test.ts \
-            apps/web/src/features/estimate/branded-pdf.ts \
-            apps/web/src/mobile-brand-polish.css \
-            apps/web/src/types/pdfmake-build.d.ts \
-            scripts/greenfield-contract.mjs \
-            docs/qa/mobile-polish-registration-export.md
-          git add -u -- \
-            scripts/patch-editor-real-pdf.py \
-            scripts/patch-user-auth.py \
-            scripts/patch-contract-auth-pdf.py \
-            scripts/patch-export-e2e.py \
-            docs/qa
-          git diff --cached --quiet && exit 0
-          git commit -m "feat: ship real PDF exports, user sessions and mobile polish"
-          git push origin HEAD:feature/mobile-polish-registration-export-v1
-
   verify:
-    if: >-
-      github.event_name != 'pull_request' ||
-      github.event.pull_request.head.ref != 'feature/mobile-polish-registration-export-v1'
     runs-on: [self-hosted, Linux, X64]
-    timeout-minutes: 60
+    timeout-minutes: 55
     env:
       CI: "1"
     steps:
@@ -151,7 +47,7 @@ jobs:
       - name: Install Chromium
         run: npx playwright install chromium
 
-      - name: Desktop, mobile, exports, registration, landing and lifecycle acceptance
+      - name: Desktop, mobile, landing and lifecycle browser acceptance
         run: npm run e2e
 
       - name: Landing Lighthouse and bundle budgets

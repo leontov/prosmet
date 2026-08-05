@@ -17,8 +17,12 @@ const required = [
   "apps/web/src/agent-integrations.css",
   "apps/web/src/mobile-brand-polish.css",
   "apps/web/src/features/estimate/branded-export.ts",
+  "apps/web/src/features/estimate/branded-pdf.ts",
+  "apps/web/src/types/pdfmake-build.d.ts",
   "apps/web/src/features/account/UserRegistrationPanel.tsx",
   "apps/web/e2e/registration-export.spec.ts",
+  "apps/web/e2e/registration-session.spec.ts",
+  "apps/web/e2e/registration-ui.spec.ts",
   "apps/web/src/workspace-real.css",
   "apps/web/src/features/agents/agent-api.ts",
   "apps/web/src/features/chat/ChatSurface.tsx",
@@ -275,9 +279,22 @@ if (!landingE2e.includes('page.request.delete(`/api/leads/')) failures.push("lan
 
 
 if (!server.includes("content-encoding") || !server.includes("brotliCompressSync")) failures.push("server:static-compression-missing");
-for (const token of ["CREATE TABLE IF NOT EXISTS registered_users", 'url.pathname === "/api/register"', 'url.pathname === "/api/users"', "hashRegisteredPassword", "scryptSync"]) { if (!server.includes(token)) failures.push(`registration:server-contract-missing:${token}`); }
+for (const token of [
+  "CREATE TABLE IF NOT EXISTS registered_users",
+  'url.pathname === "/api/register"',
+  'url.pathname === "/api/users"',
+  'url.pathname === "/api/auth/login"',
+  'url.pathname === "/api/auth/session"',
+  'url.pathname === "/api/auth/logout"',
+  "hashRegisteredPassword",
+  "verifyRegisteredPassword",
+  "createUserSession",
+  "scryptSync"
+]) {
+  if (!server.includes(token)) failures.push(`registration:server-contract-missing:${token}`);
+}
 if (!webAccount.includes("UserRegistrationPanel")) failures.push("registration:account-ui-missing");
-if (!webEstimate.includes("buildBrandedPrintHtml") || !webEstimate.includes("buildBrandedExcelHtml")) failures.push("exports:branded-pdf-excel-missing");
+if (!webEstimate.includes("downloadBrandedPdf") || !webEstimate.includes("buildBrandedExcelHtml")) failures.push("exports:branded-pdf-excel-missing");
 
 if (failures.length) {
   console.error(JSON.stringify({ status: "FAIL", failures }, null, 2));
@@ -292,7 +309,7 @@ console.log(JSON.stringify({
   desktop: "new Codex/GPT-like shell",
   mobile: "independent native UX without persistent bottom navigation",
   mobileNavigation: "on-demand drawer",
-  editor: "working local workspace with print, Excel and system sharing",
+  editor: "working local workspace with real PDF, Excel and system sharing",
   accountAndSettings: "persisted server profile and real agent control plane",
   agentAdapters: ["OpenAI-compatible", "Ollama", "Codex App Server", "HTTP agent"],
   secrets: "AES-256-GCM server storage and mobile SecureStore",
