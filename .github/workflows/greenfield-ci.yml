@@ -7,96 +7,14 @@ on:
     branches: [greenfield/prosmet-v3]
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: prosmet-greenfield-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  apply_mobile_user_session:
-    if: >-
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.head.ref == 'feature/mobile-user-session-v1'
-    runs-on: ubuntu-latest
-    timeout-minutes: 70
-    env:
-      CI: "1"
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: feature/mobile-user-session-v1
-          fetch-depth: 0
-          token: ${{ github.token }}
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.16.0
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-
-      - name: Apply contracts, scripts and mobile test dependencies
-        run: |
-          set -Eeuo pipefail
-          node scripts/apply-mobile-user-session-v1.mjs
-          npm install -w @prosmet/mobile \
-            --save-dev --package-lock-only \
-            vitest@4.1.10 @vitest/coverage-v8@4.1.10 \
-            --ignore-scripts --legacy-peer-deps --no-audit --no-fund
-
-      - name: Verify source, mobile tests, browser and performance gates
-        run: |
-          set -Eeuo pipefail
-          npm ci --workspaces --include-workspace-root --legacy-peer-deps --no-audit --no-fund
-          npm run verify
-          npm run desktop:metadata
-          npx playwright install --with-deps chromium
-          npm run e2e
-          npm run lighthouse:landing
-
-      - name: Upload mobile session evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: prosmet-mobile-user-session-${{ github.run_id }}
-          path: |
-            apps/web/playwright-report
-            apps/web/test-results
-            apps/web/artifacts-*.png
-            apps/web/lighthouse
-          if-no-files-found: warn
-          retention-days: 14
-
-      - name: Commit verified canonical tree
-        run: |
-          set -Eeuo pipefail
-          git fetch origin main
-          git show origin/main:.github/workflows/greenfield-ci.yml > .github/workflows/greenfield-ci.yml
-          git rm -f scripts/apply-mobile-user-session-v1.mjs
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            .github/workflows/greenfield-ci.yml \
-            package.json \
-            package-lock.json \
-            apps/mobile/package.json \
-            apps/mobile/src/application/user-session.ts \
-            apps/mobile/src/application/user-session.test.ts \
-            apps/mobile/src/domain/user-session.ts \
-            apps/mobile/src/domain/user-session.test.ts \
-            apps/mobile/src/screens/AccountScreen.tsx \
-            packages/contracts/src/index.ts \
-            scripts/greenfield-contract.mjs
-          git diff --cached --quiet && exit 0
-          git commit -m "feat(mobile): add registration login and session restore"
-          git push origin HEAD:feature/mobile-user-session-v1
-
   verify:
-    if: >-
-      github.event_name != 'pull_request' ||
-      github.event.pull_request.head.ref != 'feature/mobile-user-session-v1'
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 55
     env:

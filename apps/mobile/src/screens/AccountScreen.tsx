@@ -349,7 +349,7 @@ export function AccountScreen() {
   );
 }
 
-function AuthField({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {
+function AuthField({ label, error, children }: { label: string; error?: string | undefined; children: React.ReactNode }) {
   return (
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
@@ -412,7 +412,7 @@ function Row({ label, value, mono = false }: { label: string; value: string; mon
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: theme.canvas },
   content: { paddingHorizontal: 16, paddingTop: 20, paddingBottom: 72 },
-  title: { color: theme.text, fontSize: 30, fontWeight: "750", letterSpacing: -1.1 },
+  title: { color: theme.text, fontSize: 30, fontWeight: "700", letterSpacing: -1.1 },
   subtitle: { marginTop: 7, color: theme.muted, fontSize: 15, lineHeight: 22 },
   loader: { marginTop: 28 },
   info: { marginTop: 16, borderRadius: 14, backgroundColor: "#f3f6fa", padding: 12 },
@@ -425,40 +425,40 @@ const styles = StyleSheet.create({
   avatar: { width: 52, height: 52, alignItems: "center", justifyContent: "center", borderRadius: 18, backgroundColor: "#0a84ff" },
   avatarText: { color: "white", fontSize: 16, fontWeight: "800" },
   sessionCopy: { flex: 1, minWidth: 0 },
-  sessionName: { color: theme.text, fontSize: 17, fontWeight: "750" },
+  sessionName: { color: theme.text, fontSize: 17, fontWeight: "700" },
   sessionEmail: { marginTop: 3, color: theme.muted, fontSize: 12 },
-  sessionCompany: { marginTop: 4, color: "#0a6c54", fontSize: 12, fontWeight: "650" },
+  sessionCompany: { marginTop: 4, color: "#0a6c54", fontSize: 12, fontWeight: "600" },
   logoutButton: { minWidth: 66, minHeight: 44, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: theme.border, borderRadius: 13, backgroundColor: "white", paddingHorizontal: 10 },
-  logoutButtonText: { color: theme.text, fontSize: 12, fontWeight: "750" },
+  logoutButtonText: { color: theme.text, fontSize: 12, fontWeight: "700" },
   authCard: { marginTop: 22, borderWidth: 1, borderColor: "rgba(10,132,255,.16)", borderRadius: 22, backgroundColor: "#f8fbff", padding: 16 },
   modeSwitch: { flexDirection: "row", borderRadius: 14, backgroundColor: "#e9eef5", padding: 3 },
   modeButton: { flex: 1, minHeight: 42, alignItems: "center", justifyContent: "center", borderRadius: 11 },
   modeButtonActive: { backgroundColor: "white", shadowColor: "#000", shadowOpacity: 0.08, shadowRadius: 8, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
   modeButtonText: { color: theme.muted, fontSize: 13, fontWeight: "700" },
   modeButtonTextActive: { color: theme.text },
-  authTitle: { marginTop: 20, color: theme.text, fontSize: 22, fontWeight: "780", letterSpacing: -0.6 },
+  authTitle: { marginTop: 20, color: theme.text, fontSize: 22, fontWeight: "800", letterSpacing: -0.6 },
   authDescription: { marginTop: 7, color: theme.muted, fontSize: 13, lineHeight: 19 },
   field: { marginTop: 13 },
-  fieldLabel: { marginBottom: 6, color: theme.muted, fontSize: 11, fontWeight: "750", textTransform: "uppercase", letterSpacing: 0.45 },
+  fieldLabel: { marginBottom: 6, color: theme.muted, fontSize: 11, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.45 },
   input: { minHeight: 52, borderWidth: 1, borderColor: theme.border, borderRadius: 15, backgroundColor: "white", paddingHorizontal: 13, color: theme.text, fontSize: 16 },
   inputInvalid: { borderColor: "#b42318" },
   fieldError: { marginTop: 5, color: "#b42318", fontSize: 11 },
   primaryButton: { minHeight: 52, alignItems: "center", justifyContent: "center", marginTop: 17, borderRadius: 16, backgroundColor: "#0a84ff" },
   primaryButtonText: { color: "white", fontSize: 15, fontWeight: "800" },
   block: { marginTop: 28, borderTopWidth: 1, borderTopColor: theme.border },
-  blockTitle: { minHeight: 58, color: theme.text, fontSize: 17, fontWeight: "750", textAlignVertical: "center" },
+  blockTitle: { minHeight: 58, color: theme.text, fontSize: 17, fontWeight: "700", textAlignVertical: "center" },
   row: { minHeight: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: theme.border },
   rowLabel: { color: theme.muted, fontSize: 14 },
   rowValue: { maxWidth: "58%", color: theme.text, fontSize: 13, fontWeight: "700", textAlign: "right" },
   mono: { fontFamily: "monospace", fontSize: 11 },
   adminBlock: { marginTop: 28, borderWidth: 1, borderColor: theme.border, borderRadius: 20, padding: 16 },
   adminLabel: { color: "#9a6700", fontSize: 10, fontWeight: "800", letterSpacing: 0.7, textTransform: "uppercase" },
-  adminTitle: { marginTop: 7, color: theme.text, fontSize: 19, fontWeight: "760" },
+  adminTitle: { marginTop: 7, color: theme.text, fontSize: 19, fontWeight: "700" },
   adminDescription: { marginTop: 7, color: theme.muted, fontSize: 13, lineHeight: 19 },
   secondaryButton: { minHeight: 50, alignItems: "center", justifyContent: "center", marginTop: 16, borderWidth: 1, borderColor: theme.border, borderRadius: 15, backgroundColor: "white" },
-  secondaryButtonText: { color: theme.text, fontSize: 14, fontWeight: "750" },
+  secondaryButtonText: { color: theme.text, fontSize: 14, fontWeight: "700" },
   adminRequired: { marginTop: 14, borderRadius: 14, backgroundColor: "#fff8e8", padding: 13 },
   adminRequiredText: { color: "#785200", fontSize: 12, lineHeight: 18 },
   retryButton: { minHeight: 44, alignItems: "center", justifyContent: "center", marginTop: 10, borderRadius: 12, backgroundColor: "white" },
-  retryButtonText: { color: theme.text, fontSize: 13, fontWeight: "750" }
+  retryButtonText: { color: theme.text, fontSize: 13, fontWeight: "700" }
 });

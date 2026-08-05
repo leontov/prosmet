@@ -17,7 +17,7 @@
     "build": "npm run build -w @prosmet/web",
     "start": "npm run start -w @prosmet/web",
     "typecheck": "npm run typecheck -w @prosmet/contracts && npm run typecheck -w @prosmet/web && npm run typecheck -w @prosmet/mobile",
-    "test": "npm run test -w @prosmet/web && cargo test -p prosmet-estimate-engine",
+    "test": "npm run test -w @prosmet/web && npm run test -w @prosmet/mobile && cargo test -p prosmet-estimate-engine",
     "e2e": "npm run e2e -w @prosmet/web",
     "verify": "node scripts/greenfield-contract.mjs && node scripts/assistant-ui-style-contract.mjs && npm run typecheck && npm run test && npm run build",
     "desktop:metadata": "cargo metadata --manifest-path apps/desktop/src-tauri/Cargo.toml --format-version 1 --no-deps",
