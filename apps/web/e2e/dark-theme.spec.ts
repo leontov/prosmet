@@ -1,17 +1,21 @@
 import { expect, test, type Page } from "@playwright/test";
 
-const themeKey = "prosmet.workspace.theme.v1";
-
 function luminanceFromRgb(value: string) {
   const channels = value.match(/[\d.]+/g)?.slice(0, 3).map(Number) || [];
-  if (channels.length !== 3) return 1;
-  const linear = channels.map((channel) => {
+  const red = channels[0];
+  const green = channels[1];
+  const blue = channels[2];
+  if (red === undefined || green === undefined || blue === undefined) return 1;
+  const linear = [red, green, blue].map((channel) => {
     const normalized = channel / 255;
     return normalized <= 0.03928
       ? normalized / 12.92
       : ((normalized + 0.055) / 1.055) ** 2.4;
   });
-  return linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
+  const linearRed = linear[0] ?? 1;
+  const linearGreen = linear[1] ?? 1;
+  const linearBlue = linear[2] ?? 1;
+  return linearRed * 0.2126 + linearGreen * 0.7152 + linearBlue * 0.0722;
 }
 
 function contrastRatio(first: string, second: string) {
@@ -23,9 +27,9 @@ function contrastRatio(first: string, second: string) {
 }
 
 async function forceDarkTheme(page: Page) {
-  await page.addInitScript(([key]) => {
-    window.localStorage.setItem(key, "dark");
-  }, [themeKey]);
+  await page.addInitScript(() => {
+    window.localStorage.setItem("prosmet.workspace.theme.v1", "dark");
+  });
 }
 
 async function styleOf(page: Page, selector: string) {
@@ -117,7 +121,9 @@ test.describe("ProSmet dark theme QA", () => {
   test("system theme follows a dark operating-system preference", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== "desktop-chromium", "System-theme contract runs once");
     await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
-    await page.addInitScript(([key]) => window.localStorage.setItem(key, "system"), [themeKey]);
+    await page.addInitScript(() => {
+      window.localStorage.setItem("prosmet.workspace.theme.v1", "system");
+    });
     await page.goto("/app", { waitUntil: "networkidle" });
     await expect(page.locator("html")).toHaveAttribute("data-prosmet-theme", "system");
     await expectDarkSurface(page, ".pro-desktop-sidebar", "System dark sidebar");
