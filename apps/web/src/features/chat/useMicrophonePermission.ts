@@ -15,14 +15,17 @@ export function useMicrophonePermission() {
     if (!supportsMicrophoneCapture() || !navigator.permissions?.query) return;
     let active = true;
     let permission: PermissionStatus | null = null;
+    let update: (() => void) | null = null;
 
     void navigator.permissions
       .query({ name: "microphone" as PermissionName })
       .then((result) => {
         if (!active) return;
         permission = result;
-        const update = () => {
-          if (active) setState(result.state === "granted" ? "granted" : result.state === "denied" ? "denied" : "prompt");
+        update = () => {
+          if (active) {
+            setState(result.state === "granted" ? "granted" : result.state === "denied" ? "denied" : "prompt");
+          }
         };
         update();
         result.addEventListener("change", update);
@@ -31,7 +34,7 @@ export function useMicrophonePermission() {
 
     return () => {
       active = false;
-      permission?.removeEventListener("change", () => undefined);
+      if (permission && update) permission.removeEventListener("change", update);
     };
   }, []);
 
