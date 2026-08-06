@@ -22,6 +22,7 @@ import "../web-canvas-width-fix.css";
 import "../web-dark-theme.css";
 import "../web-dark-theme-fixes.css";
 import "../web-dark-settings-fixes.css";
+import "../web-dark-estimate-fullscreen.css";
 
 export default function AppEntry() {
   return <ReferenceApp />;
