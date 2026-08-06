@@ -1,0 +1,417 @@
+name: Apply Prosmet MiMo Code Fix
+
+on:
+  push:
+    branches: [fix/mimo-integration-v1]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: prosmet-apply-mimo-code-fix
+  cancel-in-progress: true
+
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/mimo-integration-v1
+          fetch-depth: 0
+
+      - name: Patch the provider adapter, settings and contracts
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          def replace_once(path: str, old: str, new: str):
+              file = Path(path)
+              text = file.read_text(encoding="utf-8")
+              if new in text:
+                  return
+              if old not in text:
+                  raise SystemExit(f"anchor not found in {path}: {old[:100]!r}")
+              file.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+          server_path = Path("apps/web/server.mjs")
+          server = server_path.read_text(encoding="utf-8")
+          import_anchor = 'import { createInterface } from "node:readline";\n'
+          provider_import = '''import {
+            MIMO_RECOMMENDED_MODEL,
+            isLegacyMiMoModel,
+            isMiMoApiUrl,
+            isMiMoConsoleOrDocsUrl,
+            normalizeOpenAIBaseUrl,
+            openAIChatCompletionsUrl
+          } from "./provider-endpoints.mjs";
+          '''
+          if provider_import not in server:
+              if import_anchor not in server:
+                  raise SystemExit("server import anchor missing")
+              server = server.replace(import_anchor, import_anchor + provider_import, 1)
+
+          old_normalize = '''  } else {
+            agent.baseUrl = normalizeUrl(input.baseUrl ?? existing?.baseUrl, "URL агента");
+            if (type !== "http-agent" && !agent.model) throw new Error("Модель обязательна");
+          }
+          '''
+          new_normalize = '''  } else {
+            const requestedBaseUrl = normalizeUrl(input.baseUrl ?? existing?.baseUrl, "URL агента");
+            if (isMiMoConsoleOrDocsUrl(requestedBaseUrl)) {
+              throw new Error("Для Xiaomi MiMo укажите API Base URL, а не адрес консоли или документации.");
+            }
+            if (type === "http-agent" && isMiMoApiUrl(requestedBaseUrl)) {
+              throw new Error("Xiaomi MiMo нужно подключать как OpenAI-compatible, а не как HTTP agent.");
+            }
+            agent.baseUrl = type === "openai-compatible"
+              ? normalizeOpenAIBaseUrl(requestedBaseUrl)
+              : requestedBaseUrl;
+            if (type !== "http-agent" && !agent.model) throw new Error("Модель обязательна");
+            if (type === "openai-compatible" && isMiMoApiUrl(agent.baseUrl) && isLegacyMiMoModel(agent.model)) {
+              agent.model = MIMO_RECOMMENDED_MODEL;
+            }
+          }
+          '''
+          if new_normalize not in server:
+              if old_normalize not in server:
+                  raise SystemExit("normalizeAgentInput anchor missing")
+              server = server.replace(old_normalize, new_normalize, 1)
+
+          old_error = '''    if (!response.ok) {
+              const detail = typeof body === "string" ? body.slice(0, 1000) : body;
+              const error = new Error(`Upstream agent returned HTTP ${response.status}`);
+              error.details = detail;
+              throw error;
+            }
+          '''
+          new_error = '''    if (!response.ok) {
+              const detail = typeof body === "string" ? body.slice(0, 1000) : body;
+              const parsedUrl = new URL(url);
+              const endpoint = `${parsedUrl.origin}${parsedUrl.pathname}`;
+              const error = new Error(`Upstream agent returned HTTP ${response.status} for ${endpoint}`);
+              error.details = { endpoint, upstream: detail };
+              throw error;
+            }
+          '''
+          if new_error not in server:
+              if old_error not in server:
+                  raise SystemExit("fetchJson error anchor missing")
+              server = server.replace(old_error, new_error, 1)
+
+          call_pattern = re.compile(
+              r'async function callOpenAICompatible\(agent, messages, signal\) \{.*?\n\}\n\nasync function callOllama',
+              re.S,
+          )
+          new_call = '''async function callOpenAICompatible(agent, messages, signal) {
+            const secret = await decryptSecret(agent.secretCipher);
+            const mimo = isMiMoApiUrl(agent.baseUrl);
+            const endpoint = openAIChatCompletionsUrl(agent.baseUrl);
+            const result = await fetchJson(
+              endpoint,
+              {
+                method: "POST",
+                headers: {
+                  "content-type": "application/json",
+                  ...(secret
+                    ? mimo
+                      ? { "api-key": secret }
+                      : { authorization: `Bearer ${secret}` }
+                    : {})
+                },
+                body: JSON.stringify({
+                  model: agent.model,
+                  messages: [
+                    { role: "system", content: agent.systemPrompt || systemInstructions },
+                    ...normalizeMessages(messages)
+                  ],
+                  temperature: mimo ? 1.0 : 0.1,
+                  ...(mimo ? {
+                    response_format: { type: "json_object" },
+                    thinking: { type: "disabled" }
+                  } : {})
+                })
+              },
+              agent.timeoutMs,
+              signal
+            );
+            const content = result?.choices?.[0]?.message?.content;
+            return parseAgentEnvelope(content);
+          }
+
+          async function callOllama'''
+          if "const endpoint = openAIChatCompletionsUrl(agent.baseUrl);" not in server:
+              server, count = call_pattern.subn(new_call, server, count=1)
+              if count != 1:
+                  raise SystemExit("callOpenAICompatible block missing")
+
+          server_path.write_text(server, encoding="utf-8")
+
+          web_path = Path("apps/web/src/features/settings/SettingsView.tsx")
+          web = web_path.read_text(encoding="utf-8")
+          web = web.replace(
+              'detail: "OpenAI API, MiMo gateway и другие /v1/chat/completions endpoints"',
+              'detail: "OpenAI API и Xiaomi MiMo через Base URL, заканчивающийся на /v1"',
+          )
+          helper_anchor = '''function providerTitle(type: AgentProviderKind) {
+            return providerLabels[type]?.title ?? type;
+          }
+          '''
+          helpers = '''function providerTitle(type: AgentProviderKind) {
+            return providerLabels[type]?.title ?? type;
+          }
+
+          function isMiMoUrl(value: string | null | undefined) {
+            return /(?:^|\\.)xiaomimimo\\.com(?:\\/|$)/i.test(String(value ?? ""));
+          }
+
+          function applyMiMoPreset(current: AgentConfigInput, baseUrl: string): AgentConfigInput {
+            return {
+              ...current,
+              type: "openai-compatible",
+              name: current.name.trim() ? current.name : "MiMo",
+              baseUrl,
+              model: current.model?.startsWith("mimo-v2.5") ? current.model : "mimo-v2.5-pro"
+            };
+          }
+          '''
+          if "function applyMiMoPreset" not in web:
+              if helper_anchor not in web:
+                  raise SystemExit("web providerTitle anchor missing")
+              web = web.replace(helper_anchor, helpers, 1)
+
+          submit_anchor = '''    try {
+              const payload: AgentConfigInput = {
+          '''
+          submit_guard = '''    try {
+              if (form.type === "http-agent" && isMiMoUrl(form.baseUrl)) {
+                throw new Error("Xiaomi MiMo нужно подключать как OpenAI-compatible, а не как HTTP agent.");
+              }
+              const payload: AgentConfigInput = {
+          '''
+          if submit_guard not in web:
+              if submit_anchor not in web:
+                  raise SystemExit("web submit anchor missing")
+              web = web.replace(submit_anchor, submit_guard, 1)
+
+          url_old = '''<Field label={form.type === "http-agent" ? "Endpoint" : "Base URL"} id="agent-base-url"><input id="agent-base-url" name="agent-base-url" type="url" value={form.baseUrl ?? ""} onChange={(event) => setForm((current) => ({ ...current, baseUrl: event.target.value }))} placeholder={form.type === "ollama" ? "http://127.0.0.1:11434" : form.type === "http-agent" ? "https://agent.example.com/run" : "https://api.openai.com/v1"} required /></Field>'''
+          url_new = '''<Field label={form.type === "http-agent" ? "Endpoint" : "Base URL"} id="agent-base-url"><input id="agent-base-url" name="agent-base-url" type="url" value={form.baseUrl ?? ""} onChange={(event) => { const value = event.target.value; setForm((current) => isMiMoUrl(value) ? applyMiMoPreset(current, value) : ({ ...current, baseUrl: value })); }} placeholder={form.type === "ollama" ? "http://127.0.0.1:11434" : form.type === "http-agent" ? "https://agent.example.com/run" : "https://api.openai.com/v1"} required /></Field>'''
+          if url_new not in web:
+              if url_old not in web:
+                  raise SystemExit("web Base URL field anchor missing")
+              web = web.replace(url_old, url_new, 1)
+
+          grid_anchor = '''                <div className="agent-form-grid">
+                    <Field label="Название" id="agent-name">'''
+          preset_block = '''                <div className="agent-form-grid">
+                    <div className="agent-presets">
+                      <span>Быстрое подключение MiMo</span>
+                      <button type="button" onClick={() => setForm((current) => applyMiMoPreset(current, "https://api.xiaomimimo.com/v1"))}>MiMo API</button>
+                      <button type="button" onClick={() => setForm((current) => applyMiMoPreset(current, "https://token-plan-sgp.xiaomimimo.com/v1"))}>Token Plan · Singapore</button>
+                      <small>MiMo использует OpenAI-compatible и модель mimo-v2.5-pro. HTTP agent для этого API не подходит.</small>
+                    </div>
+                    <Field label="Название" id="agent-name">'''
+          if "Быстрое подключение MiMo" not in web:
+              if grid_anchor not in web:
+                  raise SystemExit("web form grid anchor missing")
+              web = web.replace(grid_anchor, preset_block, 1)
+
+          web = web.replace(
+              'placeholder={form.type === "ollama" ? "qwen3:32b" : "gpt-5.4"}',
+              'placeholder={form.type === "ollama" ? "qwen3:32b" : isMiMoUrl(form.baseUrl) ? "mimo-v2.5-pro" : "gpt-5.4"}',
+          )
+          web_path.write_text(web, encoding="utf-8")
+
+          mobile_path = Path("apps/mobile/src/screens/SettingsScreen.tsx")
+          mobile = mobile_path.read_text(encoding="utf-8")
+          labels_anchor = '''const labelFor = (type: AgentProviderKind) => labels[type] ?? type;
+          '''
+          mobile_helpers = '''const labelFor = (type: AgentProviderKind) => labels[type] ?? type;
+
+          const isMiMoEndpoint = (value: string) => /(?:^|\\.)xiaomimimo\\.com(?:\\/|$)/i.test(value);
+          '''
+          if "isMiMoEndpoint" not in mobile:
+              if labels_anchor not in mobile:
+                  raise SystemExit("mobile label anchor missing")
+              mobile = mobile.replace(labels_anchor, mobile_helpers, 1)
+
+          create_anchor = '''    try {
+              const payload: AgentConfigInput = {
+                name: name.trim(),
+                type,
+          '''
+          create_guard = '''    try {
+              if (type === "http-agent" && isMiMoEndpoint(endpoint)) {
+                throw new Error("Xiaomi MiMo нужно подключать как OpenAI-compatible, а не как HTTP agent.");
+              }
+              const effectiveType: AgentProviderKind = isMiMoEndpoint(endpoint) ? "openai-compatible" : type;
+              const payload: AgentConfigInput = {
+                name: name.trim(),
+                type: effectiveType,
+          '''
+          if create_guard not in mobile:
+              if create_anchor not in mobile:
+                  raise SystemExit("mobile create anchor missing")
+              mobile = mobile.replace(create_anchor, create_guard, 1)
+              mobile = mobile.replace(
+                  'model: model.trim() || null,\n        baseUrl: endpoint.trim() || null,',
+                  'model: isMiMoEndpoint(endpoint) ? (model.trim().startsWith("mimo-v2.5") ? model.trim() : "mimo-v2.5-pro") : model.trim() || null,\n        baseUrl: endpoint.trim() || null,',
+                  1,
+              )
+              mobile = mobile.replace(
+                  'command: type === "codex-app-server" ? command.trim() || "codex" : null,\n        args: type === "codex-app-server" ? ["app-server", "--listen", "stdio://"] : [],\n        cwd: type === "codex-app-server" ? cwd.trim() || null : null,',
+                  'command: effectiveType === "codex-app-server" ? command.trim() || "codex" : null,\n        args: effectiveType === "codex-app-server" ? ["app-server", "--listen", "stdio://"] : [],\n        cwd: effectiveType === "codex-app-server" ? cwd.trim() || null : null,',
+                  1,
+              )
+
+          endpoint_old = '<Input value={endpoint} onChangeText={setEndpoint} keyboardType="url" placeholder={type === "ollama" ? "http://127.0.0.1:11434" : "https://api.example.com/v1"} />'
+          endpoint_new = '<Input value={endpoint} onChangeText={(value) => { setEndpoint(value); if (isMiMoEndpoint(value)) { setType("openai-compatible"); if (!model.startsWith("mimo-v2.5")) setModel("mimo-v2.5-pro"); if (!name.trim()) setName("MiMo"); } }} keyboardType="url" placeholder={type === "ollama" ? "http://127.0.0.1:11434" : "https://api.example.com/v1"} />'
+          if endpoint_new not in mobile:
+              if endpoint_old not in mobile:
+                  raise SystemExit("mobile endpoint input anchor missing")
+              mobile = mobile.replace(endpoint_old, endpoint_new, 1)
+
+          mobile_form_anchor = '''      <Section title="Новое подключение">
+                <ScrollView horizontal'''
+          mobile_presets = '''      <Section title="Новое подключение">
+                <View style={s.mimoPresets}>
+                  <Text style={s.mimoPresetTitle}>Xiaomi MiMo</Text>
+                  <View style={s.mimoPresetActions}>
+                    <Pressable style={s.mimoPreset} onPress={() => { setType("openai-compatible"); setName("MiMo"); setEndpoint("https://api.xiaomimimo.com/v1"); setModel("mimo-v2.5-pro"); }}><Text style={s.mimoPresetText}>MiMo API</Text></Pressable>
+                    <Pressable style={s.mimoPreset} onPress={() => { setType("openai-compatible"); setName("MiMo"); setEndpoint("https://token-plan-sgp.xiaomimimo.com/v1"); setModel("mimo-v2.5-pro"); }}><Text style={s.mimoPresetText}>Token Plan · SGP</Text></Pressable>
+                  </View>
+                  <Text style={s.mimoPresetHint}>Выбирается OpenAI-compatible; HTTP agent для MiMo возвращает 404.</Text>
+                </View>
+                <ScrollView horizontal'''
+          if "Token Plan · SGP" not in mobile:
+              if mobile_form_anchor not in mobile:
+                  raise SystemExit("mobile new connection anchor missing")
+              mobile = mobile.replace(mobile_form_anchor, mobile_presets, 1)
+
+          style_anchor = '''  tabs: { gap: 8, paddingTop: 14, paddingRight: 16 },'''
+          style_new = '''  mimoPresets: { marginTop: 14, borderWidth: 1, borderColor: theme.border, borderRadius: 16, backgroundColor: theme.soft, padding: 13 }, mimoPresetTitle: { color: theme.text, fontSize: 15, fontWeight: "700" }, mimoPresetActions: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 10 }, mimoPreset: { minHeight: 42, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: theme.border, borderRadius: 12, backgroundColor: theme.canvas, paddingHorizontal: 12 }, mimoPresetText: { color: theme.text, fontSize: 12, fontWeight: "700" }, mimoPresetHint: { marginTop: 9, color: theme.muted, fontSize: 12, lineHeight: 18 },
+            tabs: { gap: 8, paddingTop: 14, paddingRight: 16 },'''
+          if "mimoPresets:" not in mobile:
+              if style_anchor not in mobile:
+                  raise SystemExit("mobile style anchor missing")
+              mobile = mobile.replace(style_anchor, style_new, 1)
+          mobile_path.write_text(mobile, encoding="utf-8")
+
+          css_path = Path("apps/web/src/agent-integrations.css")
+          css = css_path.read_text(encoding="utf-8")
+          css_block = '''
+
+          .agent-presets {
+            grid-column: 1 / -1;
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            background: var(--surface-soft);
+            padding: 11px 12px;
+          }
+          .agent-presets > span { width: 100%; color: var(--text); font-size: 12px; font-weight: 750; }
+          .agent-presets > button { min-height: 38px; border: 1px solid var(--border); border-radius: 10px; background: #fff; padding: 0 11px; color: var(--text); font-size: 11px; font-weight: 700; }
+          .agent-presets > small { flex: 1 1 280px; color: var(--muted); font-size: 10px; line-height: 1.45; }
+          @media (max-width: 767px) {
+            .agent-presets > button { min-height: 44px; }
+            .agent-presets > small { flex-basis: 100%; font-size: 12px; }
+          }
+          '''
+          if ".agent-presets {" not in css:
+              css += css_block
+          css_path.write_text(css, encoding="utf-8")
+
+          readme_path = Path("README.md")
+          readme = readme_path.read_text(encoding="utf-8")
+          readme_anchor = '''UI не содержит встроенного «ответа-заглушки». Пока активный агент не подключён, чат возвращает понятную ошибку конфигурации. Смета открывается только из фактического ответа провайдера.
+          '''
+          readme_section = '''UI не содержит встроенного «ответа-заглушки». Пока активный агент не подключён, чат возвращает понятную ошибку конфигурации. Смета открывается только из фактического ответа провайдера.
+
+          ### Xiaomi MiMo
+
+          MiMo подключается как **OpenAI-compatible**, не как `HTTP agent`.
+
+          | Режим | Base URL | Ключ | Модель |
+          |---|---|---|---|
+          | API по факту использования | `https://api.xiaomimimo.com/v1` | `sk-...` | `mimo-v2.5-pro` |
+          | Token Plan · China | `https://token-plan-cn.xiaomimimo.com/v1` | `tp-...` | `mimo-v2.5-pro` |
+          | Token Plan · Singapore | `https://token-plan-sgp.xiaomimimo.com/v1` | `tp-...` | `mimo-v2.5-pro` |
+          | Token Plan · Europe | `https://token-plan-ams.xiaomimimo.com/v1` | `tp-...` | `mimo-v2.5-pro` |
+
+          Сервер нормализует полный endpoint `/v1/chat/completions`, использует заголовок `api-key` и отклоняет адреса консоли/документации. Устаревшие идентификаторы `mimo-v2-*` автоматически переводятся на `mimo-v2.5-pro`.
+          '''
+          if "### Xiaomi MiMo" not in readme:
+              if readme_anchor not in readme:
+                  raise SystemExit("README MiMo anchor missing")
+              readme = readme.replace(readme_anchor, readme_section, 1)
+          readme_path.write_text(readme, encoding="utf-8")
+
+          contract_path = Path("scripts/greenfield-contract.mjs")
+          contract = contract_path.read_text(encoding="utf-8")
+          if '"apps/web/provider-endpoints.mjs"' not in contract:
+              contract = contract.replace(
+                  '  "apps/web/server.mjs",\n',
+                  '  "apps/web/server.mjs",\n  "apps/web/provider-endpoints.mjs",\n  "apps/web/provider-endpoints.test.mjs",\n',
+                  1,
+              )
+          if 'const providerEndpoints = await read("apps/web/provider-endpoints.mjs");' not in contract:
+              contract = contract.replace(
+                  'const server = await read("apps/web/server.mjs");\n',
+                  'const server = await read("apps/web/server.mjs");\nconst providerEndpoints = await read("apps/web/provider-endpoints.mjs");\n',
+                  1,
+              )
+          provider_anchor = '''for (const provider of ["openai-compatible", "ollama", "codex-app-server", "http-agent"]) {
+            if (!server.includes(`\\"${provider}\\"`)) failures.push(`server:provider-adapter-missing:${provider}`);
+            if (!webSettings.includes(provider)) failures.push(`web-settings:provider-option-missing:${provider}`);
+            if (!nativeSettings.includes(provider)) failures.push(`native-settings:provider-option-missing:${provider}`);
+          }
+          '''
+          provider_checks = provider_anchor + '''
+          for (const token of [
+            "api.xiaomimimo.com/v1",
+            "token-plan-sgp.xiaomimimo.com/v1",
+            "openAIChatCompletionsUrl",
+            "MIMO_RECOMMENDED_MODEL",
+            "mimo-v2.5-pro"
+          ]) {
+            if (![server, providerEndpoints, webSettings, nativeSettings].some((source) => source.includes(token))) {
+              failures.push(`mimo:integration-contract-missing:${token}`);
+            }
+          }
+          if (!server.includes('"api-key": secret')) failures.push("mimo:api-key-auth-header-missing");
+          if (!server.includes('Xiaomi MiMo нужно подключать как OpenAI-compatible')) failures.push("mimo:http-agent-rejection-missing");
+          '''
+          if "mimo:integration-contract-missing" not in contract:
+              if provider_anchor not in contract:
+                  raise SystemExit("contract provider anchor missing")
+              contract = contract.replace(provider_anchor, provider_checks, 1)
+          contract_path.write_text(contract, encoding="utf-8")
+          PY
+
+      - name: Commit the materialized fix
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/web/server.mjs \
+            apps/web/provider-endpoints.mjs \
+            apps/web/provider-endpoints.test.mjs \
+            apps/web/src/features/settings/SettingsView.tsx \
+            apps/web/src/agent-integrations.css \
+            apps/mobile/src/screens/SettingsScreen.tsx \
+            scripts/greenfield-contract.mjs \
+            README.md
+          if git diff --cached --quiet; then
+            echo "MiMo code fix is already materialized."
+            exit 0
+          fi
+          git commit -m "fix(mimo): use the OpenAI-compatible v1 endpoint and presets"
+          git push origin HEAD:fix/mimo-integration-v1
