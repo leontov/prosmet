@@ -11,14 +11,48 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 concurrency:
   group: prosmet-primary-local-llm-recovery
-  cancel-in-progress: false
+  cancel-in-progress: true
+
+env:
+  PROSMET_RECOVERY_STATUS_CONTEXT: prosmet/local-llm-recovery
 
 jobs:
+  announce:
+    name: Publish recovery start
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Publish pending status with run link
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -Eeuo pipefail
+          PAYLOAD="$(node - <<'NODE'
+          process.stdout.write(JSON.stringify({
+            state: 'pending',
+            context: process.env.PROSMET_RECOVERY_STATUS_CONTEXT,
+            description: 'Recovering and testing qwen3.5:9b on prosmet-primary',
+            target_url: process.env.TARGET_URL
+          }));
+          NODE
+          )"
+          curl --fail --silent --show-error \
+            --retry 5 --retry-delay 2 --retry-all-errors \
+            -X POST \
+            -H "accept: application/vnd.github+json" \
+            -H "authorization: Bearer $GH_TOKEN" \
+            -H "x-github-api-version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            --data "$PAYLOAD" >/dev/null
+
   recover:
     name: Recover, connect and test local LLM on prosmet-primary
+    needs: announce
     runs-on: self-hosted
     timeout-minutes: 90
     env:
@@ -134,3 +168,46 @@ jobs:
             agent-pool-provision.log
           if-no-files-found: warn
           retention-days: 30
+
+  report:
+    name: Publish recovery result
+    if: always()
+    needs: [announce, recover]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Publish final status
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RECOVER_RESULT: ${{ needs.recover.result }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -Eeuo pipefail
+          if [ "$RECOVER_RESULT" = "success" ]; then
+            STATE=success
+            DESCRIPTION="qwen3.5:9b is active and passed direct and ProSmet adapter tests"
+          elif [ "$RECOVER_RESULT" = "cancelled" ]; then
+            STATE=error
+            DESCRIPTION="Local LLM recovery was cancelled"
+          else
+            STATE=failure
+            DESCRIPTION="Local LLM recovery failed; inspect the linked run"
+          fi
+          export STATE DESCRIPTION
+          PAYLOAD="$(node - <<'NODE'
+          process.stdout.write(JSON.stringify({
+            state: process.env.STATE,
+            context: process.env.PROSMET_RECOVERY_STATUS_CONTEXT,
+            description: process.env.DESCRIPTION,
+            target_url: process.env.TARGET_URL
+          }));
+          NODE
+          )"
+          curl --fail --silent --show-error \
+            --retry 5 --retry-delay 2 --retry-all-errors \
+            -X POST \
+            -H "accept: application/vnd.github+json" \
+            -H "authorization: Bearer $GH_TOKEN" \
+            -H "x-github-api-version: 2022-11-28" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            --data "$PAYLOAD" >/dev/null
