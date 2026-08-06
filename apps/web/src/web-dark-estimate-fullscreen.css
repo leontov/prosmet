@@ -1,0 +1,110 @@
+@media (min-width: 768px) {
+  .pro-workspace-frame.has-canvas.canvas-fullscreen {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+
+  .pro-workspace-frame.has-canvas.canvas-fullscreen > .pro-workspace-canvas {
+    grid-column: 1 / -1 !important;
+    width: 100% !important;
+    max-width: none !important;
+    min-width: 0 !important;
+  }
+}
+
+html[data-prosmet-theme="dark"] .desktop-estimate-editor,
+html[data-prosmet-theme="dark"] .desktop-estimate-layout,
+html[data-prosmet-theme="dark"] .estimate-canvas-scroll,
+html[data-prosmet-theme="dark"] .estimate-document,
+html[data-prosmet-theme="dark"] .estimate-sections,
+html[data-prosmet-theme="dark"] .estimate-section,
+html[data-prosmet-theme="dark"] .estimate-summary {
+  background: var(--dark-surface) !important;
+  color: var(--dark-ink) !important;
+}
+
+html[data-prosmet-theme="dark"] .document-meta-grid > label,
+html[data-prosmet-theme="dark"] .document-meta-grid > .meta-static,
+html[data-prosmet-theme="dark"] .estimate-section > header,
+html[data-prosmet-theme="dark"] .estimate-table-head,
+html[data-prosmet-theme="dark"] .estimate-table-row,
+html[data-prosmet-theme="dark"] .add-position {
+  border-color: var(--dark-line) !important;
+  background: var(--dark-surface-2) !important;
+  color: var(--dark-ink) !important;
+  box-shadow: none !important;
+}
+
+html[data-prosmet-theme="dark"] .document-meta-grid > label,
+html[data-prosmet-theme="dark"] .document-meta-grid > .meta-static {
+  background: #171c23 !important;
+}
+
+html[data-prosmet-theme="dark"] .document-meta-grid small,
+html[data-prosmet-theme="dark"] .document-meta-grid label > span,
+html[data-prosmet-theme="dark"] .estimate-section > header span,
+html[data-prosmet-theme="dark"] .estimate-table-head span,
+html[data-prosmet-theme="dark"] .row-number {
+  color: var(--dark-muted) !important;
+}
+
+html[data-prosmet-theme="dark"] .document-meta-grid strong,
+html[data-prosmet-theme="dark"] .estimate-section > header h2,
+html[data-prosmet-theme="dark"] .estimate-section > header strong,
+html[data-prosmet-theme="dark"] .estimate-table-row > strong {
+  color: var(--dark-ink) !important;
+}
+
+html[data-prosmet-theme="dark"] .document-meta-grid input,
+html[data-prosmet-theme="dark"] .estimate-table-row input {
+  border-color: var(--dark-line) !important;
+  background: #1b212a !important;
+  color: var(--dark-ink) !important;
+}
+
+html[data-prosmet-theme="dark"] .document-meta-grid input:focus,
+html[data-prosmet-theme="dark"] .estimate-table-row input:focus {
+  border-color: var(--dark-blue) !important;
+  box-shadow: 0 0 0 3px rgba(106, 168, 255, .13) !important;
+}
+
+html[data-prosmet-theme="dark"] .estimate-section > header {
+  background: linear-gradient(180deg, #1b212a 0%, #181d24 100%) !important;
+}
+
+html[data-prosmet-theme="dark"] .estimate-table-head {
+  background: #141920 !important;
+}
+
+html[data-prosmet-theme="dark"] .estimate-table-row:nth-child(even) {
+  background: #171c23 !important;
+}
+
+html[data-prosmet-theme="dark"] .estimate-table-row:hover {
+  background: #202630 !important;
+}
+
+html[data-prosmet-theme="dark"] .add-position:hover,
+html[data-prosmet-theme="dark"] .add-position:focus-visible {
+  border-color: rgba(106, 168, 255, .38) !important;
+  background: var(--dark-blue-soft) !important;
+}
+
+@media (prefers-color-scheme: dark) {
+  html[data-prosmet-theme="system"] .document-meta-grid > label,
+  html[data-prosmet-theme="system"] .document-meta-grid > .meta-static,
+  html[data-prosmet-theme="system"] .estimate-section > header,
+  html[data-prosmet-theme="system"] .estimate-table-head,
+  html[data-prosmet-theme="system"] .estimate-table-row,
+  html[data-prosmet-theme="system"] .add-position {
+    border-color: var(--dark-line) !important;
+    background: var(--dark-surface-2) !important;
+    color: var(--dark-ink) !important;
+  }
+
+  html[data-prosmet-theme="system"] .document-meta-grid input,
+  html[data-prosmet-theme="system"] .estimate-table-row input {
+    border-color: var(--dark-line) !important;
+    background: #1b212a !important;
+    color: var(--dark-ink) !important;
+  }
+}
