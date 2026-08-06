@@ -1,0 +1,174 @@
+html[data-prosmet-theme="dark"] .pro-current-project-link {
+  border-color: var(--dark-line) !important;
+  background: rgba(26, 31, 39, .96) !important;
+  color: var(--dark-ink) !important;
+  box-shadow: 0 16px 46px rgba(0, 0, 0, .38) !important;
+}
+
+html[data-prosmet-theme="dark"] .pro-current-project-link:hover,
+html[data-prosmet-theme="dark"] .pro-current-project-link:focus-visible {
+  border-color: rgba(106, 168, 255, .38) !important;
+  background: #202630 !important;
+}
+
+html[data-prosmet-theme="dark"] .pro-current-project-link svg {
+  color: var(--dark-blue) !important;
+}
+
+html[data-prosmet-theme="dark"] .pro-current-project-link strong {
+  color: var(--dark-ink) !important;
+}
+
+html[data-prosmet-theme="dark"] .pro-current-project-link small {
+  color: var(--dark-muted) !important;
+}
+
+html[data-prosmet-theme="dark"] .pro-embedded-view,
+html[data-prosmet-theme="dark"] .account,
+html[data-prosmet-theme="dark"] .desktop-account,
+html[data-prosmet-theme="dark"] .mobile-account,
+html[data-prosmet-theme="dark"] .settings,
+html[data-prosmet-theme="dark"] .desktop-settings,
+html[data-prosmet-theme="dark"] .mobile-settings {
+  background: var(--dark-bg) !important;
+  color: var(--dark-ink) !important;
+}
+
+html[data-prosmet-theme="dark"] .account .section-title,
+html[data-prosmet-theme="dark"] .settings .section-title {
+  background: transparent !important;
+  color: var(--dark-ink) !important;
+}
+
+html[data-prosmet-theme="dark"] .account .section-title h1,
+html[data-prosmet-theme="dark"] .settings .section-title h1 {
+  color: var(--dark-ink) !important;
+}
+
+html[data-prosmet-theme="dark"] .account .section-title p,
+html[data-prosmet-theme="dark"] .settings .section-title p {
+  color: var(--dark-muted) !important;
+}
+
+html[data-prosmet-theme="dark"] .account-auth-required,
+html[data-prosmet-theme="dark"] .account-profile-form,
+html[data-prosmet-theme="dark"] .profile-panel,
+html[data-prosmet-theme="dark"] .real-profile-panel,
+html[data-prosmet-theme="dark"] .account-fields,
+html[data-prosmet-theme="dark"] .account-save-message {
+  border-color: var(--dark-line) !important;
+  background: var(--dark-surface) !important;
+  color: var(--dark-ink) !important;
+  box-shadow: none !important;
+}
+
+html[data-prosmet-theme="dark"] .account-auth-required {
+  background: var(--dark-surface-2) !important;
+}
+
+html[data-prosmet-theme="dark"] .account-auth-required > svg,
+html[data-prosmet-theme="dark"] .account-card-icon,
+html[data-prosmet-theme="dark"] .profile-avatar {
+  border-color: var(--dark-line) !important;
+  background: var(--dark-surface-2) !important;
+  color: var(--dark-blue) !important;
+}
+
+html[data-prosmet-theme="dark"] .account-auth-required strong,
+html[data-prosmet-theme="dark"] .profile-panel strong,
+html[data-prosmet-theme="dark"] .account-card h2,
+html[data-prosmet-theme="dark"] .account-block h2,
+html[data-prosmet-theme="dark"] .status-row b,
+html[data-prosmet-theme="dark"] .release-sha {
+  color: var(--dark-ink) !important;
+}
+
+html[data-prosmet-theme="dark"] .account-auth-required p,
+html[data-prosmet-theme="dark"] .profile-panel span,
+html[data-prosmet-theme="dark"] .account-card p,
+html[data-prosmet-theme="dark"] .account-card small,
+html[data-prosmet-theme="dark"] .status-row > span {
+  color: var(--dark-muted) !important;
+}
+
+html[data-prosmet-theme="dark"] .account-block-title,
+html[data-prosmet-theme="dark"] .status-row {
+  border-color: var(--dark-line) !important;
+}
+
+html[data-prosmet-theme="dark"] .account-block-title > span {
+  color: var(--dark-green) !important;
+}
+
+html[data-prosmet-theme="dark"] .account-field > span {
+  color: var(--dark-muted) !important;
+}
+
+html[data-prosmet-theme="dark"] .account-field input,
+html[data-prosmet-theme="dark"] .registration-panel__form input {
+  border-color: var(--dark-line) !important;
+  background: var(--dark-surface-2) !important;
+  color: var(--dark-ink) !important;
+}
+
+html[data-prosmet-theme="dark"] .account-field input:focus,
+html[data-prosmet-theme="dark"] .registration-panel__form input:focus {
+  border-color: var(--dark-blue) !important;
+  box-shadow: 0 0 0 3px rgba(106, 168, 255, .13) !important;
+}
+
+@media (max-width: 767px) {
+  html[data-prosmet-theme="dark"] .pro-search-field,
+  html[data-prosmet-theme="dark"] .pro-price-filters > label:last-child {
+    border-color: var(--dark-line) !important;
+    background: var(--dark-surface-2) !important;
+    color: var(--dark-ink) !important;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, .22) !important;
+  }
+
+  html[data-prosmet-theme="dark"] .pro-search-field input,
+  html[data-prosmet-theme="dark"] .pro-price-filters input {
+    background: transparent !important;
+    color: var(--dark-ink) !important;
+  }
+
+  html[data-prosmet-theme="dark"] .pro-search-field svg,
+  html[data-prosmet-theme="dark"] .pro-price-filters > label:last-child span {
+    color: var(--dark-muted) !important;
+  }
+
+  html[data-prosmet-theme="dark"] .pro-stage::before {
+    background: #3a424f !important;
+  }
+
+  html[data-prosmet-theme="dark"] .pro-stage i {
+    background: var(--dark-blue) !important;
+  }
+
+  html[data-prosmet-theme="dark"] .pro-project-row,
+  html[data-prosmet-theme="dark"] .pro-data-row {
+    border-color: var(--dark-line) !important;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  html[data-prosmet-theme="system"] .pro-current-project-link,
+  html[data-prosmet-theme="system"] .account-auth-required,
+  html[data-prosmet-theme="system"] .account-card,
+  html[data-prosmet-theme="system"] .account-block,
+  html[data-prosmet-theme="system"] .registration-panel,
+  html[data-prosmet-theme="system"] .registration-panel__form,
+  html[data-prosmet-theme="system"] .pro-search-field {
+    border-color: var(--dark-line) !important;
+    background: var(--dark-surface) !important;
+    color: var(--dark-ink) !important;
+  }
+
+  html[data-prosmet-theme="system"] .account,
+  html[data-prosmet-theme="system"] .desktop-account,
+  html[data-prosmet-theme="system"] .mobile-account,
+  html[data-prosmet-theme="system"] .pro-embedded-view {
+    background: var(--dark-bg) !important;
+    color: var(--dark-ink) !important;
+  }
+}
