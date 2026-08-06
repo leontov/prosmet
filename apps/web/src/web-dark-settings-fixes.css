@@ -1,0 +1,304 @@
+html[data-prosmet-theme="dark"] .settings-layout,
+html[data-prosmet-theme="dark"] .settings-main,
+html[data-prosmet-theme="dark"] .agent-control-layout,
+html[data-prosmet-theme="dark"] .agent-settings,
+html[data-prosmet-theme="dark"] .live-agent-list {
+  background: var(--dark-bg) !important;
+  color: var(--dark-ink) !important;
+}
+
+html[data-prosmet-theme="dark"] .settings-section {
+  border-color: var(--dark-line) !important;
+  background: transparent !important;
+  color: var(--dark-ink) !important;
+  box-shadow: none !important;
+}
+
+html[data-prosmet-theme="dark"] .settings-section > header {
+  border-color: var(--dark-line) !important;
+  background: var(--dark-bg-elevated) !important;
+  color: var(--dark-ink) !important;
+}
+
+html[data-prosmet-theme="dark"] .settings-section > header > span {
+  border-color: var(--dark-line) !important;
+  background: var(--dark-surface-2) !important;
+  color: var(--dark-blue) !important;
+}
+
+html[data-prosmet-theme="dark"] .settings-section > header h2 {
+  color: var(--dark-ink) !important;
+}
+
+html[data-prosmet-theme="dark"] .settings-section > div {
+  border-color: var(--dark-line) !important;
+  background: var(--dark-surface) !important;
+  color: var(--dark-ink) !important;
+  box-shadow: none !important;
+}
+
+html[data-prosmet-theme="dark"] .active-agent-summary,
+html[data-prosmet-theme="dark"] .toggle-row,
+html[data-prosmet-theme="dark"] .settings-action,
+html[data-prosmet-theme="dark"] .admin-login,
+html[data-prosmet-theme="dark"] .admin-session-row,
+html[data-prosmet-theme="dark"] .agent-form,
+html[data-prosmet-theme="dark"] .agent-empty {
+  border-color: var(--dark-line) !important;
+  background: var(--dark-surface) !important;
+  color: var(--dark-ink) !important;
+  box-shadow: none !important;
+}
+
+html[data-prosmet-theme="dark"] .toggle-row,
+html[data-prosmet-theme="dark"] .settings-action {
+  border-bottom-color: var(--dark-line) !important;
+}
+
+html[data-prosmet-theme="dark"] .toggle-row:hover,
+html[data-prosmet-theme="dark"] .toggle-row:focus-visible,
+html[data-prosmet-theme="dark"] .settings-action:hover,
+html[data-prosmet-theme="dark"] .settings-action:focus-visible {
+  background: var(--dark-surface-2) !important;
+}
+
+html[data-prosmet-theme="dark"] .active-agent-summary strong,
+html[data-prosmet-theme="dark"] .toggle-row strong,
+html[data-prosmet-theme="dark"] .settings-action strong,
+html[data-prosmet-theme="dark"] .admin-session-row strong,
+html[data-prosmet-theme="dark"] .agent-empty strong {
+  color: var(--dark-ink) !important;
+}
+
+html[data-prosmet-theme="dark"] .active-agent-summary small,
+html[data-prosmet-theme="dark"] .toggle-row small,
+html[data-prosmet-theme="dark"] .settings-action small,
+html[data-prosmet-theme="dark"] .admin-session-row small,
+html[data-prosmet-theme="dark"] .admin-login p,
+html[data-prosmet-theme="dark"] .agent-empty p {
+  color: var(--dark-muted) !important;
+}
+
+html[data-prosmet-theme="dark"] .active-agent-summary > button,
+html[data-prosmet-theme="dark"] .agent-settings-title + button {
+  border-color: var(--dark-line) !important;
+  background: var(--dark-surface-2) !important;
+  color: var(--dark-ink) !important;
+  box-shadow: none !important;
+}
+
+html[data-prosmet-theme="dark"] .active-agent-summary > button:hover,
+html[data-prosmet-theme="dark"] .active-agent-summary > button:focus-visible {
+  border-color: rgba(106, 168, 255, .42) !important;
+  background: var(--dark-surface-3) !important;
+  color: var(--dark-blue) !important;
+}
+
+html[data-prosmet-theme="dark"] .toggle {
+  border-color: var(--dark-line-strong) !important;
+  background: #353d49 !important;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .18) !important;
+}
+
+html[data-prosmet-theme="dark"] .toggle.active {
+  border-color: rgba(106, 168, 255, .62) !important;
+  background: var(--dark-blue) !important;
+}
+
+html[data-prosmet-theme="dark"] .toggle > b {
+  background: #f7f9fc !important;
+  box-shadow: 0 2px 7px rgba(0, 0, 0, .38) !important;
+}
+
+html[data-prosmet-theme="dark"] .settings-action > b {
+  border-color: var(--dark-line) !important;
+  background: var(--dark-surface-2) !important;
+  color: var(--dark-ink) !important;
+}
+
+html[data-prosmet-theme="dark"] .settings-action > b svg {
+  color: var(--dark-blue) !important;
+}
+
+html[data-prosmet-theme="dark"] .admin-login label > span,
+html[data-prosmet-theme="dark"] .agent-field > span {
+  color: var(--dark-muted) !important;
+}
+
+html[data-prosmet-theme="dark"] .admin-login input,
+html[data-prosmet-theme="dark"] .agent-field input,
+html[data-prosmet-theme="dark"] .agent-field textarea,
+html[data-prosmet-theme="dark"] .agent-field select {
+  border-color: var(--dark-line) !important;
+  background: var(--dark-surface-2) !important;
+  color: var(--dark-ink) !important;
+  box-shadow: none !important;
+}
+
+html[data-prosmet-theme="dark"] .admin-login input:focus,
+html[data-prosmet-theme="dark"] .agent-field input:focus,
+html[data-prosmet-theme="dark"] .agent-field textarea:focus,
+html[data-prosmet-theme="dark"] .agent-field select:focus {
+  border-color: var(--dark-blue) !important;
+  box-shadow: 0 0 0 3px rgba(106, 168, 255, .14) !important;
+}
+
+html[data-prosmet-theme="dark"] .agent-field option {
+  background: var(--dark-surface-2);
+  color: var(--dark-ink);
+}
+
+html[data-prosmet-theme="dark"] .admin-login > button,
+html[data-prosmet-theme="dark"] .admin-session-row > button,
+html[data-prosmet-theme="dark"] .agent-form-actions .primary-button {
+  border-color: #f5f7fa !important;
+  background: #f5f7fa !important;
+  color: #101318 !important;
+}
+
+html[data-prosmet-theme="dark"] .agent-form-actions .secondary-button {
+  border-color: var(--dark-line) !important;
+  background: var(--dark-surface-2) !important;
+  color: var(--dark-ink) !important;
+}
+
+html[data-prosmet-theme="dark"] .agent-settings {
+  border-color: var(--dark-line) !important;
+  background: #0f1217 !important;
+}
+
+html[data-prosmet-theme="dark"] .agent-settings-title {
+  border-color: var(--dark-line) !important;
+  color: var(--dark-ink) !important;
+}
+
+html[data-prosmet-theme="dark"] .agent-settings-title > svg {
+  color: var(--dark-blue) !important;
+}
+
+html[data-prosmet-theme="dark"] .agent-settings-title strong {
+  color: var(--dark-ink) !important;
+}
+
+html[data-prosmet-theme="dark"] .agent-settings-title small {
+  color: var(--dark-muted) !important;
+}
+
+html[data-prosmet-theme="dark"] .agent-connection {
+  border-color: var(--dark-line) !important;
+  background: var(--dark-surface) !important;
+  color: var(--dark-ink) !important;
+  box-shadow: none !important;
+}
+
+html[data-prosmet-theme="dark"] .agent-connection.active {
+  border-color: rgba(99, 211, 163, .42) !important;
+  background: linear-gradient(180deg, rgba(30, 48, 42, .94), var(--dark-surface)) !important;
+}
+
+html[data-prosmet-theme="dark"] .agent-connection header strong {
+  color: var(--dark-ink) !important;
+}
+
+html[data-prosmet-theme="dark"] .agent-connection header small,
+html[data-prosmet-theme="dark"] .secret-state {
+  color: var(--dark-muted) !important;
+}
+
+html[data-prosmet-theme="dark"] .agent-connection > p {
+  border-color: var(--dark-line) !important;
+  background: var(--dark-surface-2) !important;
+  color: #c3cad5 !important;
+}
+
+html[data-prosmet-theme="dark"] .agent-connection > p,
+html[data-prosmet-theme="dark"] .agent-connection code {
+  overflow-wrap: anywhere;
+}
+
+html[data-prosmet-theme="dark"] .agent-test-result {
+  border-color: rgba(99, 211, 163, .24) !important;
+  background: rgba(99, 211, 163, .10) !important;
+  color: var(--dark-green) !important;
+}
+
+html[data-prosmet-theme="dark"] .agent-connection footer {
+  border-color: var(--dark-line) !important;
+}
+
+html[data-prosmet-theme="dark"] .agent-connection footer button {
+  border-color: var(--dark-line) !important;
+  background: var(--dark-surface-2) !important;
+  color: var(--dark-ink) !important;
+}
+
+html[data-prosmet-theme="dark"] .agent-connection footer button:hover,
+html[data-prosmet-theme="dark"] .agent-connection footer button:focus-visible {
+  border-color: rgba(106, 168, 255, .38) !important;
+  background: var(--dark-surface-3) !important;
+}
+
+html[data-prosmet-theme="dark"] .agent-health.idle {
+  background: #667085 !important;
+}
+
+html[data-prosmet-theme="dark"] .settings-error {
+  border-color: rgba(255, 136, 131, .24) !important;
+  background: rgba(255, 136, 131, .10) !important;
+  color: var(--dark-red) !important;
+}
+
+@media (prefers-color-scheme: dark) {
+  html[data-prosmet-theme="system"] .settings-layout,
+  html[data-prosmet-theme="system"] .settings-main,
+  html[data-prosmet-theme="system"] .agent-settings,
+  html[data-prosmet-theme="system"] .settings-section,
+  html[data-prosmet-theme="system"] .settings-section > header,
+  html[data-prosmet-theme="system"] .settings-section > div,
+  html[data-prosmet-theme="system"] .active-agent-summary,
+  html[data-prosmet-theme="system"] .toggle-row,
+  html[data-prosmet-theme="system"] .settings-action,
+  html[data-prosmet-theme="system"] .admin-login,
+  html[data-prosmet-theme="system"] .admin-session-row,
+  html[data-prosmet-theme="system"] .agent-form,
+  html[data-prosmet-theme="system"] .agent-connection,
+  html[data-prosmet-theme="system"] .agent-empty {
+    border-color: var(--dark-line) !important;
+    background: var(--dark-surface) !important;
+    color: var(--dark-ink) !important;
+    box-shadow: none !important;
+  }
+
+  html[data-prosmet-theme="system"] .settings-section > header,
+  html[data-prosmet-theme="system"] .active-agent-summary > button,
+  html[data-prosmet-theme="system"] .agent-connection > p,
+  html[data-prosmet-theme="system"] .agent-connection footer button,
+  html[data-prosmet-theme="system"] .settings-action > b {
+    background: var(--dark-surface-2) !important;
+    color: var(--dark-ink) !important;
+  }
+
+  html[data-prosmet-theme="system"] .toggle-row strong,
+  html[data-prosmet-theme="system"] .settings-action strong,
+  html[data-prosmet-theme="system"] .agent-connection header strong,
+  html[data-prosmet-theme="system"] .agent-settings-title strong {
+    color: var(--dark-ink) !important;
+  }
+
+  html[data-prosmet-theme="system"] .toggle-row small,
+  html[data-prosmet-theme="system"] .settings-action small,
+  html[data-prosmet-theme="system"] .agent-connection header small,
+  html[data-prosmet-theme="system"] .secret-state,
+  html[data-prosmet-theme="system"] .agent-settings-title small {
+    color: var(--dark-muted) !important;
+  }
+
+  html[data-prosmet-theme="system"] .admin-login input,
+  html[data-prosmet-theme="system"] .agent-field input,
+  html[data-prosmet-theme="system"] .agent-field textarea,
+  html[data-prosmet-theme="system"] .agent-field select {
+    border-color: var(--dark-line) !important;
+    background: var(--dark-surface-2) !important;
+    color: var(--dark-ink) !important;
+  }
+}
