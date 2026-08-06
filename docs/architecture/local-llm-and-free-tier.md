@@ -94,3 +94,5 @@ The workflow `Prosmet Local LLM Provisioning` is accepted only when all of the f
 - `agent-pool-evidence.json` showing a successful ProSmet adapter test;
 - production `/api/health` response;
 - no credential-shaped value found in deployment or provisioning source.
+
+<!-- operational trigger: local LLM provisioning requested on 2026-08-06 -->
