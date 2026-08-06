@@ -70,6 +70,9 @@ test.describe("ProSmet dark theme QA", () => {
     await expectDarkSurface(page, ".pro-desktop-topbar", "Desktop topbar");
     await expectDarkSurface(page, ".suggestion-card", "Suggestion card");
     await expectDarkSurface(page, ".desktop-composer", "Composer");
+    if (await page.locator(".pro-current-project-link").count()) {
+      await expectDarkSurface(page, ".pro-current-project-link", "Current project shortcut");
+    }
     expect(await horizontalOverflow(page)).toBeLessThanOrEqual(1);
 
     await page.screenshot({ path: "artifacts-dark-desktop-shell.png", fullPage: true });
@@ -83,12 +86,16 @@ test.describe("ProSmet dark theme QA", () => {
 
     await page.getByRole("button", { name: /Кабинет/ }).click();
     await expect(page.getByRole("heading", { name: "Кабинет" })).toBeVisible();
+    await expectDarkSurface(page, ".desktop-account", "Desktop account canvas");
+    await expectDarkSurface(page, ".account-auth-required", "Admin-session notice");
+    await expectDarkSurface(page, ".account-block", "System status block");
     await expectDarkSurface(page, ".registration-panel", "Registration panel");
     await expectDarkSurface(page, ".registration-panel__form", "Registration form");
+    await expect(page.locator(".status-row b").first()).toHaveCSS("color", /rgb\((?:24[0-9]|25[0-5]),/);
     await page.screenshot({ path: "artifacts-dark-desktop-account.png", fullPage: true });
   });
 
-  test("mobile dark theme covers chat, drawer and project surfaces", async ({ page }, testInfo) => {
+  test("mobile dark theme covers chat, drawer, project search and account surfaces", async ({ page }, testInfo) => {
     test.skip(testInfo.project.name !== "mobile-chromium", "Mobile-only dark theme gate");
 
     await page.goto("/app", { waitUntil: "networkidle" });
@@ -104,7 +111,7 @@ test.describe("ProSmet dark theme QA", () => {
     await page.screenshot({ path: "artifacts-dark-mobile-chat.png", fullPage: true });
 
     await page.getByRole("button", { name: "Открыть навигацию" }).click();
-    const drawer = page.getByRole("dialog", { name: "Навигация" });
+    let drawer = page.getByRole("dialog", { name: "Навигация" });
     await expect(drawer).toBeVisible();
     await expectDarkSurface(page, ".pro-mobile-drawer", "Mobile drawer");
     await page.screenshot({ path: "artifacts-dark-mobile-drawer.png", fullPage: true });
@@ -112,10 +119,22 @@ test.describe("ProSmet dark theme QA", () => {
     await drawer.getByRole("button", { name: "Проекты" }).click();
     await expect(drawer).toBeHidden();
     await expect(page.getByTestId("projects-view")).toBeVisible();
+    await expectDarkSurface(page, ".pro-search-field", "Mobile project search");
     const projectRow = page.locator(".pro-project-row").first();
     if (await projectRow.count()) await expectDarkSurface(page, ".pro-project-row", "Mobile project row");
     expect(await horizontalOverflow(page)).toBeLessThanOrEqual(1);
     await page.screenshot({ path: "artifacts-dark-mobile-projects.png", fullPage: true });
+
+    await page.getByRole("button", { name: "Открыть навигацию" }).click();
+    drawer = page.getByRole("dialog", { name: "Навигация" });
+    await drawer.getByRole("button", { name: "Профиль" }).click();
+    await expect(drawer).toBeHidden();
+    await expect(page.getByRole("heading", { name: "Кабинет" })).toBeVisible();
+    await expectDarkSurface(page, ".mobile-account", "Mobile account canvas");
+    await expectDarkSurface(page, ".account-auth-required", "Mobile admin-session notice");
+    await expectDarkSurface(page, ".registration-panel", "Mobile registration panel");
+    expect(await horizontalOverflow(page)).toBeLessThanOrEqual(1);
+    await page.screenshot({ path: "artifacts-dark-mobile-account.png", fullPage: true });
   });
 
   test("system theme follows a dark operating-system preference", async ({ page }, testInfo) => {
