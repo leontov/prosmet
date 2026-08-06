@@ -1,0 +1,136 @@
+name: Prosmet Local LLM Recovery
+
+on:
+  push:
+    branches: [ops/local-llm-recovery]
+    paths:
+      - .github/workflows/local-llm-recovery.yml
+      - deployment/provision-local-llm.sh
+      - scripts/provision-agent-pool.mjs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prosmet-primary-local-llm-recovery
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    name: Recover, connect and test local LLM on prosmet-primary
+    runs-on: self-hosted
+    timeout-minutes: 90
+    env:
+      PROSMET_LOCAL_LLM_MODEL: qwen3.5:9b
+      PROSMET_LOCAL_LLM_ACTIVATE: always
+      PROSMET_LOCAL_LLM_BASE_URL: http://127.0.0.1:11434
+      PROSMET_BASE_URL: http://127.0.0.1:3200
+      PROSMET_AGENT_POOL_EVIDENCE: ${{ github.workspace }}/agent-pool-evidence.json
+      PROSMET_QWEN_API_KEY: ${{ secrets.PROSMET_QWEN_API_KEY }}
+      PROSMET_GROQ_API_KEY: ${{ secrets.PROSMET_GROQ_API_KEY }}
+      PROSMET_GEMINI_API_KEY: ${{ secrets.PROSMET_GEMINI_API_KEY }}
+      PROSMET_OPENROUTER_API_KEY: ${{ secrets.PROSMET_OPENROUTER_API_KEY }}
+    steps:
+      - name: Verify exact trusted runner
+        run: |
+          set -Eeuo pipefail
+          test "${{ runner.name }}" = "prosmet-primary"
+          test "${{ runner.os }}" = "Linux"
+          uname -a
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify exact recovery source
+        run: test "$(git rev-parse HEAD)" = "${{ github.sha }}"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.16.0
+
+      - name: Validate provisioning sources
+        run: |
+          set -Eeuo pipefail
+          bash -n deployment/provision-local-llm.sh
+          node --check scripts/provision-agent-pool.mjs
+
+      - name: Install or recover loopback-only Ollama and pull model
+        run: |
+          set -Eeuo pipefail
+          chmod 0755 deployment/provision-local-llm.sh
+          deployment/provision-local-llm.sh | tee local-llm-provision.log
+          cp "$HOME/.prosmet-greenfield/local-llm.json" local-llm.json
+
+      - name: Verify direct model response
+        run: |
+          set -Eeuo pipefail
+          curl --fail --silent --show-error \
+            --retry 8 --retry-delay 2 --retry-all-errors \
+            "$PROSMET_LOCAL_LLM_BASE_URL/api/chat" \
+            -H 'content-type: application/json' \
+            --data "$(node -e 'process.stdout.write(JSON.stringify({model:process.env.PROSMET_LOCAL_LLM_MODEL,stream:false,format:"json",messages:[{role:"user",content:"Ответь строго JSON без пояснений: {\\"ok\\":true,\\"service\\":\\"prosmet-local-llm\\"}"}]}))')" \
+            > direct-model-response.json
+          node <<'NODE'
+          const fs = require('node:fs');
+          const response = JSON.parse(fs.readFileSync('direct-model-response.json', 'utf8'));
+          const content = String(response?.message?.content || '');
+          const parsed = JSON.parse(content);
+          if (parsed.ok !== true || parsed.service !== 'prosmet-local-llm') {
+            throw new Error(`Unexpected local model response: ${content.slice(0, 500)}`);
+          }
+          console.log(JSON.stringify({ model: response.model, response: parsed }, null, 2));
+          NODE
+
+      - name: Wait for ProSmet control plane
+        run: |
+          set -Eeuo pipefail
+          for attempt in $(seq 1 180); do
+            if curl -fsS --max-time 4 "$PROSMET_BASE_URL/api/health" > production-health.json; then
+              grep -q '"ok":true' production-health.json
+              exit 0
+            fi
+            sleep 2
+          done
+          cat "$HOME/.prosmet-greenfield/production.log" 2>/dev/null || true
+          exit 1
+
+      - name: Register, activate and adapter-test local model
+        run: |
+          set -Eeuo pipefail
+          test -s "$HOME/.prosmet-greenfield/config/admin.token"
+          node scripts/provision-agent-pool.mjs | tee agent-pool-provision.log
+
+      - name: Verify active local agent evidence
+        run: |
+          set -Eeuo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const evidence = JSON.parse(fs.readFileSync('agent-pool-evidence.json', 'utf8'));
+          const local = evidence.configuredProviders.find((entry) => entry.id === 'local-ollama');
+          if (!evidence.ok || !local?.test?.ok) throw new Error('Local Ollama adapter test failed');
+          if (evidence.activeAfter?.id !== local.agent.id) throw new Error('Local Ollama was not activated');
+          if (local.agent.model !== process.env.PROSMET_LOCAL_LLM_MODEL) throw new Error('Unexpected active local model');
+          console.log(JSON.stringify({
+            activeAfter: evidence.activeAfter,
+            latencyMs: local.test.latencyMs,
+            adapterMessage: local.test.message
+          }, null, 2));
+          NODE
+
+      - name: Upload recovery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prosmet-local-llm-recovery-${{ github.run_id }}
+          path: |
+            local-llm.json
+            local-llm-provision.log
+            direct-model-response.json
+            production-health.json
+            agent-pool-evidence.json
+            agent-pool-provision.log
+          if-no-files-found: warn
+          retention-days: 30
