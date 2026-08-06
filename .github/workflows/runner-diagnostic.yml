@@ -1,0 +1,90 @@
+name: Prosmet Primary Runner Diagnostic
+
+on:
+  push:
+    branches: [ops/local-llm-recovery]
+    paths:
+      - .github/workflows/runner-diagnostic.yml
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  statuses: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Inspect repository self-hosted runners
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -Eeuo pipefail
+          HTTP_CODE="$(curl --silent --show-error \
+            --output runners.json \
+            --write-out '%{http_code}' \
+            -H 'accept: application/vnd.github+json' \
+            -H "authorization: Bearer $GH_TOKEN" \
+            -H 'x-github-api-version: 2022-11-28' \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/actions/runners" || true)"
+          export HTTP_CODE
+          node <<'NODE'
+          const fs = require('node:fs');
+          const code = process.env.HTTP_CODE;
+          let body = {};
+          try { body = JSON.parse(fs.readFileSync('runners.json', 'utf8')); } catch {}
+          const runner = Array.isArray(body.runners)
+            ? body.runners.find((entry) => entry.name === 'prosmet-primary')
+            : null;
+          const diagnostic = {
+            httpCode: code,
+            totalCount: body.total_count ?? null,
+            runner: runner ? {
+              id: runner.id,
+              name: runner.name,
+              os: runner.os,
+              status: runner.status,
+              busy: runner.busy,
+              labels: (runner.labels || []).map((label) => label.name)
+            } : null,
+            apiMessage: body.message || null
+          };
+          fs.writeFileSync('runner-diagnostic.json', `${JSON.stringify(diagnostic, null, 2)}\n`);
+          console.log(JSON.stringify(diagnostic, null, 2));
+          NODE
+
+          DESCRIPTION="$(node - <<'NODE'
+          const d = require('./runner-diagnostic.json');
+          if (d.runner) process.stdout.write(`prosmet-primary ${d.runner.status}, busy=${d.runner.busy}`);
+          else process.stdout.write(`runner inspection unavailable (HTTP ${d.httpCode})`);
+          NODE
+          )"
+          export DESCRIPTION
+          PAYLOAD="$(node - <<'NODE'
+          process.stdout.write(JSON.stringify({
+            state: 'success',
+            context: 'prosmet/primary-runner-diagnostic',
+            description: process.env.DESCRIPTION.slice(0, 140),
+            target_url: process.env.TARGET_URL
+          }));
+          NODE
+          )"
+          curl --fail --silent --show-error \
+            -X POST \
+            -H 'accept: application/vnd.github+json' \
+            -H "authorization: Bearer $GH_TOKEN" \
+            -H 'x-github-api-version: 2022-11-28' \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            --data "$PAYLOAD" >/dev/null
+
+      - name: Upload runner diagnostic
+        uses: actions/upload-artifact@v4
+        with:
+          name: prosmet-primary-runner-diagnostic-${{ github.run_id }}
+          path: |
+            runners.json
+            runner-diagnostic.json
+          retention-days: 7
