@@ -19,6 +19,7 @@ import "../mobile-product-polish.css";
 import "../web-appearance-fixes.css";
 import "../web-visual-corrections.css";
 import "../web-canvas-width-fix.css";
+import "../web-dark-theme.css";
 
 export default function AppEntry() {
   return <ReferenceApp />;
