@@ -1,69 +1,131 @@
-# Просметчик — Greenfield V3
+<div align="center">
 
-Универсальное assistant-first приложение для диалогов, расчётов, смет, документов и подключения внешних AI-агентов.
+# Просметчик · Greenfield V3
 
-> Кодовая база создана как чистое Greenfield-дерево. Старые shell, страницы, CSS-слои, демонстрационные сметы и фиктивные ответы в production не используются.
+**Assistant-first рабочая среда для диалогов, строительных расчётов, смет, документов и внешних AI-агентов.**
 
-Каноническая production-ветка: `main`. Публичный адрес: `https://kolibriai.online`.
+[Открыть production](https://kolibriai.online) · [Быстрый старт](#быстрый-старт) · [Архитектура](#архитектура) · [Release gates](#release-gates)
+
+[![Prosmet Greenfield Quality](https://github.com/leontov/prosmet/actions/workflows/greenfield-ci.yml/badge.svg?event=pull_request)](https://github.com/leontov/prosmet/actions/workflows/greenfield-ci.yml)
+[![Prosmet Greenfield Production](https://github.com/leontov/prosmet/actions/workflows/greenfield-deploy.yml/badge.svg?branch=main&event=push)](https://github.com/leontov/prosmet/actions/workflows/greenfield-deploy.yml)
+[![Production](https://img.shields.io/badge/production-kolibriai.online-111827?logo=googlechrome&logoColor=white)](https://kolibriai.online)
+[![Node.js 22](https://img.shields.io/badge/Node.js-22.16-339933?logo=nodedotjs&logoColor=white)](./package.json)
+[![React 19](https://img.shields.io/badge/React-19.2-087EA4?logo=react&logoColor=white)](./apps/web/package.json)
+[![TypeScript 6](https://img.shields.io/badge/TypeScript-6-3178C6?logo=typescript&logoColor=white)](./apps/web/package.json)
+[![Rust](https://img.shields.io/badge/Rust-estimate_engine-000000?logo=rust&logoColor=white)](./crates/estimate-engine)
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./docs/readme/prosmet-hero-dark.webp">
+  <img src="./docs/readme/prosmet-hero-light.webp" alt="Просметчик Greenfield V3: desktop workspace и mobile estimate editor" width="1600">
+</picture>
+
+</div>
+
+> [!IMPORTANT]
+> Это чистое Greenfield-дерево. Legacy shell, старые страницы и CSS-слои, демонстрационные сметы, hardcoded production-данные и fake responder не являются частью канонического runtime. Каноническая production-ветка — [`main`](https://github.com/leontov/prosmet/tree/main).
+
+## Что представляет собой Просметчик
+
+Просметчик строит рабочий процесс вокруг диалога с подключённым агентом: пользователь формулирует задачу, провайдер возвращает типизированный результат, сервер валидирует документ, а приложение открывает его в редактируемом канвасе. Один продуктовый контур охватывает:
+
+- assistant-first чат без встроенных фиктивных ответов;
+- редактируемые сметы, расчёты и проектные артефакты;
+- экспорт результата в PDF и XLSX;
+- web, mobile web, iOS, Android и desktop native;
+- серверный control plane для внешних AI-агентов;
+- независимый Rust-движок расчётов без AI-зависимостей.
+
+Пока активный агент не настроен, UI возвращает явную ошибку конфигурации. Смета открывается только из фактического валидного ответа провайдера.
+
+## Интерфейс
+
+Изображения ниже — реальные Playwright screenshots из Greenfield Quality evidence, а не рекламные макеты.
+
+<table>
+  <tr>
+    <td width="68%" valign="top">
+      <img src="./docs/readme/desktop-chat.webp" alt="Desktop Web: assistant-first чат и рабочая область" width="1440">
+      <br><sub><b>Desktop Web.</b> Чат как основной процесс, библиотеки данных слева и результат в отдельном канвасе.</sub>
+    </td>
+    <td width="32%" valign="top">
+      <img src="./docs/readme/mobile-estimate.webp" alt="Mobile Web: карточный редактор сметы" width="650">
+      <br><sub><b>Mobile Web.</b> Отдельная мобильная композиция и крупные карточки редактирования.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="./docs/readme/desktop-pdf-canvas.webp" alt="Desktop Web: PDF canvas" width="1440">
+      <br><sub><b>Document canvas.</b> Предпросмотр формируемого PDF рядом с рабочим диалогом.</sub>
+    </td>
+    <td width="50%" valign="top">
+      <img src="./docs/readme/desktop-agent-settings-dark.webp" alt="Agent control plane в dark mode" width="1440">
+      <br><sub><b>Agent control plane.</b> Проверка, активация и переключение подключений без раскрытия секретов.</sub>
+    </td>
+  </tr>
+</table>
 
 ## Продуктовые поверхности
 
-- **Desktop Web** — лаконичная Codex/GPT-like оболочка, чат как основной рабочий процесс, библиотеки реальных данных и полноэкранный редактор результата.
-- **Mobile Web** — отдельная мобильная композиция без постоянной нижней навигации; разделы открываются по запросу, смета редактируется крупными карточками.
-- **iOS / Android** — отдельное Expo/React Native-приложение с assistant-ui primitives и SecureStore.
-- **Desktop Native** — Tauri 2 shell для macOS, Windows и Linux.
-- **Расчётный контур** — независимый Rust crate без AI-зависимостей.
-- **Agent control plane** — серверный реестр провайдеров, тестирование, переключение активного агента и зашифрованные секреты.
-
-## Поддерживаемые интеграции агентов
-
-| Тип | Назначение | Протокол |
+| Поверхность | Роль | Реализация |
 |---|---|---|
-| OpenAI-compatible | OpenAI API, MiMo gateway и совместимые сервисы | `POST /chat/completions` |
-| Ollama | локальные модели | `POST /api/chat` |
-| Codex App Server | полноценный Codex runtime | JSONL/stdio: `initialize → thread/start → turn/start → events` |
-| HTTP agent | любой собственный агентный сервис | универсальный JSON request/response contract |
+| **Desktop Web** | Чат, библиотеки реальных данных, редактор результата и документы | React 19.2, Vite 8, assistant-ui LocalRuntime |
+| **Mobile Web** | Отдельная адаптивная композиция без постоянной нижней навигации | React, responsive web shell, card-based estimate editor |
+| **iOS / Android** | Нативный клиент, сессия пользователя и защищённая конфигурация | Expo SDK 57, React Native 0.86, assistant-ui primitives, SecureStore |
+| **Desktop Native** | Shell для macOS, Windows и Linux с узкой IPC-границей | Tauri 2, typed commands, least-privilege capabilities |
+| **Расчётный контур** | Детерминированные вычисления независимо от AI-провайдера | Rust crate `prosmet-estimate-engine` |
+| **Agent control plane** | Реестр, тестирование, активация и защищённое хранение подключений | Server API, runtime validation, AES-256-GCM |
 
-UI не содержит встроенного «ответа-заглушки». Пока активный агент не подключён, чат возвращает понятную ошибку конфигурации. Смета открывается только из фактического ответа провайдера.
+## Архитектура
 
-## Управление агентами
+```mermaid
+flowchart LR
+  subgraph Clients[Клиентские поверхности]
+    Web[Desktop / Mobile Web]
+    Native[Expo iOS / Android]
+    Desktop[Tauri 2 Desktop]
+  end
 
-Супер-администратор может из web- или mobile-настроек:
+  Web --> API
+  Native --> API
+  Desktop --> Web
 
-1. добавить подключение;
-2. сохранить API key/token;
-3. проверить соединение;
-4. активировать нужного агента;
-5. изменить или удалить подключение.
+  API[Web API + Agent control plane]
+  Contracts[Shared contracts + runtime validation]
+  Registry[Encrypted agent registry]
+  Engine[Rust estimate engine]
+  Artifact[Validated estimate / document]
 
-Секреты шифруются на сервере через AES-256-GCM и не возвращаются клиенту. В мобильном приложении API URL и администраторский токен хранятся в Expo SecureStore.
+  API --> Contracts
+  API --> Registry
+  Contracts --> Adapter{Active provider adapter}
 
-### Bootstrap супер-администратора
+  Adapter --> OpenAI[OpenAI-compatible]
+  Adapter --> Ollama[Ollama]
+  Adapter --> Codex[Codex App Server]
+  Adapter --> HTTP[Universal HTTP agent]
 
-Для production предпочтительно передать токен процессу через переменную:
-
-```bash
-PROSMET_ADMIN_TOKEN='<длинный случайный токен>'
+  Adapter --> Artifact
+  Artifact --> Engine
+  Artifact --> Editor[Editor · PDF · XLSX]
 ```
 
-Когда переменная отсутствует, сервер создаёт токен один раз и сохраняет его с правами `0600`:
+Клиенты используют общие контракты из [`packages/contracts`](./packages/contracts). Сервер выбирает только активное подключение, нормализует ответ адаптера и не передаёт невалидный документ в редактор.
 
-```text
-$HOME/.prosmet-greenfield/config/admin.token
-```
+## Подключаемые агенты
 
-Реестр агентов и ключ шифрования расположены рядом:
+| Тип | Назначение | Транспорт |
+|---|---|---|
+| **OpenAI-compatible** | OpenAI API, MiMo gateway и совместимые сервисы | `POST /chat/completions` |
+| **Ollama** | Локальные модели | `POST /api/chat` |
+| **Codex App Server** | Полный Codex runtime | JSONL/stdio: `initialize → thread/start → turn/start → events` |
+| **HTTP agent** | Собственный агентный сервис | Универсальный JSON request/response contract |
 
-```text
-$HOME/.prosmet-greenfield/config/agents.json
-$HOME/.prosmet-greenfield/config/agents.key
-```
+Супер-администратор может добавить подключение, сохранить credential, выполнить connection test, активировать провайдера, изменить конфигурацию или удалить её из web/mobile settings.
 
-Эти файлы нельзя включать в Git, browser bundle или GitHub Actions artifacts.
+<details>
+<summary><strong>Универсальный HTTP-agent contract</strong></summary>
 
-## Универсальный HTTP-agent contract
-
-Запрос:
+### Запрос
 
 ```json
 {
@@ -79,7 +141,7 @@ $HOME/.prosmet-greenfield/config/agents.key
 }
 ```
 
-Ответ без документа:
+### Ответ без документа
 
 ```json
 {
@@ -89,7 +151,7 @@ $HOME/.prosmet-greenfield/config/agents.key
 }
 ```
 
-Ответ со сметой:
+### Ответ со сметой
 
 ```json
 {
@@ -112,61 +174,136 @@ $HOME/.prosmet-greenfield/config/agents.key
 }
 ```
 
-Production server проверяет структуру и не открывает невалидный документ.
+Production server проверяет контракт и не открывает структурно невалидный документ.
 
-## Технологии
+</details>
 
-- React 19.2 + Vite 8;
-- assistant-ui LocalRuntime;
-- Expo SDK 57 / React Native 0.86;
-- Expo SecureStore;
-- Tauri 2;
-- Rust;
-- TypeScript 6;
-- Playwright и Vitest.
+## Безопасность control plane
+
+Для production администраторский токен предпочтительно передавать процессу через окружение:
+
+```bash
+PROSMET_ADMIN_TOKEN='<длинный случайный токен>'
+```
+
+При отсутствии переменной сервер генерирует токен один раз и сохраняет его с правами `0600`:
+
+```text
+$HOME/.prosmet-greenfield/config/admin.token
+```
+
+Реестр агентов и ключ шифрования находятся в том же закрытом config root:
+
+```text
+$HOME/.prosmet-greenfield/config/agents.json
+$HOME/.prosmet-greenfield/config/agents.key
+```
+
+Ключи и токены:
+
+- шифруются на сервере через AES-256-GCM;
+- не возвращаются web/mobile клиенту;
+- не должны попадать в Git, browser bundle или GitHub Actions artifacts;
+- на мобильном устройстве API URL и администраторский токен хранятся через Expo SecureStore.
 
 ## Быстрый старт
 
+### Требования
+
+- Node.js `>=22.13 <23` — CI использует `22.16.0`;
+- npm с поддержкой workspaces;
+- stable Rust toolchain;
+- Chromium для Playwright acceptance.
+
+### Запуск web
+
 ```bash
-npm install --workspaces --include-workspace-root --legacy-peer-deps
+git clone https://github.com/leontov/prosmet.git
+cd prosmet
+npm ci --workspaces --include-workspace-root --legacy-peer-deps --no-audit --no-fund
 npm run dev
 ```
 
-Web откроется на `http://localhost:5173`.
+Web dev server откроется на `http://localhost:5173`.
 
-Полная проверка:
+### Полная локальная проверка
 
 ```bash
 npm run verify
 npm run desktop:metadata
+npm run desktop:verify
 npx playwright install chromium
 npm run e2e
+npm run lighthouse:landing
 ```
 
-Локальный E2E поднимает отдельный HTTP-agent fixture и подключает его через тот же публичный admin API, которым пользуется production UI. Fixture не входит в production runtime.
+Локальный E2E запускает отдельный HTTP-agent fixture и подключает его через тот же публичный admin API, которым пользуется production UI. Fixture не входит в production runtime.
 
-## Структура
+## Структура репозитория
 
 ```text
-apps/web                 web-интерфейс, API и production static server
-apps/mobile              отдельное Expo-приложение
-apps/desktop             Tauri shell
-packages/contracts       общие типы и API-контракты
-crates/estimate-engine   Rust-движок расчёта
-deployment               постоянный process/HTTPS recovery
-docs                     архитектура и дизайн-система
+apps/
+├── web/                  web UI, API и production static server
+├── mobile/               Expo / React Native приложение
+└── desktop/              Tauri 2 shell и typed IPC
+packages/
+└── contracts/            общие TypeScript-типы и API-контракты
+crates/
+└── estimate-engine/      независимый Rust-движок расчёта
+deployment/               persistent process и HTTPS edge recovery
+docs/                     архитектура и продуктовая документация
+scripts/                  contract, quality и release guards
+.github/workflows/         quality, production и recovery pipelines
 ```
+
+| Область | Путь |
+|---|---|
+| Web runtime | [`apps/web`](./apps/web) |
+| Mobile runtime | [`apps/mobile`](./apps/mobile) |
+| Desktop runtime | [`apps/desktop`](./apps/desktop) |
+| Shared contracts | [`packages/contracts`](./packages/contracts) |
+| Rust engine | [`crates/estimate-engine`](./crates/estimate-engine) |
+| Deployment recovery | [`deployment`](./deployment) |
+| Architecture docs | [`docs`](./docs) |
 
 ## Release gates
 
-`scripts/greenfield-contract.mjs` отклоняет сборку, если возвращаются:
+Публикация не считается завершённой только потому, что сборка прошла. Канонический release path требует точного SHA `main`, устойчивого процесса после cleanup runner и внешней проверки публичного HTTPS.
 
-- legacy UI;
-- demo estimate files;
-- hardcoded пользователи, объекты или устройства;
-- fake responder;
-- неработающие export/share controls;
-- отсутствие provider adapters или зашифрованного secret storage;
-- временный Node/Caddy-процесс, который GitHub Runner уничтожит после job.
+| Gate | Что проверяется |
+|---|---|
+| [`greenfield-contract.mjs`](./scripts/greenfield-contract.mjs) | Отсутствие legacy UI, demo estimates, hardcoded production-данных, fake responder и временного runtime |
+| [`openapi-contract.mjs`](./scripts/openapi-contract.mjs) | Согласованность публичного API-контракта |
+| [`desktop-ipc-contract.mjs`](./scripts/desktop-ipc-contract.mjs) | Узкая typed IPC-граница и least-privilege desktop capabilities |
+| `typecheck → unit → Rust → build` | TypeScript, Vitest, Cargo tests и production build |
+| Playwright desktop/mobile | Критические пользовательские маршруты, lifecycle и visual evidence |
+| Lighthouse | Бюджеты landing performance и accessibility |
+| Exact-SHA production deploy | Checkout и публикация только требуемого SHA `main` |
+| Post-cleanup persistence | Node process и edge пережили завершение GitHub Runner job |
+| Public edge | HTTPS, redirect, health и release SHA на `kolibriai.online` |
+| External live acceptance | Desktop/mobile Chromium против production URL с реальным active-agent path |
 
-Работа считается опубликованной только после деплоя точного SHA `main`, post-cleanup process PASS, public edge PASS и desktop/mobile Chromium против `https://kolibriai.online` с внешнего GitHub-hosted runner.
+Основные workflows:
+
+- [`Prosmet Greenfield Quality`](./.github/workflows/greenfield-ci.yml);
+- [`Prosmet Greenfield Production`](./.github/workflows/greenfield-deploy.yml);
+- [`Prosmet Public Root Recovery`](./.github/workflows/public-root-recovery.yml).
+
+## Greenfield-инварианты
+
+Production tree не должен возвращать:
+
+- legacy shell или старые страницы;
+- демонстрационные сметы и фиктивные ответы;
+- hardcoded пользователей, объекты или устройства;
+- export/share controls без рабочего действия;
+- provider registry без адаптеров и encrypted secret storage;
+- временный Node/Caddy process, уничтожаемый cleanup GitHub Runner.
+
+---
+
+<div align="center">
+
+**Production:** [kolibriai.online](https://kolibriai.online) · **Branch:** [`main`](https://github.com/leontov/prosmet/tree/main) · **Repository:** [`leontov/prosmet`](https://github.com/leontov/prosmet)
+
+</div>
