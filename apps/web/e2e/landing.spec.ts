@@ -26,9 +26,10 @@ test.describe("production landing", () => {
     const pricingHeading = page.getByRole("heading", { name: /Начните с задач\./ });
     await pricingHeading.scrollIntoViewIfNeeded();
     await expect(pricingHeading).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Старт", exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Pro", exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Команда", exact: true })).toBeVisible();
+    const pricing = page.locator("#pricing");
+    await expect(pricing.getByText("Старт", { exact: true })).toBeVisible();
+    await expect(pricing.getByText("Pro", { exact: true })).toBeVisible();
+    await expect(pricing.getByText("Команда", { exact: true })).toBeVisible();
 
     const finalHeading = page.getByRole("heading", { name: /Смета начинается/ });
     await finalHeading.scrollIntoViewIfNeeded();
