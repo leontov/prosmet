@@ -24,6 +24,7 @@ import "../web-dark-theme-fixes.css";
 import "../web-dark-settings-fixes.css";
 import "../web-dark-estimate-fullscreen.css";
 import "../prosmet-sam-style.css";
+import "../samreshuuu-layout.css";
 
 export default function AppEntry() {
   return <ReferenceApp />;
