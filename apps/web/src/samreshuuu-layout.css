@@ -58,7 +58,9 @@
 
   html[data-prosmet-theme="dark"] .suggestion-card,
   html[data-prosmet-theme="dark"] .mobile-reference-action,
-  html[data-prosmet-theme="dark"] .mobile-reference-utility {
+  html[data-prosmet-theme="dark"] .mobile-reference-utility,
+  html[data-prosmet-theme="dark"] .desktop-composer,
+  html[data-prosmet-theme="dark"] .mobile-reference-composer {
     border: 1px solid var(--dark-line) !important;
     background: var(--dark-surface-2) !important;
     color: var(--dark-ink) !important;
@@ -85,7 +87,9 @@
 @media (prefers-color-scheme: dark) {
   html[data-prosmet-theme="system"] .suggestion-card,
   html[data-prosmet-theme="system"] .mobile-reference-action,
-  html[data-prosmet-theme="system"] .mobile-reference-utility {
+  html[data-prosmet-theme="system"] .mobile-reference-utility,
+  html[data-prosmet-theme="system"] .desktop-composer,
+  html[data-prosmet-theme="system"] .mobile-reference-composer {
     border: 1px solid var(--dark-line) !important;
     background: var(--dark-surface-2) !important;
     color: var(--dark-ink) !important;
