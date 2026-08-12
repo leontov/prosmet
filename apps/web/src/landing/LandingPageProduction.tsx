@@ -179,7 +179,22 @@ export function LandingPageProduction() {
               <section className="lp3-estimate-pane" aria-label="Предварительная смета">
                 <div className="lp3-estimate-head"><div><span>СМЕТА · ПРИМЕР</span><h2>Штукатурка стен</h2><p><MapPinIcon aria-hidden="true" /> Лениногорск · 180 м²</p></div><span className="lp3-draft">Черновик</span></div>
                 <div className="lp3-estimate-meta"><span><b>Регион</b> Лениногорск</span><span><b>Материалы</b> Knauf MP-Start</span><span><b>Единица</b> м² / м.п.</span></div>
-                <div className="lp3-table" role="table" aria-label="Позиции демонстрационной сметы"><div className="lp3-row lp3-row-head" role="row"><span>Позиция</span><span>Кол.</span><span>Цена</span><span>Сумма</span></div>{estimateLines.map((line) => <div className="lp3-row" role="row" key={line.name}><span><b>{line.name}</b><small>{line.kind} · {line.source}</small></span><em>{line.quantity} {line.unit}</em><em>{money(line.price)}</em><strong>{money(line.quantity * line.price)}</strong></div>)}</div>
+                <div className="lp3-table" aria-label="Позиции демонстрационной сметы">
+                  <div className="lp3-row lp3-row-head" role="row">
+                    <span role="columnheader">Позиция</span>
+                    <span role="columnheader">Кол.</span>
+                    <span role="columnheader">Цена</span>
+                    <span role="columnheader">Сумма</span>
+                  </div>
+                  {estimateLines.map((line) => (
+                    <div className="lp3-row" role="row" key={line.name}>
+                      <span role="cell"><b>{line.name}</b><small>{line.kind} · {line.source}</small></span>
+                      <em role="cell">{line.quantity} {line.unit}</em>
+                      <em role="cell">{money(line.price)}</em>
+                      <strong role="cell">{money(line.quantity * line.price)}</strong>
+                    </div>
+                  ))}
+                </div>
                 <div className="lp3-estimate-source"><ShieldCheckIcon aria-hidden="true" /><span><b>Проверяемость:</b> в реальном расчёте цена хранится вместе с источником и датой наблюдения.</span></div><footer><span>Предварительный итог</span><strong>{money(total)}</strong></footer>
               </section>
             </div>
