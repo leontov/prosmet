@@ -16,7 +16,6 @@ import {
   AudioWaveformIcon,
   CheckIcon,
   CopyIcon,
-  DownloadIcon,
   FileSpreadsheetIcon,
   FileTextIcon,
   HammerIcon,
@@ -24,13 +23,14 @@ import {
   MoreHorizontalIcon,
   PlusIcon,
   RefreshCwIcon,
-  Share2Icon,
   SparklesIcon,
   SquareIcon,
   ThumbsDownIcon,
   ThumbsUpIcon,
   Volume2Icon,
-  XIcon
+  XIcon,
+  VolumeXIcon,
+  DownloadIcon
 } from "lucide-react";
 
 type Props = {
@@ -320,14 +320,23 @@ function AssistantActionBar({ mobile }: { mobile: boolean }) {
       <AuiIf condition={(state) => state.message.speech == null}>
         <ActionBarPrimitive.Speak aria-label="Озвучить ответ"><Volume2Icon /></ActionBarPrimitive.Speak>
       </AuiIf>
+      <AuiIf condition={(state) => state.message.speech != null}>
+        <ActionBarPrimitive.StopSpeaking aria-label="Остановить озвучивание"><VolumeXIcon /></ActionBarPrimitive.StopSpeaking>
+      </AuiIf>
       <ActionBarPrimitive.Reload aria-label="Повторить"><RefreshCwIcon /></ActionBarPrimitive.Reload>
       <ActionBarMorePrimitive.Root>
         <ActionBarMorePrimitive.Trigger aria-label="Ещё"><MoreHorizontalIcon /></ActionBarMorePrimitive.Trigger>
         <ActionBarMorePrimitive.Content>
           <ActionBarMorePrimitive.Copy>Копировать</ActionBarMorePrimitive.Copy>
-          <ActionBarMorePrimitive.Share asChild={false}>Поделиться</ActionBarMorePrimitive.Share>
-          <ActionBarMorePrimitive.Feedback.Positive><ThumbsUpIcon />Полезно</ActionBarMorePrimitive.Feedback.Positive>
-          <ActionBarMorePrimitive.Feedback.Negative><ThumbsDownIcon />Не полезно</ActionBarMorePrimitive.Feedback.Negative>
+          <ActionBarPrimitive.ExportMarkdown filename="prosmet-response.md" onExport={shareMarkdown}>
+            <DownloadIcon /> Экспортировать Markdown
+          </ActionBarPrimitive.ExportMarkdown>
+          <ActionBarPrimitive.FeedbackPositive>
+            <ThumbsUpIcon /> Полезно
+          </ActionBarPrimitive.FeedbackPositive>
+          <ActionBarPrimitive.FeedbackNegative>
+            <ThumbsDownIcon /> Не полезно
+          </ActionBarPrimitive.FeedbackNegative>
         </ActionBarMorePrimitive.Content>
       </ActionBarMorePrimitive.Root>
     </ActionBarPrimitive.Root>
