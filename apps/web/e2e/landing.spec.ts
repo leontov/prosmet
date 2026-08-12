@@ -108,7 +108,7 @@ test.describe("production landing", () => {
     await expect(page.getByRole("button", { name: "Открыть меню" })).toBeVisible();
     await page.getByRole("button", { name: "Открыть меню" }).click();
     await expect(page.getByRole("button", { name: "Закрыть меню" })).toBeVisible();
-    await page.getByRole("link", { name: "FAQ" }).click();
+    await page.getByRole("navigation", { name: "Основная навигация" }).getByRole("link", { name: "FAQ" }).click();
     await expect(page.getByRole("button", { name: "Открыть меню" })).toBeVisible();
   });
 });
