@@ -13,7 +13,6 @@ import type { CapabilityManifest, ConstructionQuickAction } from "@prosmet/contr
 import {
   ArrowDownIcon,
   ArrowUpIcon,
-  AudioWaveformIcon,
   CheckIcon,
   CopyIcon,
   FileSpreadsheetIcon,
@@ -59,12 +58,19 @@ const fallbackActions: ConstructionQuickAction[] = [
     title: "Подготовить документы",
     prompt: "На основании сметы подготовь комплект строительных документов: коммерческое предложение, договор, акт и счёт.",
     artifactType: "document-set"
+  },
+  {
+    id: "research-prices",
+    title: "Проверить цены",
+    prompt: "Проверь актуальные цены на строительные материалы и работы для указанного региона, сохрани источники и дату наблюдения.",
+    artifactType: "price-research"
   }
 ];
 
 function actionIcon(id: ConstructionQuickAction["id"]) {
   if (id === "create-estimate") return <FileSpreadsheetIcon />;
   if (id === "calculate-measurements") return <HammerIcon />;
+  if (id === "research-prices") return <SparklesIcon />;
   return <FileTextIcon />;
 }
 
@@ -115,13 +121,19 @@ function DesktopChat({ actions, hasEstimate, onOpenEstimate }: Omit<Props, "mobi
     <ThreadPrimitive.Root className="chat-root desktop-chat" data-testid="desktop-chat">
       <ThreadPrimitive.Viewport turnAnchor="top" className="chat-viewport">
         <AuiIf condition={(state) => state.thread.isEmpty}>
-          <div className="desktop-welcome">
-            <div className="assistant-mark"><SparklesIcon /></div>
-            <h1>Чем я могу помочь сегодня?</h1>
-            <h2 className="legacy-shell-heading">Что нужно рассчитать?</h2>
-            <p>Опишите строительную задачу обычными словами — Prosmet соберёт исходные данные, рассчитает объёмы и подготовит редактируемую смету.</p>
-            <div className="desktop-suggestions">
-              {actions.map((item) => (
+          <div className="desktop-welcome" data-testid="desktop-reference-start">
+            <div className="desktop-welcome-eyebrow"><span className="assistant-mark"><SparklesIcon /></span><span>ProSmet · AI-сметчик</span></div>
+            <h1>Один агент —<br />для смет, расчётов и документов</h1>
+            <p>Опишите строительную задачу обычными словами. ProSmet соберёт исходные данные, рассчитает объёмы, проверит цены и подготовит результат.</p>
+
+            <div className="desktop-welcome-prompt" aria-label="Пример запроса">
+              <span>Попробуйте</span>
+              <strong>«Составь смету на штукатурку 180 м² в Лениногорске»</strong>
+              <ArrowUpIcon />
+            </div>
+
+            <div className="desktop-suggestions" aria-label="Быстрые сценарии">
+              {actions.slice(0, 4).map((item) => (
                 <ThreadPrimitive.Suggestion key={item.id} prompt={item.prompt} send className="suggestion-card">
                   <span className="suggestion-icon">{item.icon}</span>
                   <span><strong>{item.title}</strong><small>{item.prompt}</small></span>
@@ -162,11 +174,12 @@ function MobileChat({ actions, hasEstimate, onOpenEstimate }: Omit<Props, "mobil
           <div className="mobile-reference-empty" data-testid="mobile-reference-start">
             <div className="mobile-reference-space" aria-hidden="true" />
             <div className="mobile-reference-title">
-              <h1>Чем я могу помочь сегодня?</h1>
-              <p>Опишите строительную задачу — Prosmet подготовит расчёт и документы.</p>
+              <div className="mobile-reference-eyebrow"><span><SparklesIcon /></span>ProSmet · AI-сметчик</div>
+              <h1>Сметы, расчёты<br />и документы — словами</h1>
+              <p>Опишите задачу. Агент сам разберётся с исходными данными и подготовит результат.</p>
             </div>
             <div className="mobile-reference-actions" aria-label="Быстрые действия">
-              {actions.map((item) => (
+              {actions.slice(0, 4).map((item) => (
                 <ThreadPrimitive.Suggestion
                   key={item.id}
                   prompt={item.prompt}
@@ -175,6 +188,7 @@ function MobileChat({ actions, hasEstimate, onOpenEstimate }: Omit<Props, "mobil
                 >
                   <span className="mobile-reference-action-icon">{item.icon}</span>
                   <span>{item.title}</span>
+                  <ArrowUpIcon />
                 </ThreadPrimitive.Suggestion>
               ))}
             </div>
@@ -209,7 +223,7 @@ function DesktopComposer() {
         id="desktop-message"
         name="desktop-message"
         rows={1}
-        placeholder="Опишите, что нужно сделать…"
+        placeholder="Что нужно сделать?"
         className="composer-input"
       />
       <ComposerPrimitive.Send className="composer-send" aria-label="Отправить"><ArrowUpIcon /></ComposerPrimitive.Send>
