@@ -1,0 +1,77 @@
+import { useMemo, useState, type FormEvent } from "react";
+import { ArrowRightIcon, BarChart3Icon, BotIcon, Building2Icon, CalculatorIcon, CheckIcon, ChevronDownIcon, ClipboardListIcon, FileCheck2Icon, FileSpreadsheetIcon, FileTextIcon, MapPinIcon, MenuIcon, RefreshCwIcon, ShieldCheckIcon, SmartphoneIcon, SparklesIcon, XIcon } from "lucide-react";
+import "./landing-production.css";
+
+type LeadState = { status: "idle" | "sending" | "sent" | "error"; message?: string };
+const lines = [
+  ["Подготовка поверхности", "м²", 180, 280],
+  ["Механизированная штукатурка Knauf MP-Start", "м²", 180, 500],
+  ["Грунтование", "м²", 180, 95],
+  ["Откосы", "м.п.", 24, 800],
+  ["Доставка и подъём материалов", "компл.", 1, 12000]
+] as const;
+const tasks = [
+  ["Составить смету", "180 м² штукатурки в Лениногорске", ClipboardListIcon],
+  ["Рассчитать материалы", "Объёмы, расход и запас 10%", CalculatorIcon],
+  ["Проверить цены", "Региональные цены и источники", BarChart3Icon],
+  ["Создать документы", "КП, договор, счёт, акт, КС-2/КС-3", FileTextIcon]
+] as const;
+const steps = [
+  ["01", "Опишите задачу", "Пишите обычным языком: объект, площадь, город и желаемый результат."],
+  ["02", "Агент разбирает задачу", "Уточняет недостающие данные, определяет технологию и состав работ."],
+  ["03", "Расчёт проверяется", "Количество, единицы, расход, цены, НДС и округление проходят детерминированную проверку."],
+  ["04", "Смета становится документом", "Утверждённую версию можно превратить в КП, договор, счёт, акт, PDF или XLSX."],
+  ["05", "Проект остаётся связанным", "Ревизии, изменения и фактические объёмы сохраняются вместе с объектом."]
+] as const;
+const faq = [
+  ["Можно ли просто написать задачу текстом?", "Да. Агент определяет, какие исходные данные нужны, и задаёт уточняющие вопросы."],
+  ["Откуда берутся цены?", "Цена хранится вместе с единицей, регионом, датой наблюдения и источником."],
+  ["Можно ли изменить готовую смету?", "Да. Позиции, количество, цена и итоги редактируются, а изменения сохраняются как ревизии."],
+  ["Какие документы можно получить?", "КП, договор, счёт, акт, PDF, XLSX, КС-2 и КС-3 из утверждённой версии."],
+  ["Работает на телефоне?", "Да. Интерфейс оптимизирован отдельно для mobile и desktop."]
+] as const;
+function money(value: number) { return `${Math.round(value).toLocaleString("ru-RU")} ₽`; }
+
+export function LandingPageProduction() {
+  const [nav, setNav] = useState(false), [prompt, setPrompt] = useState("Составь смету на штукатурку стен 180 м² в Лениногорске"), [running, setRunning] = useState(false), [faqOpen, setFaqOpen] = useState<number | null>(0), [lead, setLead] = useState<LeadState>({ status: "idle" });
+  const total = useMemo(() => lines.reduce((s, [, , q, p]) => s + q * p, 0), []);
+  const demo = () => { setRunning(true); window.setTimeout(() => setRunning(false), 900); };
+  const submit = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault(); const form = e.currentTarget; const data = new FormData(form); setLead({ status: "sending" });
+    try {
+      const r = await fetch("/api/leads", { method: "POST", headers: { "content-type": "application/json" }, credentials: "same-origin", body: JSON.stringify({ name: data.get("name"), contact: data.get("contact"), company: data.get("company"), website: data.get("website"), source: "landing" }) });
+      const result = await r.json().catch(() => ({})) as { lead?: { id?: string }; error?: { message?: string } };
+      if (!r.ok || !result.lead?.id) throw new Error(result.error?.message || "Не удалось отправить заявку.");
+      form.reset(); setLead({ status: "sent", message: "Заявка принята. Мы свяжемся с вами для демонстрации." });
+    } catch (error) { setLead({ status: "error", message: error instanceof Error ? error.message : "Не удалось отправить заявку." }); }
+  };
+  return <div className="lp">
+    <header className="lp-nav"><a className="lp-brand" href="/landing"><span><SparklesIcon /></span><b>ProSmet</b></a><nav className={nav ? "open" : ""}><a href="#product" onClick={() => setNav(false)}>Продукт</a><a href="#demo" onClick={() => setNav(false)}>Демонстрация</a><a href="#workflow" onClick={() => setNav(false)}>Как работает</a><a href="#pricing" onClick={() => setNav(false)}>Тарифы</a><a href="#faq" onClick={() => setNav(false)}>FAQ</a></nav><div className="lp-actions"><a className="lp-login" href="/app">Войти</a><a className="lp-btn lp-dark lp-small" href="/app">Открыть ProSmet <ArrowRightIcon /></a><button className="lp-menu" onClick={() => setNav(v => !v)} aria-label="Меню" aria-expanded={nav}>{nav ? <XIcon /> : <MenuIcon />}</button></div></header>
+    <main>
+      <section className="lp-hero"><div className="lp-glow" /><div className="lp-kicker"><SparklesIcon /> AI-сметчик для строительства</div><h1>От запроса до<br /><span>готового документа.</span></h1><p>ProSmet понимает строительную задачу обычным языком, считает объёмы, проверяет региональные цены и превращает результат в профессиональную смету и документы.</p><div className="lp-hero-actions"><a className="lp-btn lp-dark" href="/app">Составить первую смету <ArrowRightIcon /></a><a className="lp-btn lp-light" href="#demo">Посмотреть демонстрацию</a></div><div className="lp-proof"><b>180 м²</b> · <b>Лениногорск</b> · смета + материалы + документы</div>
+        <div className="lp-demo" id="demo"><div className="lp-chat"><div className="lp-chat-head"><span><BotIcon /></span><div><b>ProSmet AI</b><small>Строительный агент</small></div><i /></div><div className="lp-thread"><div className="lp-user">{prompt}</div>{running ? <div className="lp-thinking"><i /><i /><i /><span>Анализирую состав работ и цены…</span></div> : <div className="lp-result"><label><SparklesIcon /> Результат агента</label><h3>Смета на штукатурные работы готова</h3><p>180 м² · материалы рассчитаны с запасом · цены привязаны к региону.</p><div><button>Открыть смету</button><button>Показать источники</button></div></div>}</div><form className="lp-composer" onSubmit={e => { e.preventDefault(); demo(); }}><textarea aria-label="Запрос агента" value={prompt} onChange={e => setPrompt(e.target.value)} /><button aria-label="Запустить">{running ? <RefreshCwIcon /> : <ArrowRightIcon />}</button></form></div>
+          <div className="lp-estimate"><header><div><small>СМЕТА · PS-2026-001</small><h3>Штукатурка стен</h3><p>Лениногорск · 180 м²</p></div><span>Черновик</span></header><div className="lp-cols"><span>Работа / материал</span><span>Кол.</span><span>Цена</span><span>Сумма</span></div><div className="lp-lines">{lines.map(([name, unit, q, p]) => <div key={name}><span><b>{name}</b><small>{unit}</small></span><em>{q}</em><em>{money(p)}</em><strong>{money(q * p)}</strong></div>)}</div><footer><span>Предварительный итог</span><strong>{money(total)}</strong></footer></div></div>
+      </section>
+
+      <section className="lp-section" id="product"><div className="lp-heading"><small>Что делает ProSmet</small><h2>Не чат вокруг сметы.<br />Смета вокруг результата.</h2></div><div className="lp-grid">{[[ClipboardListIcon,"Сметы и расчёты","Работы, материалы, объёмы, оборудование, накладные расходы, доставка и итог — в одной структуре."],[BarChart3Icon,"Материалы и цены","Цена хранится вместе с единицей, регионом, источником и датой наблюдения."],[RefreshCwIcon,"Автопересчёт","Изменили площадь или количество — связанные объёмы и итог пересчитываются без ручной арифметики."],[FileCheck2Icon,"Документы","Утверждённая смета становится КП, договором, счётом, актом, PDF, XLSX, КС-2 или КС-3."]].map(([Icon,title,text]) => <article key={String(title)}><Icon /><h3>{title as string}</h3><p>{text as string}</p></article>)}</div></section>
+
+      <section className="lp-dark-section"><div className="lp-section lp-dark-inner"><div className="lp-heading"><small>AI-агент</small><h2>Поставьте задачу.<br />Не изучайте интерфейс.</h2><p>Агент задаёт уточняющие вопросы, выбирает workflow и возвращает не «текст», а проверяемый строительный результат.</p></div><div className="lp-task-grid">{tasks.map(([title,text,Icon]) => <a href="/app" key={title}><Icon /><span><b>{title}</b><small>{text}</small></span><ArrowRightIcon /></a>)}</div></div></section>
+
+      <section className="lp-section lp-materials"><div className="lp-heading"><small>Материалы и цены</small><h2>Источник важен так же,<br />как сама цена.</h2></div><div className="lp-source"><div className="lp-location"><MapPinIcon /><b>Лениногорск</b><span>Республика Татарстан</span></div><div className="lp-price-list"><div><span><b>Knauf MP-Start</b><small>мешок 30 кг</small></span><strong>415 ₽</strong></div><div><span><b>Механизированная штукатурка</b><small>м² · работа</small></span><strong>500 ₽</strong></div><div><span><b>Откосы</b><small>м.п. · работа</small></span><strong>800 ₽</strong></div><p>Цена должна иметь регион, единицу, дату наблюдения и источник. Тогда расчёт можно проверять и обновлять.</p></div></div></section>
+
+      <section className="lp-section" id="workflow"><div className="lp-heading"><small>Как работает</small><h2>От сообщения до утверждённого результата.</h2></div><div className="lp-steps">{steps.map(([n,t,c]) => <article key={n}><b>{n}</b><div><h3>{t}</h3><p>{c}</p></div></article>)}</div></section>
+
+      <section className="lp-section lp-docs"><div><small>Документы</small><h2>Один расчёт.<br />Весь комплект.</h2><p>Не переносите цифры между сервисами. Утверждённая версия сметы становится источником для коммерческого и исполнительного документооборота.</p><a className="lp-btn lp-dark" href="/app">Создать документ <ArrowRightIcon /></a></div><div className="lp-doc-stack">{[[FileTextIcon,"Коммерческое предложение","DOCX · PDF"],[FileSpreadsheetIcon,"Смета","XLSX · PDF"],[FileCheck2Icon,"Акт выполненных работ","DOCX · PDF"],[ClipboardListIcon,"КС-2 / КС-3","из утверждённой сметы"]].map(([Icon,title,sub]) => <div key={String(title)}><Icon /><span><b>{title as string}</b><small>{sub as string}</small></span></div>)}</div></section>
+
+      <section className="lp-section lp-mobile"><div><small>Mobile + desktop</small><h2>Работайте там,<br />где идёт работа.</h2><p>Мобильная версия сохраняет главный сценарий: задача → расчёт → изменение → результат. Desktop даёт больше пространства для редактора и документов.</p><ul><li><SmartphoneIcon /> Mobile-first composer</li><li><CheckIcon /> Крупные действия и состояния</li><li><CheckIcon /> Отдельная desktop-композиция</li></ul></div><div className="lp-phone"><header><b>ProSmet</b><span>•••</span></header><div><small>AI-СМЕТЧИК</small><h3>Что нужно<br />рассчитать?</h3><button>Составить смету <ArrowRightIcon /></button><button>Проверить цены <ArrowRightIcon /></button></div><footer>Что нужно сделать? <ArrowRightIcon /></footer></div></section>
+
+      <section className="lp-section" id="pricing"><div className="lp-heading"><small>Тарифы</small><h2>Начните с первой сметы.</h2></div><div className="lp-pricing">{[["Старт","0 ₽","Для знакомства",["AI-чат","Первая смета","Базовый экспорт"]],["Pro","4 990 ₽","за специалиста / месяц",["Проекты без ограничений","Редактор и версии","КП и документы","Каталог цен"]],["Команда","от 29 900 ₽","за команду / месяц",["Роли и права","Корпоративные шаблоны","Интеграции","Аудит изменений"]]].map(([name,price,note,features]) => <article className={name === "Pro" ? "featured" : ""} key={String(name)}>{name === "Pro" && <label>Популярный</label>}<h3>{name as string}</h3><strong>{price as string}</strong><small>{note as string}</small><ul>{(features as string[]).map(f => <li key={f}><CheckIcon />{f}</li>)}</ul><a href="/app">Начать <ArrowRightIcon /></a></article>)}</div></section>
+
+      <section className="lp-enterprise"><div><small>Для строительных компаний</small><h2>Ваши правила.<br />Ваши цены.<br />Ваш AI-контур.</h2><p>Роли, корпоративные шаблоны, источники цен, интеграции и аудит изменений. Настройте ProSmet под собственный процесс.</p><ul><li><ShieldCheckIcon /> Управляемый доступ и аудит</li><li><Building2Icon /> Настройка под структуру компании</li><li><BotIcon /> Выбор AI-провайдеров</li></ul></div><form onSubmit={e => void submit(e)}>{lead.status === "sent" ? <div className="lp-success"><CheckIcon /><h3>Заявка принята</h3><p>{lead.message}</p></div> : <><h3>Запросить демонстрацию</h3><label>Имя<input required name="name" autoComplete="name" maxLength={160} /></label><label>Телефон или email<input required name="contact" autoComplete="email" maxLength={320} /></label><label>Компания<input required name="company" autoComplete="organization" maxLength={320} /></label><input className="lp-honeypot" name="website" tabIndex={-1} autoComplete="off" />{lead.status === "error" && <p className="lp-error" role="alert">{lead.message}</p>}<button disabled={lead.status === "sending"}>{lead.status === "sending" ? "Отправляем…" : <>Получить план внедрения <ArrowRightIcon /></>}</button><small>Ответим по указанному контакту.</small></>}</form></section>
+
+      <section className="lp-section lp-faq" id="faq"><div className="lp-heading"><small>FAQ</small><h2>Частые вопросы.</h2></div><div>{faq.map(([q,a],i) => <button key={q} className={faqOpen === i ? "open" : ""} onClick={() => setFaqOpen(faqOpen === i ? null : i)}><span><b>{q}</b>{faqOpen === i && <p>{a}</p>}</span><ChevronDownIcon /></button>)}</div></section>
+      <section className="lp-final"><small>ProSmet</small><h2>Опишите первую задачу.</h2><p>Смета начнётся с обычного сообщения.</p><a className="lp-btn lp-dark" href="/app">Открыть ProSmet <ArrowRightIcon /></a></section>
+    </main>
+    <footer className="lp-footer"><div><a className="lp-brand" href="/landing"><span><SparklesIcon /></span><b>ProSmet</b></a><p>AI-сметчик и рабочая система для строительных проектов.</p></div><div><b>Продукт</b><a href="#product">Возможности</a><a href="#demo">Демонстрация</a><a href="#pricing">Тарифы</a></div><div><b>Ресурсы</b><a href="#workflow">Как работает</a><a href="#faq">FAQ</a><a href="/app">Приложение</a></div><div><b>Компания</b><a href="#enterprise">Для компаний</a><a href="mailto:hello@prosmet.ru">Контакты</a></div><span>© 2026 ProSmet · Строительный AI</span></footer>
+  </div>;
+}
