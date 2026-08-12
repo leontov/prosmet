@@ -118,10 +118,7 @@ pub fn calculate_material_requirement(
         10_000,
     );
 
-    let packages = ceil_div(
-        required_kg_milli as i128,
-        input.package_kg_milli as i128,
-    );
+    let packages = ceil_div(required_kg_milli as i128, input.package_kg_milli as i128);
     let purchased_kg_milli = packages
         .checked_mul(input.package_kg_milli)
         .ok_or("overflow")?;
