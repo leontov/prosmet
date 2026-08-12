@@ -1,0 +1,241 @@
+/* Start-screen visual layer for the ProSmet recreation. It follows the source interaction model while keeping ProSmet content and controls. */
+
+@layer components {
+  :root {
+    --src-ink: #171717;
+    --src-muted: #777772;
+    --src-line: #e8e8e3;
+    --src-card: #f5f5f1;
+    --src-paper: #fbfbf8;
+  }
+
+  @media (min-width: 768px) {
+    .desktop-chat .chat-viewport {
+      background: var(--src-paper) !important;
+    }
+
+    .desktop-welcome {
+      width: min(980px, calc(100% - 72px)) !important;
+      min-height: min(760px, calc(100dvh - 82px)) !important;
+      justify-content: flex-start !important;
+      padding: clamp(74px, 10vh, 118px) 0 170px !important;
+    }
+
+    .desktop-welcome-eyebrow {
+      display: inline-flex !important;
+      align-items: center !important;
+      gap: 10px !important;
+      margin-bottom: 28px !important;
+      color: var(--src-muted) !important;
+      font-size: 12px !important;
+      font-weight: 650 !important;
+      letter-spacing: -.01em !important;
+    }
+
+    .desktop-welcome .assistant-mark {
+      width: 30px !important;
+      height: 30px !important;
+      margin: 0 !important;
+      border-radius: 50% !important;
+      background: var(--src-ink) !important;
+    }
+
+    .desktop-welcome h1,
+    .desktop-welcome .legacy-shell-heading {
+      max-width: 900px !important;
+      color: var(--src-ink) !important;
+      font-size: clamp(50px, 6vw, 82px) !important;
+      line-height: .94 !important;
+      letter-spacing: -.075em !important;
+      font-weight: 720 !important;
+    }
+
+    .desktop-welcome h1 br {
+      display: block !important;
+    }
+
+    .desktop-welcome > p {
+      max-width: 620px !important;
+      margin-top: 24px !important;
+      color: var(--src-muted) !important;
+      font-size: 15px !important;
+      line-height: 1.6 !important;
+    }
+
+    .desktop-welcome-prompt {
+      width: min(760px, 100%) !important;
+      min-height: 58px !important;
+      display: grid !important;
+      grid-template-columns: auto minmax(0, 1fr) 18px !important;
+      align-items: center !important;
+      gap: 12px !important;
+      margin-top: 34px !important;
+      padding: 0 17px !important;
+      border: 1px solid var(--src-line) !important;
+      border-radius: 16px !important;
+      background: #fff !important;
+      color: var(--src-ink) !important;
+    }
+
+    .desktop-welcome-prompt span {
+      color: var(--src-muted) !important;
+      font-size: 11px !important;
+      font-weight: 650 !important;
+      text-transform: uppercase !important;
+      letter-spacing: .07em !important;
+    }
+
+    .desktop-welcome-prompt strong {
+      min-width: 0 !important;
+      overflow: hidden !important;
+      text-overflow: ellipsis !important;
+      white-space: nowrap !important;
+      font-size: 13px !important;
+      font-weight: 580 !important;
+    }
+
+    .desktop-welcome-prompt > svg {
+      color: #999993 !important;
+    }
+
+    .desktop-suggestions {
+      width: min(760px, 100%) !important;
+      grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+      gap: 9px !important;
+      margin-top: 10px !important;
+    }
+
+    .desktop-suggestions .suggestion-card {
+      min-height: 92px !important;
+      grid-template-columns: 34px minmax(0, 1fr) 16px !important;
+      align-items: center !important;
+      gap: 11px !important;
+      padding: 14px !important;
+      border: 1px solid var(--src-line) !important;
+      border-radius: 15px !important;
+      background: rgba(255,255,255,.82) !important;
+      box-shadow: none !important;
+    }
+
+    .desktop-suggestions .suggestion-card:hover {
+      transform: translateY(-1px) !important;
+      border-color: #d8d8d1 !important;
+      background: #fff !important;
+      box-shadow: 0 12px 30px rgba(20,20,20,.05) !important;
+    }
+
+    .desktop-suggestions .suggestion-icon {
+      width: 34px !important;
+      height: 34px !important;
+      border-radius: 10px !important;
+      background: var(--src-card) !important;
+      color: var(--src-ink) !important;
+    }
+
+    .desktop-suggestions .suggestion-card strong {
+      font-size: 12px !important;
+      color: var(--src-ink) !important;
+    }
+
+    .desktop-suggestions .suggestion-card small {
+      display: none !important;
+    }
+
+    .desktop-suggestions .suggestion-card > svg:last-child {
+      color: #aaa9a2 !important;
+    }
+
+    .desktop-composer {
+      width: min(760px, calc(100% - 72px)) !important;
+      min-height: 64px !important;
+      border: 1px solid #deded8 !important;
+      border-radius: 17px !important;
+      background: rgba(255,255,255,.98) !important;
+      box-shadow: 0 12px 36px rgba(20,20,20,.07) !important;
+    }
+
+    .desktop-composer .composer-input {
+      font-size: 14px !important;
+    }
+
+    .composer-send {
+      width: 38px !important;
+      height: 38px !important;
+      border-radius: 11px !important;
+      background: var(--src-ink) !important;
+    }
+  }
+
+  @media (max-width: 767px) {
+    .mobile-reference-empty {
+      padding-inline: 16px !important;
+      padding-bottom: 112px !important;
+    }
+
+    .mobile-reference-space {
+      min-height: 21dvh !important;
+    }
+
+    .mobile-reference-title {
+      gap: 12px !important;
+    }
+
+    .mobile-reference-eyebrow {
+      display: inline-flex !important;
+      align-items: center !important;
+      gap: 7px !important;
+      color: var(--src-muted) !important;
+      font-size: 11px !important;
+      font-weight: 650 !important;
+    }
+
+    .mobile-reference-eyebrow > span {
+      width: 24px !important;
+      height: 24px !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      border-radius: 50% !important;
+      background: var(--src-ink) !important;
+      color: white !important;
+    }
+
+    .mobile-reference-title h1 {
+      font-size: clamp(38px, 10.8vw, 48px) !important;
+      line-height: .94 !important;
+      letter-spacing: -.075em !important;
+    }
+
+    .mobile-reference-title p {
+      font-size: 13px !important;
+      line-height: 1.5 !important;
+    }
+
+    .mobile-reference-actions {
+      gap: 7px !important;
+      margin-top: 18px !important;
+    }
+
+    .mobile-reference-action {
+      min-height: 56px !important;
+      display: grid !important;
+      grid-template-columns: 30px minmax(0, 1fr) 16px !important;
+      gap: 10px !important;
+      padding: 10px 12px !important;
+      border: 1px solid var(--src-line) !important;
+      border-radius: 14px !important;
+      background: #fff !important;
+    }
+
+    .mobile-reference-action-icon {
+      width: 30px !important;
+      height: 30px !important;
+      border-radius: 9px !important;
+      background: var(--src-card) !important;
+    }
+
+    .mobile-reference-action > svg {
+      color: #aaa9a2 !important;
+    }
+  }
+}
