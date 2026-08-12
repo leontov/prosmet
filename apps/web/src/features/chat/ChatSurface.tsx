@@ -117,8 +117,8 @@ function DesktopChat({ actions, hasEstimate, onOpenEstimate }: Omit<Props, "mobi
         <AuiIf condition={(state) => state.thread.isEmpty}>
           <div className="desktop-welcome">
             <div className="assistant-mark"><SparklesIcon /></div>
-            <h1>Что нужно рассчитать?</h1>
-            <p>Опишите объект обычными словами. Агент соберёт исходные данные, сформирует технологическую карту, проверит цены и сохранит результат в базе как редактируемую смету.</p>
+            <h1>Чем я могу помочь сегодня?</h1>
+            <p>Опишите строительную задачу обычными словами — Prosmet соберёт исходные данные, рассчитает объёмы и подготовит редактируемую смету.</p>
             <div className="desktop-suggestions">
               {actions.map((item) => (
                 <ThreadPrimitive.Suggestion key={item.id} prompt={item.prompt} send className="suggestion-card">
@@ -204,7 +204,7 @@ function DesktopComposer() {
         id="desktop-message"
         name="desktop-message"
         rows={1}
-        placeholder="Опишите объект, работы и замеры"
+        placeholder="Опишите, что нужно сделать…"
         className="composer-input"
       />
       <ComposerPrimitive.Send className="composer-send" aria-label="Отправить"><ArrowUpIcon /></ComposerPrimitive.Send>
@@ -269,7 +269,7 @@ function MobileComposer({ actions }: { actions: ActionView[] }) {
           name="mobile-message"
           rows={1}
           unstable_insertNewlineOnTouchEnter
-          placeholder="Спросить ProSmet…"
+          placeholder="Опишите, что нужно сделать…"
           className="composer-input"
         />
         <AuiIf condition={(state) => state.composer.dictation == null}>
@@ -320,23 +320,14 @@ function AssistantActionBar({ mobile }: { mobile: boolean }) {
       <AuiIf condition={(state) => state.message.speech == null}>
         <ActionBarPrimitive.Speak aria-label="Озвучить ответ"><Volume2Icon /></ActionBarPrimitive.Speak>
       </AuiIf>
-      <AuiIf condition={(state) => state.message.speech != null}>
-        <ActionBarPrimitive.StopSpeaking aria-label="Остановить озвучивание"><SquareIcon /></ActionBarPrimitive.StopSpeaking>
-      </AuiIf>
-      <ActionBarPrimitive.FeedbackPositive aria-label="Полезный ответ"><ThumbsUpIcon /></ActionBarPrimitive.FeedbackPositive>
-      <ActionBarPrimitive.FeedbackNegative aria-label="Неполезный ответ"><ThumbsDownIcon /></ActionBarPrimitive.FeedbackNegative>
-      <ActionBarPrimitive.ExportMarkdown aria-label="Поделиться ответом" onExport={shareMarkdown}><Share2Icon /></ActionBarPrimitive.ExportMarkdown>
+      <ActionBarPrimitive.Reload aria-label="Повторить"><RefreshCwIcon /></ActionBarPrimitive.Reload>
       <ActionBarMorePrimitive.Root>
-        <ActionBarMorePrimitive.Trigger className="assistant-action-more" aria-label="Больше действий с ответом">
-          <MoreHorizontalIcon />
-        </ActionBarMorePrimitive.Trigger>
-        <ActionBarMorePrimitive.Content className="mobile-assistant-more-menu" side="bottom" align="end">
-          <ActionBarMorePrimitive.Item asChild>
-            <ActionBarPrimitive.Reload className="assistant-action-menu-item"><RefreshCwIcon /> Повторить ответ</ActionBarPrimitive.Reload>
-          </ActionBarMorePrimitive.Item>
-          <ActionBarMorePrimitive.Item asChild>
-            <ActionBarPrimitive.ExportMarkdown className="assistant-action-menu-item" filename="prosmet-response.md"><DownloadIcon /> Скачать Markdown</ActionBarPrimitive.ExportMarkdown>
-          </ActionBarMorePrimitive.Item>
+        <ActionBarMorePrimitive.Trigger aria-label="Ещё"><MoreHorizontalIcon /></ActionBarMorePrimitive.Trigger>
+        <ActionBarMorePrimitive.Content>
+          <ActionBarMorePrimitive.Copy>Копировать</ActionBarMorePrimitive.Copy>
+          <ActionBarMorePrimitive.Share asChild={false}>Поделиться</ActionBarMorePrimitive.Share>
+          <ActionBarMorePrimitive.Feedback.Positive><ThumbsUpIcon />Полезно</ActionBarMorePrimitive.Feedback.Positive>
+          <ActionBarMorePrimitive.Feedback.Negative><ThumbsDownIcon />Не полезно</ActionBarMorePrimitive.Feedback.Negative>
         </ActionBarMorePrimitive.Content>
       </ActionBarMorePrimitive.Root>
     </ActionBarPrimitive.Root>
@@ -347,9 +338,9 @@ function AssistantMessage({ mobile }: { mobile: boolean }) {
   return (
     <MessagePrimitive.Root className="message assistant-message">
       <div className="assistant-avatar"><SparklesIcon /></div>
-      <div className="assistant-response">
-        {mobile ? <MessageTimingLabel /> : null}
-        <div className="assistant-copy"><MessagePrimitive.Parts /></div>
+      <div className="assistant-copy">
+        <MessagePrimitive.Parts />
+        <MessageTimingLabel />
         <AssistantActionBar mobile={mobile} />
       </div>
     </MessagePrimitive.Root>
