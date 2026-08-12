@@ -118,7 +118,7 @@ function DesktopChat({ actions, hasEstimate, onOpenEstimate }: Omit<Props, "mobi
           <div className="desktop-welcome">
             <div className="assistant-mark"><SparklesIcon /></div>
             <h1>Чем я могу помочь сегодня?</h1>
-            <h2 className="legacy-shell-heading" aria-hidden="true">Что нужно рассчитать?</h2>
+            <h2 className="legacy-shell-heading">Что нужно рассчитать?</h2>
             <p>Опишите строительную задачу обычными словами — Prosmet соберёт исходные данные, рассчитает объёмы и подготовит редактируемую смету.</p>
             <div className="desktop-suggestions">
               {actions.map((item) => (
