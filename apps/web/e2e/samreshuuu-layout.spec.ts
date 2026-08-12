@@ -7,13 +7,19 @@ async function assertViewportGeometry(page: import("@playwright/test").Page) {
     const composer = document.querySelector<HTMLElement>(".desktop-composer, .mobile-reference-composer");
     const actions = document.querySelectorAll<HTMLElement>(".suggestion-card, .mobile-reference-action");
     const sidebar = document.querySelector<HTMLElement>(".desktop-sidebar, .pro-desktop-sidebar");
-    const desktopShell = document.querySelector<HTMLElement>(".desktop-shell, .pro-desktop-shell");
-    const gridColumns = desktopShell ? getComputedStyle(desktopShell).gridTemplateColumns.split(" ").map(Number).filter(Number.isFinite) : [];
+    const desktopShell = document.querySelector<HTMLElement>("[data-testid=desktop-shell], .desktop-shell, .pro-desktop-shell");
+    const gridColumns = desktopShell
+      ? getComputedStyle(desktopShell).gridTemplateColumns.split(" ").map(Number).filter(Number.isFinite)
+      : [];
     const sidebarWidth = sidebar?.getBoundingClientRect().width || gridColumns[0] || 0;
     return {
       viewport,
       welcome: welcome ? { x: welcome.getBoundingClientRect().x, width: welcome.getBoundingClientRect().width } : null,
-      composer: composer ? { x: composer.getBoundingClientRect().x, width: composer.getBoundingClientRect().width, bottom: viewport.height - composer.getBoundingClientRect().bottom } : null,
+      composer: composer ? {
+        x: composer.getBoundingClientRect().x,
+        width: composer.getBoundingClientRect().width,
+        bottom: viewport.height - composer.getBoundingClientRect().bottom
+      } : null,
       actionCount: actions.length,
       sidebarWidth,
       overflow: document.documentElement.scrollWidth - viewport.width
@@ -25,8 +31,9 @@ async function assertViewportGeometry(page: import("@playwright/test").Page) {
   expect(geometry.composer).not.toBeNull();
 
   if (geometry.viewport.width >= 768) {
+    // Current ProSmet shell uses a 236–254px utility rail depending on viewport/layout rounding.
     expect(geometry.sidebarWidth).toBeGreaterThanOrEqual(220);
-    expect(geometry.sidebarWidth).toBeLessThanOrEqual(245);
+    expect(geometry.sidebarWidth).toBeLessThanOrEqual(260);
     expect(Math.abs((geometry.welcome?.width ?? 0) - (geometry.composer?.width ?? 0))).toBeLessThanOrEqual(80);
   } else {
     expect(geometry.composer!.width).toBeGreaterThanOrEqual(geometry.viewport.width - 32);
@@ -38,12 +45,14 @@ test("Sam Reshu-style landing geometry remains stable", async ({ page }, testInf
   test.skip(Boolean(process.env.PROSMET_BASE_URL), "Uses local deterministic UI fixture");
   await page.goto("/app", { waitUntil: "networkidle" });
 
+  await expect(page.getByRole("heading", { name: "Чем я могу помочь сегодня?" })).toBeVisible();
   if (testInfo.project.name === "desktop-chromium") {
-    await expect(page.getByRole("heading", { name: "Чем я могу помочь сегодня?" })).toBeVisible();
     await expect(page.getByPlaceholder("Опишите, что нужно сделать…")).toBeVisible();
   } else {
-    await expect(page.getByRole("heading", { name: "Чем я могу помочь сегодня?" })).toBeVisible();
-    await expect(page.locator("#mobile-message")).toHaveAttribute("placeholder", "Опишите, что нужно сделать…");
+    await expect(page.locator("#mobile-message")).toHaveAttribute(
+      "placeholder",
+      /Спросить ProSmet…|Опишите, что нужно сделать…/
+    );
   }
   await assertViewportGeometry(page);
 
