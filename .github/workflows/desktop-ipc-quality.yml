@@ -21,6 +21,7 @@ on:
       - "crates/estimate-engine/**"
       - "packages/contracts/**"
       - "scripts/desktop-ipc-contract.mjs"
+      - "docs/architecture/desktop-ipc-foundation-v1.md"
       - "package.json"
       - "package-lock.json"
       - ".github/workflows/desktop-ipc-quality.yml"
@@ -28,9 +29,12 @@ on:
 permissions:
   contents: read
 
+# Do not cancel a live desktop build when another main commit arrives.
+# A canceled Tauri/AppImage build reports "The operation was canceled" even when packaging is healthy.
+# New revisions queue behind the active build and are evaluated against their own SHA.
 concurrency:
   group: prosmet-desktop-ipc-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   linux:
@@ -87,6 +91,12 @@ jobs:
 
       - name: Build unsigned Linux desktop packages
         run: npm run desktop:build
+
+      - name: Verify AppImage exists after packaging
+        run: |
+          set -Eeuo pipefail
+          test -s target/release/bundle/appimage/Просметчик_0.1.0_amd64.AppImage
+          ls -lh target/release/bundle/appimage/Просметчик_0.1.0_amd64.AppImage
 
       - name: Upload desktop evidence
         if: always()
