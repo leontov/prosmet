@@ -16,12 +16,36 @@ export type EstimateItem = {
   quantity: number;
   unitPrice: number;
   category: "work" | "material" | "equipment" | "logistics";
+  /** Optional deterministic material-consumption rule used by the estimate engine. */
+  materialRequirement?: MaterialRequirementRule;
 };
 
 export type EstimateSection = {
   id: string;
   title: string;
   items: EstimateItem[];
+};
+
+export type MaterialRequirementRule = {
+  basis: "area";
+  consumptionKgPerM2: number;
+  wastePercent: number;
+  packageKg: number;
+};
+
+export type MaterialRequirement = {
+  netKg: number;
+  requiredKg: number;
+  packages: number;
+  purchasedKg: number;
+};
+
+export type EstimateCalculation = {
+  direct: number;
+  overhead: number;
+  profit: number;
+  vat: number;
+  total: number;
 };
 
 export type EstimatePersistence = {
@@ -45,9 +69,9 @@ export type Estimate = {
   vatPercent: number;
   sections: EstimateSection[];
   updatedAt: string;
+  calculation?: EstimateCalculation;
   persistence?: EstimatePersistence;
 };
-
 
 export type ProjectStatus =
   | "estimate_draft"
@@ -70,16 +94,8 @@ export type ConstructionProject = {
   activeEstimateId: string;
   createdAt: string;
   updatedAt: string;
-  totals: {
-    estimate: number;
-    planned: number;
-    actual: number;
-  };
-  progress: {
-    completedItems: number;
-    totalItems: number;
-    percent: number;
-  };
+  totals: { estimate: number; planned: number; actual: number };
+  progress: { completedItems: number; totalItems: number; percent: number };
 };
 
 export type ConstructionDocumentType =
@@ -110,21 +126,9 @@ export type ConstructionDocument = {
     introduction: string;
     sections: Array<{
       title: string;
-      lines: Array<{
-        name: string;
-        unit: string;
-        quantity: number;
-        unitPrice: number;
-        total: number;
-      }>;
+      lines: Array<{ name: string; unit: string; quantity: number; unitPrice: number; total: number }>;
     }>;
-    totals: {
-      direct: number;
-      overhead: number;
-      profit: number;
-      vat: number;
-      total: number;
-    };
+    totals: { direct: number; overhead: number; profit: number; vat: number; total: number };
     clauses: string[];
     notes: string[];
   };
@@ -215,22 +219,12 @@ export type ConstructionQuickAction = {
 
 export type CapabilityManifest = {
   vertical: "construction-estimates-ru";
-  workflow: [
-    "brief",
-    "technology-card",
-    "price-research",
-    "estimate",
-    "construction-documents"
-  ];
+  workflow: ["brief", "technology-card", "price-research", "estimate", "construction-documents"];
   quickActions: ConstructionQuickAction[];
   supportedArtifacts: Array<"estimate" | "commercial-proposal" | "contract" | "ks-2" | "ks-3" | "invoice">;
 };
 
-export type AgentProviderKind =
-  | "openai-compatible"
-  | "ollama"
-  | "codex-app-server"
-  | "http-agent";
+export type AgentProviderKind = "openai-compatible" | "ollama" | "codex-app-server" | "http-agent";
 
 export type AgentDescriptor = {
   id: string;
@@ -284,92 +278,19 @@ export type AgentResponse = {
   text: string;
   artifact?: EstimateArtifactReference | null;
   intent?: "greeting" | "estimate" | "construction" | "documents" | "general";
-  workflow?: {
-    projectId: string;
-    status: ProjectStatus;
-  } | null;
-  agent?: {
-    id: string;
-    name: string;
-    type: AgentProviderKind;
-    model: string | null;
-  };
+  workflow?: { projectId: string; status: ProjectStatus } | null;
+  agent?: { id: string; name: string; type: AgentProviderKind; model: string | null };
 };
 
-export type EstimateListResponse = {
-  estimates: Estimate[];
-  persistence: "sqlite" | "postgresql";
-};
-
-export type AdminSessionStatus = {
-  authenticated: boolean;
-  bootstrapRequired: boolean;
-};
-
-export type AccountProfile = {
-  name: string;
-  email: string;
-  organization: string;
-  region: string;
-  role: "super_admin";
-  updatedAt: string;
-};
-
+export type EstimateListResponse = { estimates: Estimate[]; persistence: "sqlite" | "postgresql" };
+export type AdminSessionStatus = { authenticated: boolean; bootstrapRequired: boolean };
+export type AccountProfile = { name: string; email: string; organization: string; region: string; role: "super_admin"; updatedAt: string };
 export type RegisteredUserRole = "owner" | "member";
 export type RegisteredUserStatus = "active" | "locked" | "revoked";
-
-export type RegisteredUser = {
-  id: string;
-  name: string;
-  email: string;
-  company: string;
-  role: RegisteredUserRole;
-  status: RegisteredUserStatus;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type UserSessionStatus = {
-  authenticated: boolean;
-  user: RegisteredUser | null;
-};
-
-export type UserRegistrationInput = {
-  name: string;
-  email: string;
-  company: string;
-  password: string;
-};
-
-export type UserLoginInput = {
-  email: string;
-  password: string;
-};
-
-export type SystemStatus = {
-  ok: true;
-  app: string;
-  releaseSha: string;
-  ui: string;
-  activeAgent: AgentDescriptor | null;
-  configuredAgents: number;
-  adminAuthenticated: boolean;
-  bootstrapRequired: boolean;
-  profileConfigured: boolean;
-  persistence: "server-encrypted-file" | "sqlite-artifact-store";
-};
-
-export type ApiErrorBody = {
-  error: {
-    code: string;
-    message: string;
-    details?: unknown;
-  };
-};
-
-export type ClientManifest = {
-  productName: string;
-  organizationName: string;
-  assistantName: string;
-  enabledViews: AppView[];
-};
+export type RegisteredUser = { id: string; name: string; email: string; company: string; role: RegisteredUserRole; status: RegisteredUserStatus; createdAt: string; updatedAt: string };
+export type UserSessionStatus = { authenticated: boolean; user: RegisteredUser | null };
+export type UserRegistrationInput = { name: string; email: string; company: string; password: string };
+export type UserLoginInput = { email: string; password: string };
+export type SystemStatus = { ok: true; app: string; releaseSha: string; ui: string; activeAgent: AgentDescriptor | null; configuredAgents: number; adminAuthenticated: boolean; bootstrapRequired: boolean; profileConfigured: boolean; persistence: "server-encrypted-file" | "sqlite-artifact-store" };
+export type ApiErrorBody = { error: { code: string; message: string; details?: unknown } };
+export type ClientManifest = { productName: string; organizationName: string; assistantName: string; enabledViews: AppView[] };
