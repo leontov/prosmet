@@ -31,12 +31,17 @@ async function assertViewportGeometry(page: import("@playwright/test").Page) {
   }
 }
 
-test("Sam Reshu-style landing geometry remains stable", async ({ page }) => {
+test("Sam Reshu-style landing geometry remains stable", async ({ page }, testInfo) => {
   test.skip(Boolean(process.env.PROSMET_BASE_URL), "Uses local deterministic UI fixture");
-  await page.goto("/", { waitUntil: "networkidle" });
+  await page.goto("/app", { waitUntil: "networkidle" });
 
-  await expect(page.getByRole("heading", { name: "Чем я могу помочь сегодня?" })).toBeVisible();
-  await expect(page.getByPlaceholder("Опишите, что нужно сделать…")).toBeVisible();
+  if (testInfo.project.name === "desktop-chromium") {
+    await expect(page.getByRole("heading", { name: "Чем я могу помочь сегодня?" })).toBeVisible();
+    await expect(page.getByPlaceholder("Опишите, что нужно сделать…")).toBeVisible();
+  } else {
+    await expect(page.getByRole("heading", { name: "Чем я могу помочь сегодня?" })).toBeVisible();
+    await expect(page.locator("#mobile-message")).toHaveAttribute("placeholder", "Спросить ProSmet…");
+  }
   await assertViewportGeometry(page);
 
   await page.screenshot({
