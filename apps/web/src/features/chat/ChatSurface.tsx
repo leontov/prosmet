@@ -327,7 +327,7 @@ function AssistantActionBar({ mobile }: { mobile: boolean }) {
       <ActionBarMorePrimitive.Root>
         <ActionBarMorePrimitive.Trigger aria-label="Ещё"><MoreHorizontalIcon /></ActionBarMorePrimitive.Trigger>
         <ActionBarMorePrimitive.Content>
-          <ActionBarMorePrimitive.Copy>Копировать</ActionBarMorePrimitive.Copy>
+          <ActionBarPrimitive.Copy>Копировать</ActionBarPrimitive.Copy>
           <ActionBarPrimitive.ExportMarkdown filename="prosmet-response.md" onExport={shareMarkdown}>
             <DownloadIcon /> Экспортировать Markdown
           </ActionBarPrimitive.ExportMarkdown>
