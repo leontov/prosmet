@@ -15,13 +15,7 @@ async function configureFixtureAgent(request: APIRequestContext) {
   if (!agent) {
     const createResponse = await request.post("/api/agents", {
       headers: { "x-prosmet-admin-token": adminToken },
-      data: {
-        name: "Fixture HTTP Agent",
-        type: "http-agent",
-        enabled: true,
-        baseUrl: "http://127.0.0.1:4174/run",
-        timeoutMs: 30000
-      }
+      data: { name: "Fixture HTTP Agent", type: "http-agent", enabled: true, baseUrl: "http://127.0.0.1:4174/run", timeoutMs: 30000 }
     });
     agent = await readJson(createResponse) as { id: string; name: string; active?: boolean };
     expect(createResponse.ok(), JSON.stringify(agent)).toBeTruthy();
@@ -38,37 +32,20 @@ async function configureFixtureAgent(request: APIRequestContext) {
 
 async function seedProfessionalData(request: APIRequestContext) {
   const estimateResponse = await request.post("/api/agent", {
-    data: {
-      requestId: `ui-surfaces-${Date.now()}`,
-      messages: [{ role: "user", content: "Составь смету на ремонт ванной комнаты под ключ в Казани: работы и материалы." }]
-    }
+    data: { requestId: `ui-surfaces-${Date.now()}`, messages: [{ role: "user", content: "Составь смету на ремонт ванной комнаты под ключ в Казани: работы и материалы." }] }
   });
   const estimate = await readJson(estimateResponse) as { artifact?: { id?: string } | null };
   expect(estimateResponse.ok(), JSON.stringify(estimate)).toBeTruthy();
   const estimateId = estimate.artifact?.id;
   expect(estimateId).toBeTruthy();
-
-  for (const action of [
-    "save-version",
-    "send-client",
-    "approve",
-    "generate-proposal",
-    "generate-invoice",
-    "generate-contract"
-  ]) {
-    const response = await request.post(`/api/workflows/estimates/${encodeURIComponent(estimateId!)}/actions`, {
-      data: { action }
-    });
+  for (const action of ["save-version", "send-client", "approve", "generate-proposal", "generate-invoice", "generate-contract"]) {
+    const response = await request.post(`/api/workflows/estimates/${encodeURIComponent(estimateId!)}/actions`, { data: { action } });
     expect(response.ok(), `${action}: ${await response.text()}`).toBeTruthy();
   }
 }
 
 async function assertNoPageOverflow(page: Page) {
-  const overflow = await page.evaluate(() => ({
-    viewport: document.documentElement.clientWidth,
-    document: document.documentElement.scrollWidth,
-    body: document.body.scrollWidth
-  }));
+  const overflow = await page.evaluate(() => ({ viewport: document.documentElement.clientWidth, document: document.documentElement.scrollWidth, body: document.body.scrollWidth }));
   expect(overflow.document).toBeLessThanOrEqual(overflow.viewport + 1);
   expect(overflow.body).toBeLessThanOrEqual(overflow.viewport + 1);
 }
@@ -88,35 +65,30 @@ test("projects, estimates, documents, prices and workflow are polished across de
   test.skip(external, "The visual surface audit uses deterministic local fixture data");
   await configureFixtureAgent(page.request);
   await seedProfessionalData(page.request);
-
   const violations: string[] = [];
   page.on("console", (message) => { if (message.type() === "error") violations.push(`console:${message.text()}`); });
   page.on("pageerror", (error) => violations.push(`pageerror:${error.message}`));
   page.on("requestfailed", (request) => violations.push(`requestfailed:${request.url()}:${request.failure()?.errorText || "unknown"}`));
 
-  await page.goto("/", { waitUntil: "networkidle" });
+  await page.goto("/app", { waitUntil: "networkidle" });
 
   if (testInfo.project.name === "desktop-chromium") {
     await page.getByRole("button", { name: "Проекты", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Проекты" })).toBeVisible();
     await assertNoPageOverflow(page);
     await page.screenshot({ path: "artifacts-projects-desktop-chromium.png", fullPage: true });
-
     await page.getByRole("button", { name: "Сметы", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Сметы" })).toBeVisible();
     await assertNoPageOverflow(page);
     await page.screenshot({ path: "artifacts-estimates-desktop-chromium.png", fullPage: true });
-
     await page.getByRole("button", { name: "Документы", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Документы" })).toBeVisible();
     await assertNoPageOverflow(page);
     await page.screenshot({ path: "artifacts-documents-desktop-chromium.png", fullPage: true });
-
     await page.getByRole("button", { name: "Справочник цен", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Справочник цен" })).toBeVisible();
     await assertNoPageOverflow(page);
     await page.screenshot({ path: "artifacts-prices-desktop-chromium.png", fullPage: true });
-
     await page.getByRole("button", { name: "Проекты", exact: true }).click();
     await page.locator(".pro-project-row").first().click();
     await expect(page.getByRole("region", { name: "Процесс проекта" })).toBeVisible();
@@ -128,25 +100,21 @@ test("projects, estimates, documents, prices and workflow are polished across de
     await expectMobileTitle(page, "Проекты");
     await assertNoPageOverflow(page);
     await page.screenshot({ path: "artifacts-projects-mobile-chromium.png", fullPage: true });
-
     drawer = await openMobileDrawer(page);
     await drawer.getByRole("button", { name: /Сметы/ }).click();
     await expectMobileTitle(page, "Сметы");
     await assertNoPageOverflow(page);
     await page.screenshot({ path: "artifacts-estimates-mobile-chromium.png", fullPage: true });
-
     drawer = await openMobileDrawer(page);
     await drawer.getByRole("button", { name: /Документы/ }).click();
     await expectMobileTitle(page, "Документы");
     await assertNoPageOverflow(page);
     await page.screenshot({ path: "artifacts-documents-mobile-chromium.png", fullPage: true });
-
     drawer = await openMobileDrawer(page);
     await drawer.getByRole("button", { name: /^Цены/ }).click();
     await expectMobileTitle(page, "Справочник цен");
     await assertNoPageOverflow(page);
     await page.screenshot({ path: "artifacts-prices-mobile-chromium.png", fullPage: true });
-
     drawer = await openMobileDrawer(page);
     await drawer.getByRole("button", { name: /Проекты/ }).click();
     await expectMobileTitle(page, "Проекты");
@@ -154,6 +122,5 @@ test("projects, estimates, documents, prices and workflow are polished across de
     await expect(page.getByRole("region", { name: "Процесс проекта" })).toBeVisible();
     await page.screenshot({ path: "artifacts-workflow-mobile-chromium.png", fullPage: true });
   }
-
   expect(violations).toEqual([]);
 });
