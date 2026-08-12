@@ -1,7 +1,7 @@
 /* Sam Reshu-style geometric pass for Prosmet. */
 @layer components {
   .desktop-shell { grid-template-columns: 236px minmax(0, 1fr); }
-  .desktop-sidebar { padding: 10px 8px 8px; background: #f7f7f8; }
+  .desktop-sidebar { width: 236px; min-width: 236px; flex: 0 0 236px; padding: 10px 8px 8px; background: #f7f7f8; }
   .brand { min-height: 44px; padding: 2px 8px; }
   .brand-mark { width: 32px; height: 32px; flex-basis: 32px; border-radius: 10px; box-shadow: none; }
   .new-chat { min-height: 42px; margin-top: 8px; border-radius: 12px; box-shadow: none; }
@@ -44,6 +44,9 @@
   .mobile-main { min-height: calc(100dvh - 54px); }
   .mobile-reference-empty { padding-inline: 16px; }
   .mobile-reference-space { min-height: 26dvh; }
+  .mobile-reference-title { display: grid; gap: 8px; place-items: center; max-width: 340px; margin: 0 auto 22px; text-align: center; }
+  .mobile-reference-title h1 { margin: 0; font-size: clamp(28px, 8vw, 34px); line-height: 1.06; font-weight: 650; letter-spacing: -.045em; }
+  .mobile-reference-title p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
   .mobile-reference-actions { gap: 8px; }
   .mobile-reference-action { min-height: 44px; padding: 0 12px; border-radius: 12px; font-size: 12px; }
   .mobile-reference-action-icon { width: 28px; height: 28px; border-radius: 8px; }
@@ -52,6 +55,42 @@
   .mobile-reference-plus, .mobile-reference-microphone, .mobile-reference-send { width: 40px; height: 40px; border-radius: 12px; }
   .mobile-reference-composer .composer-input { min-height: 40px; padding-inline: 5px; font-size: 14px; }
   .mobile-reference-utility { border-radius: 18px; padding: 8px; box-shadow: 0 20px 60px rgba(20,20,23,.16); }
+
+  html[data-prosmet-theme="dark"] .suggestion-card,
+  html[data-prosmet-theme="dark"] .mobile-reference-action,
+  html[data-prosmet-theme="dark"] .mobile-reference-utility {
+    border: 1px solid var(--dark-line) !important;
+    background: var(--dark-surface-2) !important;
+    color: var(--dark-ink) !important;
+    box-shadow: none !important;
+  }
+
+  html[data-prosmet-theme="dark"] .suggestion-card small,
+  html[data-prosmet-theme="dark"] .mobile-reference-title p {
+    color: var(--dark-muted) !important;
+  }
+
+  html[data-prosmet-theme="dark"] .mobile-reference-composer-footer {
+    background: linear-gradient(to bottom, transparent 0%, rgba(21, 25, 31, .96) 34%) !important;
+  }
+
+  html[data-prosmet-theme="dark"] .mobile-shell,
+  html[data-prosmet-theme="dark"] .mobile-topbar {
+    background: var(--dark-bg) !important;
+    color: var(--dark-ink) !important;
+    border-color: var(--dark-line) !important;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  html[data-prosmet-theme="system"] .suggestion-card,
+  html[data-prosmet-theme="system"] .mobile-reference-action,
+  html[data-prosmet-theme="system"] .mobile-reference-utility {
+    border: 1px solid var(--dark-line) !important;
+    background: var(--dark-surface-2) !important;
+    color: var(--dark-ink) !important;
+    box-shadow: none !important;
+  }
 }
 
 @media (max-width: 767px) {
@@ -59,4 +98,14 @@
 }
 @media (min-width: 768px) {
   .mobile-shell { display: none; }
+}
+
+.legacy-shell-heading {
+  margin: 0;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
