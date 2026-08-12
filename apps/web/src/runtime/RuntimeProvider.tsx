@@ -15,6 +15,9 @@ type Props = {
   onEstimateReady: (estimate: Estimate) => void;
 };
 
+const EMPTY_AGENT_RESPONSE = "Агент вернул пустой ответ";
+const AGENT_RETRIES = 2;
+
 function errorMessage(status: number, body: unknown) {
   const apiError = body as Partial<ApiErrorBody>;
   if (apiError?.error?.message) return apiError.error.message;
@@ -39,21 +42,44 @@ function timedTextResult(text: string, startedAt: number) {
   };
 }
 
+function shouldRetryAgentResponse(status: number, body: unknown) {
+  if (status < 500) return false;
+  const apiError = body as Partial<ApiErrorBody>;
+  return apiError?.error?.message === EMPTY_AGENT_RESPONSE;
+}
+
+async function retryDelay(attempt: number) {
+  await new Promise((resolve) => window.setTimeout(resolve, 350 * attempt));
+}
+
 export function RuntimeProvider({ children, onEstimateReady }: Props) {
   const adapter = useMemo<ChatModelAdapter>(() => ({
     async run({ messages, abortSignal }) {
       const startedAt = Date.now();
       try {
         const requestId = crypto.randomUUID();
-        const response = await fetch("/api/agent", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ requestId, messages }),
-          signal: abortSignal,
-          credentials: "same-origin"
-        });
+        const requestBody = JSON.stringify({ requestId, messages });
+        let response: Response | null = null;
+        let body: unknown = null;
 
-        const body = await response.json().catch(() => null);
+        for (let attempt = 0; attempt <= AGENT_RETRIES; attempt += 1) {
+          response = await fetch("/api/agent", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: requestBody,
+            signal: abortSignal,
+            credentials: "same-origin"
+          });
+
+          body = await response.json().catch(() => null);
+          if (response.ok || !shouldRetryAgentResponse(response.status, body) || attempt === AGENT_RETRIES) break;
+          await retryDelay(attempt + 1);
+        }
+
+        if (!response) {
+          return timedTextResult("Не удалось выполнить запрос к агенту.", startedAt);
+        }
+
         if (!response.ok) {
           return timedTextResult(errorMessage(response.status, body), startedAt);
         }
