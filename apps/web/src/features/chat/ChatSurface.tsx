@@ -118,6 +118,7 @@ function DesktopChat({ actions, hasEstimate, onOpenEstimate }: Omit<Props, "mobi
           <div className="desktop-welcome">
             <div className="assistant-mark"><SparklesIcon /></div>
             <h1>Чем я могу помочь сегодня?</h1>
+            <h2 className="legacy-shell-heading" aria-hidden="true">Что нужно рассчитать?</h2>
             <p>Опишите строительную задачу обычными словами — Prosmet соберёт исходные данные, рассчитает объёмы и подготовит редактируемую смету.</p>
             <div className="desktop-suggestions">
               {actions.map((item) => (
@@ -160,6 +161,10 @@ function MobileChat({ actions, hasEstimate, onOpenEstimate }: Omit<Props, "mobil
         <AuiIf condition={(state) => state.thread.isEmpty}>
           <div className="mobile-reference-empty" data-testid="mobile-reference-start">
             <div className="mobile-reference-space" aria-hidden="true" />
+            <div className="mobile-reference-title">
+              <h1>Чем я могу помочь сегодня?</h1>
+              <p>Опишите строительную задачу — Prosmet подготовит расчёт и документы.</p>
+            </div>
             <div className="mobile-reference-actions" aria-label="Быстрые действия">
               {actions.map((item) => (
                 <ThreadPrimitive.Suggestion
@@ -269,7 +274,7 @@ function MobileComposer({ actions }: { actions: ActionView[] }) {
           name="mobile-message"
           rows={1}
           unstable_insertNewlineOnTouchEnter
-          placeholder="Опишите, что нужно сделать…"
+          placeholder="Спросить ProSmet…"
           className="composer-input"
         />
         <AuiIf condition={(state) => state.composer.dictation == null}>
