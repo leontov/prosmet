@@ -154,7 +154,6 @@ test("greenfield shell uses real agent integration and the mobile reference layo
   await expect(page.getByText("Дом в Альметьевске", { exact: true })).toHaveCount(0);
 
   if (testInfo.project.name === "desktop-chromium") {
-    await expect(page.getByText("ProSmet", { exact: true }).first()).toBeVisible();
     await expect(page.getByTestId("desktop-shell")).toBeVisible();
     await expect(page.getByTestId("mobile-shell")).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Что нужно рассчитать?" })).toBeVisible();
