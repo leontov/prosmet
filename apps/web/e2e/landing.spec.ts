@@ -19,24 +19,18 @@ test.describe("production landing", () => {
     await expect(page.getByText(/Анализирую состав работ/)).toBeVisible();
     await expect(page.getByText("Результат агента", { exact: true })).toBeVisible();
 
-    const enterpriseHeading = page.getByRole("heading", {
-      name: "Ваши правила. Ваши цены. Ваш AI-контур."
-    });
-    await enterpriseHeading.scrollIntoViewIfNeeded();
-    await expect(enterpriseHeading).toBeVisible();
+    const agentHeading = page.getByRole("heading", { name: /Поставьте задачу\./ });
+    await agentHeading.scrollIntoViewIfNeeded();
+    await expect(agentHeading).toBeVisible();
 
-    const pricingHeading = page.getByRole("heading", {
-      name: "Начните с первой сметы."
-    });
+    const pricingHeading = page.getByRole("heading", { name: /Начните с задач\./ });
     await pricingHeading.scrollIntoViewIfNeeded();
     await expect(pricingHeading).toBeVisible();
     await expect(page.getByRole("heading", { name: "Старт", exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Pro", exact: true })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Команда", exact: true })).toBeVisible();
 
-    const finalHeading = page.getByRole("heading", {
-      name: "Опишите первую задачу."
-    });
+    const finalHeading = page.getByRole("heading", { name: /Смета начинается/ });
     await finalHeading.scrollIntoViewIfNeeded();
     await expect(finalHeading).toBeVisible();
 
@@ -61,7 +55,7 @@ test.describe("production landing", () => {
     await expect(appLink).toHaveAttribute("href", "/app");
 
     if (external && !adminToken) {
-      await expect(page.getByRole("button", { name: /Получить план внедрения/ })).toBeVisible();
+      await expect(page.getByRole("button", { name: /Запросить демонстрацию/ })).toBeVisible();
       return;
     }
 
@@ -73,13 +67,13 @@ test.describe("production landing", () => {
     const leadResponsePromise = page.waitForResponse((response) =>
       new URL(response.url()).pathname === "/api/leads" && response.request().method() === "POST"
     );
-    await page.getByRole("button", { name: /Получить план внедрения/ }).click();
+    await page.getByRole("button", { name: /Запросить демонстрацию/ }).click();
     const leadResponse = await leadResponsePromise;
     const leadBody = await leadResponse.json() as { lead?: { id?: string }; persisted?: boolean };
     expect(leadResponse.status()).toBe(201);
     expect(leadBody.persisted).toBe(true);
     expect(leadBody.lead?.id).toBeTruthy();
-    await expect(page.getByText("Заявка принята", { exact: true })).toBeVisible();
+    await expect(page.getByRole("status")).toContainText("Заявка принята");
 
     const headers = { "x-prosmet-admin-token": adminToken! };
     const listResponse = await page.request.get("/api/leads?limit=50", { headers });
