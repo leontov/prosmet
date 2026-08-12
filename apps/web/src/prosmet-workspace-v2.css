@@ -1,0 +1,368 @@
+/* ProSmet Workspace v2 — agent-first application shell inspired by the interaction model of Sam Reshu. */
+
+@layer components {
+  :root {
+    --psw-canvas: #fafaf8;
+    --psw-surface: #ffffff;
+    --psw-ink: #151515;
+    --psw-muted: #85857f;
+    --psw-line: rgba(20, 20, 20, .09);
+    --psw-soft: #f1f1ee;
+    --psw-accent: #111111;
+  }
+
+  /* Desktop workspace: request → capability cards → live composer → artifact result. */
+  @media (min-width: 768px) {
+    .desktop-shell,
+    .desktop-main,
+    .desktop-content,
+    .desktop-chat,
+    .chat-viewport {
+      background: var(--psw-canvas) !important;
+    }
+
+    .desktop-welcome {
+      width: min(920px, calc(100% - 56px)) !important;
+      min-height: min(690px, calc(100dvh - 92px)) !important;
+      display: flex !important;
+      flex-direction: column !important;
+      justify-content: center !important;
+      padding: 80px 0 150px !important;
+    }
+
+    .desktop-welcome .assistant-mark {
+      width: 46px !important;
+      height: 46px !important;
+      margin-bottom: 22px !important;
+      border-radius: 14px !important;
+      background: var(--psw-accent) !important;
+      color: #fff !important;
+      box-shadow: none !important;
+    }
+
+    .desktop-welcome h1 {
+      max-width: 820px !important;
+      margin: 0 !important;
+      color: var(--psw-ink) !important;
+      font-size: clamp(44px, 5vw, 68px) !important;
+      line-height: .99 !important;
+      letter-spacing: -.07em !important;
+      font-weight: 740 !important;
+    }
+
+    .desktop-welcome .legacy-shell-heading {
+      margin: 6px 0 0 !important;
+      color: var(--psw-ink) !important;
+      font-size: clamp(44px, 5vw, 68px) !important;
+      line-height: .99 !important;
+      letter-spacing: -.07em !important;
+      font-weight: 740 !important;
+    }
+
+    .desktop-welcome > p {
+      max-width: 650px !important;
+      margin: 18px 0 0 !important;
+      color: var(--psw-muted) !important;
+      font-size: 15px !important;
+      line-height: 1.65 !important;
+    }
+
+    .desktop-suggestions {
+      width: 100% !important;
+      grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+      gap: 12px !important;
+      margin-top: 30px !important;
+    }
+
+    .desktop-suggestions .suggestion-card {
+      min-height: 142px !important;
+      display: grid !important;
+      grid-template-columns: 34px minmax(0, 1fr) 18px !important;
+      align-content: start !important;
+      gap: 11px !important;
+      padding: 17px !important;
+      border: 1px solid var(--psw-line) !important;
+      border-radius: 18px !important;
+      background: var(--psw-surface) !important;
+      box-shadow: none !important;
+      color: var(--psw-ink) !important;
+    }
+
+    .desktop-suggestions .suggestion-card:hover {
+      transform: translateY(-2px) !important;
+      border-color: rgba(20,20,20,.16) !important;
+      box-shadow: 0 14px 34px rgba(20,20,20,.07) !important;
+    }
+
+    .desktop-suggestions .suggestion-icon {
+      width: 34px !important;
+      height: 34px !important;
+      border-radius: 10px !important;
+      background: var(--psw-soft) !important;
+      color: var(--psw-ink) !important;
+    }
+
+    .desktop-suggestions .suggestion-card strong {
+      color: var(--psw-ink) !important;
+      font-size: 12px !important;
+      font-weight: 730 !important;
+    }
+
+    .desktop-suggestions .suggestion-card small {
+      display: -webkit-box !important;
+      -webkit-line-clamp: 3 !important;
+      -webkit-box-orient: vertical !important;
+      overflow: hidden !important;
+      margin-top: 6px !important;
+      color: var(--psw-muted) !important;
+      font-size: 10px !important;
+      line-height: 1.45 !important;
+    }
+
+    .desktop-suggestions .suggestion-card > svg:last-child {
+      color: #9a9a93 !important;
+    }
+
+    .desktop-composer {
+      width: min(920px, calc(100% - 56px)) !important;
+      min-height: 70px !important;
+      border: 1px solid rgba(20,20,20,.13) !important;
+      border-radius: 23px !important;
+      background: rgba(255,255,255,.98) !important;
+      box-shadow: 0 14px 44px rgba(20,20,20,.08) !important;
+    }
+
+    .desktop-composer:focus-within {
+      border-color: rgba(20,20,20,.22) !important;
+      box-shadow: 0 20px 60px rgba(20,20,20,.10) !important;
+    }
+
+    .composer-input {
+      font-size: 14px !important;
+    }
+
+    .composer-send {
+      background: var(--psw-accent) !important;
+      color: #fff !important;
+      border-radius: 13px !important;
+    }
+
+    .message-column {
+      width: min(920px, calc(100% - 56px)) !important;
+    }
+
+    .assistant-message {
+      padding-block: 18px !important;
+    }
+
+    .assistant-message .assistant-copy {
+      max-width: 860px !important;
+      font-size: 15px !important;
+      line-height: 1.72 !important;
+    }
+
+    .user-bubble {
+      max-width: 72% !important;
+      border-radius: 18px 18px 6px 18px !important;
+      background: #eeeeeb !important;
+      color: var(--psw-ink) !important;
+    }
+
+    .artifact-row {
+      width: min(820px, 100%) !important;
+      min-height: 92px !important;
+      display: grid !important;
+      grid-template-columns: 44px minmax(0, 1fr) auto !important;
+      align-items: center !important;
+      gap: 13px !important;
+      margin-top: 16px !important;
+      padding: 14px !important;
+      border: 1px solid var(--psw-line) !important;
+      border-radius: 18px !important;
+      background: var(--psw-surface) !important;
+      box-shadow: none !important;
+      color: var(--psw-ink) !important;
+    }
+
+    .artifact-row > span:first-child {
+      width: 44px !important;
+      height: 44px !important;
+      border-radius: 12px !important;
+      background: var(--psw-soft) !important;
+    }
+
+    .artifact-row b {
+      min-height: 34px !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      padding: 0 12px !important;
+      border-radius: 10px !important;
+      background: var(--psw-accent) !important;
+      color: #fff !important;
+      font-size: 10px !important;
+    }
+  }
+
+  /* Mobile: same information architecture, compressed vertically rather than scaled-down desktop. */
+  @media (max-width: 767px) {
+    .mobile-shell,
+    .mobile-main,
+    .mobile-reference-chat,
+    .mobile-reference-viewport {
+      background: var(--psw-canvas) !important;
+    }
+
+    .mobile-reference-empty {
+      padding: 0 16px 112px !important;
+    }
+
+    .mobile-reference-space {
+      min-height: 25dvh !important;
+    }
+
+    .mobile-reference-title {
+      max-width: 350px !important;
+      gap: 10px !important;
+    }
+
+    .mobile-reference-title h1 {
+      font-size: clamp(34px, 10.5vw, 48px) !important;
+      line-height: .98 !important;
+      letter-spacing: -.065em !important;
+      font-weight: 740 !important;
+    }
+
+    .mobile-reference-title p {
+      max-width: 320px !important;
+      font-size: 13px !important;
+      color: var(--psw-muted) !important;
+      line-height: 1.5 !important;
+    }
+
+    .mobile-reference-actions {
+      display: grid !important;
+      grid-template-columns: 1fr !important;
+      gap: 8px !important;
+    }
+
+    .mobile-reference-action {
+      min-height: 60px !important;
+      border: 1px solid var(--psw-line) !important;
+      border-radius: 16px !important;
+      background: var(--psw-surface) !important;
+      box-shadow: none !important;
+      font-size: 12px !important;
+    }
+
+    .mobile-reference-action-icon {
+      width: 30px !important;
+      height: 30px !important;
+      border-radius: 9px !important;
+      background: var(--psw-soft) !important;
+    }
+
+    .mobile-reference-composer-footer {
+      padding: 9px 12px max(12px, env(safe-area-inset-bottom)) !important;
+      background: linear-gradient(to bottom, transparent, var(--psw-canvas) 34%) !important;
+    }
+
+    .mobile-reference-composer {
+      min-height: 58px !important;
+      border: 1px solid rgba(20,20,20,.13) !important;
+      border-radius: 20px !important;
+      background: rgba(255,255,255,.98) !important;
+      box-shadow: 0 12px 34px rgba(20,20,20,.08) !important;
+    }
+
+    .mobile-reference-composer .composer-input {
+      min-height: 42px !important;
+      padding-inline: 5px !important;
+      font-size: 15px !important;
+    }
+
+    .mobile-reference-plus,
+    .mobile-reference-microphone,
+    .mobile-reference-send {
+      width: 42px !important;
+      height: 42px !important;
+      border-radius: 12px !important;
+    }
+
+    .mobile-reference-send {
+      background: var(--psw-accent) !important;
+      color: #fff !important;
+    }
+
+    .mobile-artifact {
+      display: grid !important;
+      grid-template-columns: 38px minmax(0, 1fr) auto !important;
+      align-items: center !important;
+      gap: 9px !important;
+      min-height: 74px !important;
+      margin: 10px 12px 0 !important;
+      padding: 10px !important;
+      border: 1px solid var(--psw-line) !important;
+      border-radius: 16px !important;
+      background: var(--psw-surface) !important;
+      box-shadow: none !important;
+    }
+
+    .mobile-artifact > span:first-child {
+      width: 38px !important;
+      height: 38px !important;
+      border-radius: 10px !important;
+      background: var(--psw-soft) !important;
+    }
+
+    .mobile-artifact b {
+      font-size: 9px !important;
+      color: var(--psw-ink) !important;
+    }
+  }
+
+  /* Dark theme preserves the same surfaces rather than switching to a different geometry. */
+  html[data-prosmet-theme="dark"] .desktop-shell,
+  html[data-prosmet-theme="dark"] .desktop-main,
+  html[data-prosmet-theme="dark"] .desktop-content,
+  html[data-prosmet-theme="dark"] .chat-root,
+  html[data-prosmet-theme="dark"] .mobile-shell,
+  html[data-prosmet-theme="dark"] .mobile-main,
+  html[data-prosmet-theme="dark"] .mobile-reference-viewport {
+    --psw-canvas: #111418;
+    --psw-surface: #171b20;
+    --psw-ink: #f4f5f5;
+    --psw-muted: #969da5;
+    --psw-line: rgba(255,255,255,.09);
+    --psw-soft: #20252b;
+    --psw-accent: #f4f5f5;
+    background: var(--psw-canvas) !important;
+  }
+
+  html[data-prosmet-theme="dark"] .desktop-welcome h1,
+  html[data-prosmet-theme="dark"] .desktop-welcome .legacy-shell-heading,
+  html[data-prosmet-theme="dark"] .desktop-welcome > p,
+  html[data-prosmet-theme="dark"] .desktop-suggestions .suggestion-card,
+  html[data-prosmet-theme="dark"] .desktop-composer,
+  html[data-prosmet-theme="dark"] .artifact-row,
+  html[data-prosmet-theme="dark"] .mobile-reference-title h1,
+  html[data-prosmet-theme="dark"] .mobile-reference-title p,
+  html[data-prosmet-theme="dark"] .mobile-reference-action,
+  html[data-prosmet-theme="dark"] .mobile-reference-composer,
+  html[data-prosmet-theme="dark"] .mobile-artifact {
+    color: var(--psw-ink) !important;
+    background: var(--psw-surface) !important;
+    border-color: var(--psw-line) !important;
+  }
+
+  html[data-prosmet-theme="dark"] .desktop-composer .composer-send,
+  html[data-prosmet-theme="dark"] .mobile-reference-send,
+  html[data-prosmet-theme="dark"] .artifact-row b {
+    background: #fff !important;
+    color: #111 !important;
+  }
+
+  html[data-prosmet-theme="dark"] .desktop-suggestions .suggestion-card small,
+  html[data-prosmet-theme="dark"] .mobile-reference-title p {
+    color: var(--psw-muted) !important;
+  }
+}
