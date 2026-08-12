@@ -8,32 +8,38 @@ test.describe("production landing", () => {
     await page.goto("/landing");
   });
 
-  test("shows the complete product story and interactive estimate demo", async ({ page }, testInfo) => {
+  test("shows the product story and interactive estimate demo", async ({ page }, testInfo) => {
     await expect(page.getByRole("heading", { name: /От запроса до/ })).toBeVisible();
     await expect(page.getByText("Штукатурка стен", { exact: true })).toBeVisible();
     await expect(page.getByText("Предварительный итог", { exact: true })).toBeVisible();
+    await expect(page.getByText("ДЕМО-ДАННЫЕ", { exact: true })).toBeVisible();
 
-    const prompt = page.getByRole("textbox", { name: "Запрос агента" });
+    const prompt = page.getByRole("textbox", { name: "Запрос для агента" });
     await prompt.fill("Составь смету на механизированную штукатурку 358 м² в Татарстане");
-    await page.getByRole("button", { name: "Запустить" }).click();
-    await expect(page.getByText(/Анализирую состав работ/)).toBeVisible();
+    await page.getByRole("button", { name: "Запустить запрос" }).click();
+    await expect(page.getByText(/Разбираю состав работ/)).toBeVisible();
     await expect(page.getByText("Результат агента", { exact: true })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Открыть смету" })).toHaveAttribute("href", "/app");
 
-    const agentHeading = page.getByRole("heading", { name: /Поставьте задачу\./ });
-    await agentHeading.scrollIntoViewIfNeeded();
-    await expect(agentHeading).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Это рабочая система/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Ставьте задачу/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /не считается доказанной/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /От сообщения/ })).toBeVisible();
 
-    const pricingHeading = page.getByRole("heading", { name: /Начните с задач\./ });
-    await pricingHeading.scrollIntoViewIfNeeded();
-    await expect(pricingHeading).toBeVisible();
-    const pricing = page.locator("#pricing");
-    await expect(pricing.getByText("Старт", { exact: true })).toBeVisible();
-    await expect(pricing.getByText("Pro", { exact: true })).toBeVisible();
-    await expect(pricing.getByText("Команда", { exact: true })).toBeVisible();
+    const documents = page.locator("#documents");
+    await documents.scrollIntoViewIfNeeded();
+    await expect(documents.getByText("КС-2 / КС-3", { exact: true })).toBeVisible();
+    await expect(documents.getByText("PDF / XLSX", { exact: true })).toBeVisible();
 
-    const finalHeading = page.getByRole("heading", { name: /Смета начинается/ });
-    await finalHeading.scrollIntoViewIfNeeded();
-    await expect(finalHeading).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Первый результат/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /Покажем ProSmet/ })).toBeVisible();
+
+    const faq = page.locator("#faq");
+    await faq.scrollIntoViewIfNeeded();
+    const faqQuestion = faq.getByRole("button", { name: "Можно ли просто написать задачу текстом?" });
+    await faqQuestion.click();
+    await expect(faqQuestion).toHaveAttribute("aria-expanded", "true");
+    await expect(faq.getByText(/ProSmet рассчитан на обычный язык/)).toBeVisible();
 
     await page.evaluate(() => window.scrollTo(0, 0));
     await expect(page.getByRole("heading", { name: /От запроса до/ })).toBeVisible();
@@ -99,6 +105,10 @@ test.describe("production landing", () => {
     test.skip(testInfo.project.name !== "mobile-chromium", "Mobile-only geometry assertion");
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     expect(overflow).toBeLessThanOrEqual(1);
-    await expect(page.getByRole("button", { name: "Меню" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Открыть меню" })).toBeVisible();
+    await page.getByRole("button", { name: "Открыть меню" }).click();
+    await expect(page.getByRole("button", { name: "Закрыть меню" })).toBeVisible();
+    await page.getByRole("link", { name: "FAQ" }).click();
+    await expect(page.getByRole("button", { name: "Открыть меню" })).toBeVisible();
   });
 });
