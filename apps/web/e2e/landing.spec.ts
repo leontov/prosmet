@@ -9,38 +9,34 @@ test.describe("production landing", () => {
   });
 
   test("shows the complete product story and interactive estimate demo", async ({ page }, testInfo) => {
-    await expect(page.getByRole("heading", { name: /От запроса до КС-3/ })).toBeVisible();
-    await expect(page.getByText("Ремонт ванной комнаты", { exact: true })).toBeVisible();
-    await expect(page.getByText("Предварительная стоимость", { exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /От запроса до/ })).toBeVisible();
+    await expect(page.getByText("Штукатурка стен", { exact: true })).toBeVisible();
+    await expect(page.getByText("Предварительный итог", { exact: true })).toBeVisible();
 
-    const prompt = page.getByRole("textbox", { name: "Запрос для демонстрации" });
+    const prompt = page.getByRole("textbox", { name: "Запрос агента" });
     await prompt.fill("Составь смету на механизированную штукатурку 358 м² в Татарстане");
-    await page.getByRole("button", { name: "Запустить демонстрацию" }).click();
-    await expect(page.getByText(/Проверяю состав работ/)).toBeVisible();
-    await expect(page.getByText("Расчёт готов", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Запустить" }).click();
+    await expect(page.getByText(/Анализирую состав работ/)).toBeVisible();
+    await expect(page.getByText("Результат агента", { exact: true })).toBeVisible();
 
-    const enterpriseHeading = page.getByRole("heading", {
-      name: "Ваши стандарты, цены и документы становятся корпоративным AI-контуром."
-    });
-    await enterpriseHeading.scrollIntoViewIfNeeded();
-    await expect(enterpriseHeading).toBeVisible();
+    const agentHeading = page.getByRole("heading", { name: /Поставьте задачу\./ });
+    await agentHeading.scrollIntoViewIfNeeded();
+    await expect(agentHeading).toBeVisible();
 
-    const pricingHeading = page.getByRole("heading", {
-      name: "Начните с результата. Масштабируйте после доказанной ценности."
-    });
+    const pricingHeading = page.getByRole("heading", { name: /Начните с задач\./ });
     await pricingHeading.scrollIntoViewIfNeeded();
     await expect(pricingHeading).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Starter", exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Enterprise", exact: true })).toBeVisible();
+    const pricing = page.locator("#pricing");
+    await expect(pricing.getByText("Старт", { exact: true })).toBeVisible();
+    await expect(pricing.getByText("Pro", { exact: true })).toBeVisible();
+    await expect(pricing.getByText("Команда", { exact: true })).toBeVisible();
 
-    const finalHeading = page.getByRole("heading", {
-      name: "Первую полноценную смету можно создать сегодня."
-    });
+    const finalHeading = page.getByRole("heading", { name: /Смета начинается/ });
     await finalHeading.scrollIntoViewIfNeeded();
     await expect(finalHeading).toBeVisible();
 
     await page.evaluate(() => window.scrollTo(0, 0));
-    await expect(page.getByRole("heading", { name: /От запроса до КС-3/ })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /От запроса до/ })).toBeVisible();
     await page.screenshot({ path: `artifacts-landing-${testInfo.project.name}.png`, fullPage: true });
   });
 
@@ -60,25 +56,25 @@ test.describe("production landing", () => {
     await expect(appLink).toHaveAttribute("href", "/app");
 
     if (external && !adminToken) {
-      await expect(page.getByRole("button", { name: /Получить план внедрения/ })).toBeVisible();
+      await expect(page.getByRole("button", { name: /Запросить демонстрацию/ })).toBeVisible();
       return;
     }
 
     const unique = `${testInfo.project.name}-${Date.now()}`;
     await page.getByRole("textbox", { name: "Имя" }).fill("Тестовый пользователь");
-    await page.getByRole("textbox", { name: "Рабочий телефон или email" }).fill(`landing-${unique}@example.com`);
-    await page.getByRole("textbox", { name: "Компания и число сотрудников" }).fill("Строй QA, 12");
+    await page.getByRole("textbox", { name: "Телефон или email" }).fill(`landing-${unique}@example.com`);
+    await page.getByRole("textbox", { name: "Компания" }).fill("Строй QA, 12");
 
     const leadResponsePromise = page.waitForResponse((response) =>
       new URL(response.url()).pathname === "/api/leads" && response.request().method() === "POST"
     );
-    await page.getByRole("button", { name: /Получить план внедрения/ }).click();
+    await page.getByRole("button", { name: /Запросить демонстрацию/ }).click();
     const leadResponse = await leadResponsePromise;
     const leadBody = await leadResponse.json() as { lead?: { id?: string }; persisted?: boolean };
     expect(leadResponse.status()).toBe(201);
     expect(leadBody.persisted).toBe(true);
     expect(leadBody.lead?.id).toBeTruthy();
-    await expect(page.getByText("Заявка принята", { exact: true })).toBeVisible();
+    await expect(page.getByRole("status")).toContainText("Заявка принята");
 
     const headers = { "x-prosmet-admin-token": adminToken! };
     const listResponse = await page.request.get("/api/leads?limit=50", { headers });
@@ -103,6 +99,6 @@ test.describe("production landing", () => {
     test.skip(testInfo.project.name !== "mobile-chromium", "Mobile-only geometry assertion");
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     expect(overflow).toBeLessThanOrEqual(1);
-    await expect(page.getByRole("button", { name: "Открыть меню" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Меню" })).toBeVisible();
   });
 });
