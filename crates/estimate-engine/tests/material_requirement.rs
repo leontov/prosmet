@@ -1,6 +1,4 @@
-use prosmet_estimate_engine::{
-    MaterialRequirementInput, calculate_material_requirement,
-};
+use prosmet_estimate_engine::{MaterialRequirementInput, calculate_material_requirement};
 
 #[test]
 fn plaster_reference_case_is_stable() {
