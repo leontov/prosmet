@@ -75,7 +75,7 @@ export function LandingPageProduction() {
   const [navOpen, setNavOpen] = useState(false);
   const [prompt, setPrompt] = useState("Составь смету на штукатурку стен 180 м² в Лениногорске");
   const [demoStage, setDemoStage] = useState<DemoStage>("ready");
-  const [faqOpen, setFaqOpen] = useState(0);
+  const [faqOpen, setFaqOpen] = useState(-1);
   const [lead, setLead] = useState<LeadState>({ status: "idle" });
 
   const total = useMemo(
