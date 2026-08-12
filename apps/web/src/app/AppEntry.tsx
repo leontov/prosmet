@@ -23,6 +23,7 @@ import "../web-dark-theme.css";
 import "../web-dark-theme-fixes.css";
 import "../web-dark-settings-fixes.css";
 import "../web-dark-estimate-fullscreen.css";
+import "../prosmet-sam-style.css";
 
 export default function AppEntry() {
   return <ReferenceApp />;
