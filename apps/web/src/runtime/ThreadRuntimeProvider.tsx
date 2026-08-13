@@ -12,7 +12,7 @@ import {
 import type { AgentResponse, ApiErrorBody, Estimate } from "@prosmet/contracts";
 import { fetchStoredEstimate } from "../features/estimate/estimate-api";
 import { feedbackAdapter } from "./feedback-adapter";
-import { threadListAdapter } from "./thread-list-adapter";
+import { serverThreadListAdapter } from "./server-thread-list-adapter";
 
 type Props = {
   children: ReactNode;
@@ -23,27 +23,15 @@ const EMPTY_AGENT_RESPONSE = "Агент вернул пустой ответ";
 const AGENT_RETRIES = 2;
 
 const PROSMET_SUGGESTIONS = [
-  {
-    title: "Составить смету",
-    label: "Новая строительная смета",
-    prompt: "Составь строительную смету. Сначала уточни недостающие исходные данные, затем рассчитай объёмы, проверь цены и подготовь редактируемую смету."
-  },
-  {
-    title: "Рассчитать по замерам",
-    label: "Объёмы работ и материалов",
-    prompt: "Рассчитай объёмы работ и материалов по моим замерам, затем создай смету с ценами, источниками и итогами."
-  },
-  {
-    title: "Подготовить документы",
-    label: "КП, договор и акт",
-    prompt: "На основании сметы подготовь комплект строительных документов: коммерческое предложение, договор, акт и счёт."
-  }
+  { title: "Составить смету", label: "Новая строительная смета", prompt: "Составь строительную смету. Сначала уточни недостающие исходные данные, затем рассчитай объёмы, проверь цены и подготовь редактируемую смету." },
+  { title: "Рассчитать по замерам", label: "Объёмы работ и материалов", prompt: "Рассчитай объёмы работ и материалов по моим замерам, затем создай смету с ценами, источниками и итогами." },
+  { title: "Подготовить документы", label: "КП, договор и акт", prompt: "На основании сметы подготовь комплект строительных документов: коммерческое предложение, договор, акт и счёт." }
 ];
 
 function errorMessage(status: number, body: unknown) {
   const apiError = body as Partial<ApiErrorBody>;
   if (apiError?.error?.message) return apiError.error.message;
-  if (status === 401) return "Откройте настройки и войдите как супер-администратор.";
+  if (status === 401) return "Откройте настройки и войдите в ProSmet для сохранения истории чатов.";
   if (status === 409) return "Сначала подключите и активируйте агента в настройках.";
   return `Агент недоступен: HTTP ${status}`;
 }
@@ -52,15 +40,7 @@ function timedTextResult(text: string, startedAt: number) {
   const totalStreamTime = Math.max(0, Date.now() - startedAt);
   return {
     content: [{ type: "text" as const, text }],
-    metadata: {
-      timing: {
-        streamStartTime: startedAt,
-        firstTokenTime: totalStreamTime,
-        totalStreamTime,
-        totalChunks: 1,
-        toolCallCount: 0
-      }
-    }
+    metadata: { timing: { streamStartTime: startedAt, firstTokenTime: totalStreamTime, totalStreamTime, totalChunks: 1, toolCallCount: 0 } }
   };
 }
 
@@ -83,42 +63,24 @@ export function ThreadRuntimeProvider({ children, onEstimateReady }: Props) {
         const requestBody = JSON.stringify({ requestId, messages });
         let response: Response | null = null;
         let body: unknown = null;
-
         for (let attempt = 0; attempt <= AGENT_RETRIES; attempt += 1) {
-          response = await fetch("/api/agent", {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: requestBody,
-            signal: abortSignal,
-            credentials: "same-origin"
-          });
+          response = await fetch("/api/agent", { method: "POST", headers: { "content-type": "application/json" }, body: requestBody, signal: abortSignal, credentials: "same-origin" });
           body = await response.json().catch(() => null);
           if (response.ok || !shouldRetryAgentResponse(response.status, body) || attempt === AGENT_RETRIES) break;
           await retryDelay(attempt + 1);
         }
-
         if (!response) return timedTextResult("Не удалось выполнить запрос к агенту.", startedAt);
         if (!response.ok) return timedTextResult(errorMessage(response.status, body), startedAt);
-
         const result = body as AgentResponse;
         if (result.artifact?.type === "estimate") {
           const persisted = await fetchStoredEstimate(result.artifact.id);
           queueMicrotask(() => onEstimateReady(persisted));
-          return timedTextResult(
-            result.text || "Смета сохранена в базе данных и открыта в редакторе.",
-            startedAt
-          );
+          return timedTextResult(result.text || "Смета сохранена в базе данных и открыта в редакторе.", startedAt);
         }
-
         return timedTextResult(result.text, startedAt);
       } catch (error) {
         if (abortSignal.aborted) throw error;
-        return timedTextResult(
-          error instanceof Error
-            ? `Не удалось выполнить запрос к агенту: ${error.message}`
-            : "Не удалось выполнить запрос к агенту.",
-          startedAt
-        );
+        return timedTextResult(error instanceof Error ? `Не удалось выполнить запрос к агенту: ${error.message}` : "Не удалось выполнить запрос к агенту.", startedAt);
       }
     }
   }), [onEstimateReady]);
@@ -131,19 +93,10 @@ export function ThreadRuntimeProvider({ children, onEstimateReady }: Props) {
 
   const runtime = useRemoteThreadListRuntime({
     runtimeHook: () => useLocalRuntime(adapter, {
-      adapters: {
-        feedback: feedbackAdapter,
-        speech: speechAdapter,
-        ...(dictationAdapter ? { dictation: dictationAdapter } : {})
-      }
+      adapters: { feedback: feedbackAdapter, speech: speechAdapter, ...(dictationAdapter ? { dictation: dictationAdapter } : {}) }
     }),
-    adapter: threadListAdapter
+    adapter: serverThreadListAdapter
   });
-
-  const config = useMemo(
-    () => AuiConfig({ suggestions: Suggestions(PROSMET_SUGGESTIONS) }),
-    []
-  );
-
+  const config = useMemo(() => AuiConfig({ suggestions: Suggestions(PROSMET_SUGGESTIONS) }), []);
   return <AssistantRuntimeProvider runtime={runtime} config={config}>{children}</AssistantRuntimeProvider>;
 }
