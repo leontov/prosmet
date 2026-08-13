@@ -1,14 +1,18 @@
 import { useMemo, type ReactNode } from "react";
 import {
   AssistantRuntimeProvider,
+  AuiConfig,
+  Suggestions,
   WebSpeechDictationAdapter,
   WebSpeechSynthesisAdapter,
   useLocalRuntime,
+  useRemoteThreadListRuntime,
   type ChatModelAdapter
 } from "@assistant-ui/react";
 import type { AgentResponse, ApiErrorBody, Estimate } from "@prosmet/contracts";
 import { fetchStoredEstimate } from "../features/estimate/estimate-api";
 import { feedbackAdapter } from "./feedback-adapter";
+import { threadListAdapter } from "./thread-list-adapter";
 
 type Props = {
   children: ReactNode;
@@ -17,6 +21,24 @@ type Props = {
 
 const EMPTY_AGENT_RESPONSE = "Агент вернул пустой ответ";
 const AGENT_RETRIES = 2;
+
+const PROSMET_SUGGESTIONS = [
+  {
+    title: "Составить смету",
+    label: "Новая строительная смета",
+    prompt: "Составь строительную смету. Сначала уточни недостающие исходные данные, затем рассчитай объёмы, проверь цены и подготовь редактируемую смету."
+  },
+  {
+    title: "Рассчитать по замерам",
+    label: "Объёмы работ и материалов",
+    prompt: "Рассчитай объёмы работ и материалов по моим замерам, затем создай смету с ценами, источниками и итогами."
+  },
+  {
+    title: "Подготовить документы",
+    label: "КП, договор и акт",
+    prompt: "На основании сметы подготовь комплект строительных документов: коммерческое предложение, договор, акт и счёт."
+  }
+];
 
 function errorMessage(status: number, body: unknown) {
   const apiError = body as Partial<ApiErrorBody>;
@@ -52,7 +74,7 @@ async function retryDelay(attempt: number) {
   await new Promise((resolve) => window.setTimeout(resolve, 350 * attempt));
 }
 
-export function RuntimeProvider({ children, onEstimateReady }: Props) {
+export function ThreadRuntimeProvider({ children, onEstimateReady }: Props) {
   const adapter = useMemo<ChatModelAdapter>(() => ({
     async run({ messages, abortSignal }) {
       const startedAt = Date.now();
@@ -70,19 +92,13 @@ export function RuntimeProvider({ children, onEstimateReady }: Props) {
             signal: abortSignal,
             credentials: "same-origin"
           });
-
           body = await response.json().catch(() => null);
           if (response.ok || !shouldRetryAgentResponse(response.status, body) || attempt === AGENT_RETRIES) break;
           await retryDelay(attempt + 1);
         }
 
-        if (!response) {
-          return timedTextResult("Не удалось выполнить запрос к агенту.", startedAt);
-        }
-
-        if (!response.ok) {
-          return timedTextResult(errorMessage(response.status, body), startedAt);
-        }
+        if (!response) return timedTextResult("Не удалось выполнить запрос к агенту.", startedAt);
+        if (!response.ok) return timedTextResult(errorMessage(response.status, body), startedAt);
 
         const result = body as AgentResponse;
         if (result.artifact?.type === "estimate") {
@@ -109,20 +125,25 @@ export function RuntimeProvider({ children, onEstimateReady }: Props) {
 
   const dictationAdapter = useMemo(() => {
     if (typeof window === "undefined" || !WebSpeechDictationAdapter.isSupported()) return null;
-    return new WebSpeechDictationAdapter({
-      language: "ru-RU",
-      continuous: false,
-      interimResults: true
-    });
+    return new WebSpeechDictationAdapter({ language: "ru-RU", continuous: false, interimResults: true });
   }, []);
   const speechAdapter = useMemo(() => new WebSpeechSynthesisAdapter(), []);
 
-  const runtime = useLocalRuntime(adapter, {
-    adapters: {
-      feedback: feedbackAdapter,
-      speech: speechAdapter,
-      ...(dictationAdapter ? { dictation: dictationAdapter } : {})
-    }
+  const runtime = useRemoteThreadListRuntime({
+    runtimeHook: () => useLocalRuntime(adapter, {
+      adapters: {
+        feedback: feedbackAdapter,
+        speech: speechAdapter,
+        ...(dictationAdapter ? { dictation: dictationAdapter } : {})
+      }
+    }),
+    adapter: threadListAdapter
   });
-  return <AssistantRuntimeProvider runtime={runtime}>{children}</AssistantRuntimeProvider>;
+
+  const config = useMemo(
+    () => AuiConfig({ suggestions: Suggestions(PROSMET_SUGGESTIONS) }),
+    []
+  );
+
+  return <AssistantRuntimeProvider runtime={runtime} config={config}>{children}</AssistantRuntimeProvider>;
 }
