@@ -1,0 +1,1 @@
+This visual slice changes only the desktop/mobile web cabinet composition and account-session presentation. Server APIs, estimate calculations, document generation and agent configuration remain unchanged.
