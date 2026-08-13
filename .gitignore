@@ -1,14 +1,5 @@
-node_modules
-.next
-out
-dist
-coverage
-playwright-report
-test-results
-.env
-.env.*
-!.env.example
-*.log
-.DS_Store
-public/sql-wasm.wasm
-artifacts/screenshots/*.png
+(docs/REDESIGN_PROPOSAL_V2.md is a markdown file, which is a source/config file, so no need to add to .gitignore)
+
+```markdown
+
+```
