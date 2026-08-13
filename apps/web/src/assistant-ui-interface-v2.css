@@ -1,0 +1,207 @@
+:root {
+  --prosmet-chat-max-width: 820px;
+  --prosmet-chat-gutter: 24px;
+  --prosmet-composer-height: 62px;
+}
+
+/* assistant-ui primitives own behavior; this layer only refines composition. */
+.chat-root {
+  min-width: 0;
+  min-height: 0;
+}
+
+.chat-viewport,
+.mobile-reference-viewport {
+  scroll-behavior: smooth;
+  scrollbar-gutter: stable;
+}
+
+.message-column {
+  width: min(100%, var(--prosmet-chat-max-width));
+  margin-inline: auto;
+  padding-inline: var(--prosmet-chat-gutter);
+}
+
+.assistant-message,
+.user-message {
+  min-width: 0;
+}
+
+.assistant-copy,
+.user-bubble {
+  overflow-wrap: anywhere;
+}
+
+.assistant-copy p:first-child,
+.user-bubble p:first-child {
+  margin-top: 0;
+}
+
+.assistant-copy p:last-child,
+.user-bubble p:last-child {
+  margin-bottom: 0;
+}
+
+.desktop-welcome {
+  width: min(100%, var(--prosmet-chat-max-width));
+  margin-inline: auto;
+  padding-inline: var(--prosmet-chat-gutter);
+}
+
+.desktop-suggestions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.suggestion-card {
+  min-height: 104px;
+  border-radius: 20px;
+  border: 1px solid var(--prosmet-ui-border);
+  background: color-mix(in srgb, var(--prosmet-ui-canvas) 94%, var(--prosmet-ui-soft));
+  transition: transform .16s ease, border-color .16s ease, background .16s ease;
+}
+
+.suggestion-card:hover {
+  transform: translateY(-1px);
+  border-color: var(--prosmet-ui-border-strong);
+  background: var(--prosmet-ui-soft);
+}
+
+.composer-footer {
+  width: min(100%, calc(var(--prosmet-chat-max-width) + 48px));
+  margin-inline: auto;
+}
+
+.desktop-composer {
+  min-height: var(--prosmet-composer-height);
+  border-radius: 31px;
+  border: 1px solid var(--prosmet-ui-border-strong);
+}
+
+.composer-input {
+  min-height: 28px;
+}
+
+.composer-send,
+.composer-cancel {
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  border-radius: 50%;
+}
+
+.composer-cancel,
+.mobile-reference-cancel {
+  background: var(--prosmet-ui-soft);
+  color: var(--prosmet-ui-text);
+  border: 1px solid var(--prosmet-ui-border);
+}
+
+.scroll-bottom {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--prosmet-ui-border);
+  background: color-mix(in srgb, var(--prosmet-ui-canvas) 94%, var(--prosmet-ui-soft));
+  box-shadow: 0 8px 22px rgba(17, 18, 20, .10);
+}
+
+.artifact-row,
+.mobile-artifact {
+  min-height: 76px;
+  border: 1px solid var(--prosmet-ui-border);
+  border-radius: 20px;
+  background: var(--prosmet-ui-canvas);
+  transition: border-color .16s ease, background .16s ease, transform .16s ease;
+}
+
+.artifact-row:hover,
+.mobile-artifact:hover {
+  border-color: var(--prosmet-ui-border-strong);
+  background: var(--prosmet-ui-soft);
+  transform: translateY(-1px);
+}
+
+.mobile-reference-message-column {
+  width: 100%;
+  max-width: 100%;
+  padding-inline: 16px;
+}
+
+.mobile-reference-composer-wrap {
+  width: min(100%, 720px);
+  margin-inline: auto;
+}
+
+.mobile-reference-composer {
+  min-height: 60px;
+  border-radius: 30px;
+  border: 1px solid var(--prosmet-ui-border-strong);
+}
+
+.mobile-reference-plus,
+.mobile-reference-microphone,
+.mobile-reference-send,
+.mobile-reference-cancel {
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+  border-radius: 50%;
+}
+
+.mobile-reference-send {
+  background: var(--prosmet-ui-text);
+  color: var(--prosmet-ui-canvas);
+}
+
+.mobile-reference-send:disabled {
+  opacity: .35;
+}
+
+.mobile-reference-cancel {
+  display: grid;
+  place-items: center;
+}
+
+@media (max-width: 767px) {
+  :root {
+    --prosmet-chat-gutter: 16px;
+  }
+
+  .desktop-suggestions {
+    grid-template-columns: 1fr;
+  }
+
+  .message-column {
+    padding-inline: 16px;
+  }
+
+  .suggestion-card {
+    min-height: 72px;
+  }
+
+  .composer-footer {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-viewport,
+  .mobile-reference-viewport {
+    scroll-behavior: auto;
+  }
+
+  .suggestion-card,
+  .artifact-row,
+  .mobile-artifact {
+    transition: none;
+  }
+}
+
+html[data-prosmet-theme="dark"] .suggestion-card,
+html[data-prosmet-theme="dark"] .artifact-row,
+html[data-prosmet-theme="dark"] .mobile-artifact,
+html[data-prosmet-theme="dark"] .scroll-bottom {
+  background: var(--dark-surface-2);
+}
