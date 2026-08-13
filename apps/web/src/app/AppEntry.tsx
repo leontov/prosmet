@@ -26,6 +26,7 @@ import "../web-dark-estimate-fullscreen.css";
 import "../prosmet-sam-style.css";
 import "../samreshuuu-layout.css";
 import "../prosmet-workspace-v2.css";
+import "../samres-clone-start.css";
 
 export default function AppEntry() {
   return <ReferenceApp />;
