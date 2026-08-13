@@ -1,0 +1,154 @@
+name: Prosmet MiMo Live Repair
+
+on:
+  push:
+    branches: [fix/mimo-integration-v1]
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prosmet-mimo-live-repair
+  cancel-in-progress: true
+
+jobs:
+  repair:
+    if: >-
+      github.event_name == 'push' ||
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 15
+    steps:
+      - name: Verify trusted Primary runner
+        run: test "${{ runner.name }}" = "prosmet-primary"
+
+      - name: Convert the stored MiMo connection to OpenAI-compatible
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          TOKEN_FILE="$HOME/.prosmet-greenfield/config/admin.token"
+          test -s "$TOKEN_FILE"
+
+          curl --fail --silent --show-error \
+            http://127.0.0.1:3200/api/agents > agents-before.json
+
+          AGENT_ID="$(node --input-type=module <<'NODE'
+          import { readFile, writeFile } from 'node:fs/promises';
+          const registry = JSON.parse(await readFile('agents-before.json', 'utf8'));
+          const agents = Array.isArray(registry.agents) ? registry.agents : [];
+          const agent = agents.find((entry) => {
+            const value = `${entry.name || ''} ${entry.model || ''} ${entry.baseUrl || ''}`.toLowerCase();
+            return value.includes('mimo') || value.includes('xiaomimimo');
+          });
+          if (!agent) process.exit(2);
+
+          const url = new URL(agent.baseUrl);
+          const host = url.hostname.toLowerCase();
+          let baseUrl;
+          if (host === 'api.xiaomimimo.com') {
+            baseUrl = 'https://api.xiaomimimo.com/v1';
+          } else if (/^token-plan-(cn|sgp|ams)\.xiaomimimo\.com$/.test(host)) {
+            baseUrl = `${url.origin}/v1`;
+          } else {
+            throw new Error(`Unsupported MiMo API host: ${host}`);
+          }
+
+          const model = String(agent.model || '').startsWith('mimo-v2.5')
+            ? agent.model
+            : 'mimo-v2.5-pro';
+          const payload = {
+            name: agent.name || 'MiMo',
+            type: 'openai-compatible',
+            enabled: agent.enabled !== false,
+            model,
+            baseUrl,
+            command: null,
+            args: [],
+            cwd: agent.cwd || null,
+            systemPrompt: agent.systemPrompt || null,
+            timeoutMs: Number(agent.timeoutMs) || 120000
+          };
+          await writeFile('mimo-repair-payload.json', JSON.stringify(payload, null, 2) + '\n', { mode: 0o600 });
+          process.stdout.write(agent.id);
+          NODE
+          )"
+
+          ADMIN_TOKEN="$(tr -d '\r\n' < "$TOKEN_FILE")"
+          STATUS="$(curl --silent --show-error \
+            --output agent-updated.json \
+            --dump-header agent-update-headers.txt \
+            --write-out '%{http_code}' \
+            --request PUT \
+            --header 'content-type: application/json' \
+            --header "x-prosmet-admin-token: ${ADMIN_TOKEN}" \
+            --data-binary @mimo-repair-payload.json \
+            "http://127.0.0.1:3200/api/agents/${AGENT_ID}" || true)"
+          unset ADMIN_TOKEN
+          test "$STATUS" = "200"
+          grep -q '"type":"openai-compatible"' agent-updated.json
+          grep -q '"model":"mimo-v2.5-pro"' agent-updated.json
+          grep -q '"baseUrl":"https://token-plan-sgp.xiaomimimo.com/v1"' agent-updated.json
+          grep -q '"hasSecret":true' agent-updated.json
+          printf '%s\n' "$AGENT_ID" > mimo-agent-id.txt
+
+      - name: Verify the repaired MiMo provider with its stored encrypted key
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          TOKEN_FILE="$HOME/.prosmet-greenfield/config/admin.token"
+          AGENT_ID="$(cat mimo-agent-id.txt)"
+          ADMIN_TOKEN="$(tr -d '\r\n' < "$TOKEN_FILE")"
+          STATUS="$(curl --silent --show-error \
+            --output mimo-live-test.json \
+            --dump-header mimo-live-test-headers.txt \
+            --write-out '%{http_code}' \
+            --request POST \
+            --header "x-prosmet-admin-token: ${ADMIN_TOKEN}" \
+            "http://127.0.0.1:3200/api/agents/${AGENT_ID}/test" || true)"
+          unset ADMIN_TOKEN
+          test "$STATUS" = "200"
+          grep -q '"ok":true' mimo-live-test.json
+          grep -q '"provider":"openai-compatible"' mimo-live-test.json
+          grep -q '"model":"mimo-v2.5-pro"' mimo-live-test.json
+
+          curl --fail --silent --show-error \
+            http://127.0.0.1:3200/api/agents > agents-after.json
+          grep -q '"type":"openai-compatible"' agents-after.json
+          grep -q '"active":true' agents-after.json
+
+          node --input-type=module <<'NODE'
+          import { readFile, writeFile } from 'node:fs/promises';
+          const result = JSON.parse(await readFile('mimo-live-test.json', 'utf8'));
+          const registry = JSON.parse(await readFile('agents-after.json', 'utf8'));
+          const active = registry.agents.find((agent) => agent.active);
+          await writeFile('mimo-live-repair-result.json', JSON.stringify({
+            status: 'PASS',
+            provider: active?.type || null,
+            model: active?.model || null,
+            baseUrl: active?.baseUrl || null,
+            hasSecret: active?.hasSecret === true,
+            latencyMs: result.latencyMs || null,
+            upstreamMessage: result.message || null,
+            checkedAt: new Date().toISOString()
+          }, null, 2) + '\n');
+          NODE
+
+      - name: Upload non-secret MiMo repair evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: prosmet-mimo-live-repair-${{ github.run_id }}
+          path: |
+            agents-before.json
+            agent-updated.json
+            agent-update-headers.txt
+            agents-after.json
+            mimo-live-test.json
+            mimo-live-test-headers.txt
+            mimo-live-repair-result.json
+          if-no-files-found: warn
+          retention-days: 7
