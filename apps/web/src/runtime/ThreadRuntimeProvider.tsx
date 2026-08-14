@@ -1,15 +1,16 @@
 import { useMemo, type ReactNode } from "react";
 import {
   AssistantRuntimeProvider,
-  AuiConfig,
   Suggestions,
   WebSpeechDictationAdapter,
   WebSpeechSynthesisAdapter,
+  useAui,
   useLocalRuntime,
   useRemoteThreadListRuntime,
   type ChatModelAdapter
 } from "@assistant-ui/react";
 import type { AgentResponse, ApiErrorBody, Estimate } from "@prosmet/contracts";
+import { createAssistantStream } from "assistant-stream";
 import { fetchStoredEstimate } from "../features/estimate/estimate-api";
 import { feedbackAdapter } from "./feedback-adapter";
 import { serverThreadListAdapter } from "./server-thread-list-adapter";
@@ -97,6 +98,6 @@ export function ThreadRuntimeProvider({ children, onEstimateReady }: Props) {
     }),
     adapter: serverThreadListAdapter
   });
-  const config = useMemo(() => AuiConfig({ suggestions: Suggestions(PROSMET_SUGGESTIONS) }), []);
-  return <AssistantRuntimeProvider runtime={runtime} config={config}>{children}</AssistantRuntimeProvider>;
+  const aui = useAui({ suggestions: Suggestions(PROSMET_SUGGESTIONS) });
+  return <AssistantRuntimeProvider runtime={runtime} aui={aui}>{children}</AssistantRuntimeProvider>;
 }
