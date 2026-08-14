@@ -68,10 +68,10 @@ function Composer({ mobile }: { mobile: boolean }) {
     <ComposerPrimitive.Root className={mobile ? "mobile-reference-composer" : "desktop-composer"}>
       <ComposerPrimitive.Input rows={1} placeholder={mobile ? "Спросить ProSmet…" : "Опишите, что нужно сделать…"} className="composer-input" />
       <div className="composer-actions">
-        <AuiIf condition={(s) => !s.composer.dictation.isRunning}>
+        <AuiIf condition={(s) => s.composer.dictation == null}>
           <ComposerPrimitive.Dictate className="composer-action" aria-label="Диктовка"><Volume2Icon /></ComposerPrimitive.Dictate>
         </AuiIf>
-        <AuiIf condition={(s) => s.composer.dictation.isRunning}>
+        <AuiIf condition={(s) => s.composer.dictation != null}>
           <ComposerPrimitive.StopDictation className="composer-action" aria-label="Остановить диктовку"><VolumeXIcon /></ComposerPrimitive.StopDictation>
         </AuiIf>
         <AuiIf condition={(s) => !s.thread.isRunning}>
