@@ -6,6 +6,7 @@ const read = (path) => readFile(resolve(root, path), "utf8");
 
 const [
   webPackage,
+  webRuntimeEntry,
   webRuntime,
   webChat,
   webStyle,
@@ -16,6 +17,7 @@ const [
 ] = await Promise.all([
   read("apps/web/package.json"),
   read("apps/web/src/runtime/RuntimeProvider.tsx"),
+  read("apps/web/src/runtime/ThreadRuntimeProvider.tsx"),
   read("apps/web/src/features/chat/ChatSurface.tsx"),
   read("apps/web/src/assistant-ui-conformance.css"),
   read("apps/mobile/package.json"),
@@ -25,6 +27,7 @@ const [
 ]);
 
 const failures = [];
+const webRuntimeCombined = `${webRuntimeEntry}\n${webRuntime}`;
 
 function requireTokens(scope, source, tokens) {
   for (const token of tokens) {
@@ -35,7 +38,7 @@ function requireTokens(scope, source, tokens) {
 requireTokens("web-package", webPackage, ["@assistant-ui/react"]);
 requireTokens("native-package", nativePackage, ["@assistant-ui/react-native"]);
 
-requireTokens("web-runtime", webRuntime, [
+requireTokens("web-runtime", webRuntimeCombined, [
   "useLocalRuntime",
   "WebSpeechDictationAdapter",
   "WebSpeechSynthesisAdapter",
@@ -94,7 +97,7 @@ for (const [name, nativeValue, webDeclaration] of sharedTokens) {
 }
 
 for (const forbidden of ["prosmet:response-timing", "readResponseDuration", "recordResponseDuration"]) {
-  if (webRuntime.includes(forbidden) || webChat.includes(forbidden) || nativeRuntime.includes(forbidden) || nativeChat.includes(forbidden)) {
+  if (webRuntimeCombined.includes(forbidden) || webChat.includes(forbidden) || nativeRuntime.includes(forbidden) || nativeChat.includes(forbidden)) {
     failures.push(`custom-runtime-bypass:${forbidden}`);
   }
 }
@@ -108,7 +111,7 @@ console.log(JSON.stringify({
   status: "PASS",
   contract: "prosmet-assistant-ui-style-v1",
   assistantUi: {
-    web: "headless primitives plus LocalRuntime adapters",
+    web: "headless primitives plus LocalRuntime adapters in ThreadRuntimeProvider",
     native: "react-native primitives plus LocalRuntime timing metadata"
   },
   sharedVisualTokens: Object.fromEntries(sharedTokens.map(([name, value]) => [name, value])),
