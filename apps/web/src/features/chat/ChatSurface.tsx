@@ -1,6 +1,34 @@
 import "../../assistant-ui-thread-list.css";
-import { AuiIf, ComposerPrimitive, MessagePrimitive, SuggestionPrimitive, ThreadListItemPrimitive, ThreadListPrimitive, ThreadPrimitive } from "@assistant-ui/react";
-import { ArrowDownIcon, ArrowUpIcon, FileSpreadsheetIcon, PlusIcon, SparklesIcon, SquareIcon } from "lucide-react";
+import {
+  ActionBarMorePrimitive,
+  ActionBarPrimitive,
+  AuiIf,
+  ComposerPrimitive,
+  MessagePrimitive,
+  SuggestionPrimitive,
+  ThreadListItemPrimitive,
+  ThreadListPrimitive,
+  ThreadPrimitive,
+  useMessageTiming
+} from "@assistant-ui/react";
+import {
+  ArrowDownIcon,
+  ArrowUpIcon,
+  CheckIcon,
+  CopyIcon,
+  DownloadIcon,
+  Edit3Icon,
+  FileSpreadsheetIcon,
+  MoreHorizontalIcon,
+  PlusIcon,
+  RefreshCwIcon,
+  SparklesIcon,
+  SquareIcon,
+  ThumbsDownIcon,
+  ThumbsUpIcon,
+  Volume2Icon,
+  VolumeXIcon
+} from "lucide-react";
 
 type Props = { mobile: boolean; hasEstimate: boolean; onOpenEstimate: () => void };
 
@@ -20,7 +48,7 @@ function ThreadHistory() {
   return (
     <div className="prosmet-threadbar" aria-label="История чатов">
       <ThreadListPrimitive.Root className="prosmet-threadlist-root">
-        <ThreadListPrimitive.New className="prosmet-thread-new"><PlusIcon /></ThreadListPrimitive.New>
+        <ThreadListPrimitive.New className="prosmet-thread-new" aria-label="Новый чат"><PlusIcon /></ThreadListPrimitive.New>
         <ThreadListPrimitive.Items>
           {() => (
             <ThreadListItemPrimitive.Root className="prosmet-thread-item">
@@ -39,13 +67,53 @@ function Composer({ mobile }: { mobile: boolean }) {
   return (
     <ComposerPrimitive.Root className={mobile ? "mobile-reference-composer" : "desktop-composer"}>
       <ComposerPrimitive.Input rows={1} placeholder={mobile ? "Спросить ProSmet…" : "Опишите, что нужно сделать…"} className="composer-input" />
-      <AuiIf condition={(s) => !s.thread.isRunning}>
-        <ComposerPrimitive.Send className={mobile ? "mobile-reference-send" : "composer-send"} aria-label="Отправить"><ArrowUpIcon /></ComposerPrimitive.Send>
-      </AuiIf>
-      <AuiIf condition={(s) => s.thread.isRunning}>
-        <ComposerPrimitive.Cancel className={mobile ? "mobile-reference-cancel" : "composer-cancel"} aria-label="Остановить"><SquareIcon /></ComposerPrimitive.Cancel>
-      </AuiIf>
+      <div className="composer-actions">
+        <AuiIf condition={(s) => !s.composer.dictation.isRunning}>
+          <ComposerPrimitive.Dictate className="composer-action" aria-label="Диктовка"><Volume2Icon /></ComposerPrimitive.Dictate>
+        </AuiIf>
+        <AuiIf condition={(s) => s.composer.dictation.isRunning}>
+          <ComposerPrimitive.StopDictation className="composer-action" aria-label="Остановить диктовку"><VolumeXIcon /></ComposerPrimitive.StopDictation>
+        </AuiIf>
+        <AuiIf condition={(s) => !s.thread.isRunning}>
+          <ComposerPrimitive.Send className={mobile ? "mobile-reference-send" : "composer-send"} aria-label="Отправить"><ArrowUpIcon /></ComposerPrimitive.Send>
+        </AuiIf>
+        <AuiIf condition={(s) => s.thread.isRunning}>
+          <ComposerPrimitive.Cancel className={mobile ? "mobile-reference-cancel" : "composer-cancel"} aria-label="Остановить"><SquareIcon /></ComposerPrimitive.Cancel>
+        </AuiIf>
+      </div>
     </ComposerPrimitive.Root>
+  );
+}
+
+function MessageActions() {
+  const timing = useMessageTiming();
+  const totalMs = timing?.totalStreamTime;
+  return (
+    <ActionBarPrimitive.Root hideWhenRunning autohide="not-last" autohideFloat="always" className="prosmet-message-actions">
+      <ActionBarPrimitive.Copy className="prosmet-message-action" aria-label="Копировать">
+        <AuiIf condition={(s) => !s.message.isCopied}><CopyIcon /></AuiIf>
+        <AuiIf condition={(s) => s.message.isCopied}><CheckIcon /></AuiIf>
+      </ActionBarPrimitive.Copy>
+      <ActionBarPrimitive.Reload className="prosmet-message-action" aria-label="Повторить"><RefreshCwIcon /></ActionBarPrimitive.Reload>
+      <ActionBarPrimitive.Edit className="prosmet-message-action" aria-label="Редактировать"><Edit3Icon /></ActionBarPrimitive.Edit>
+      <AuiIf condition={(s) => s.message.speech == null}>
+        <ActionBarPrimitive.Speak className="prosmet-message-action" aria-label="Озвучить"><Volume2Icon /></ActionBarPrimitive.Speak>
+      </AuiIf>
+      <AuiIf condition={(s) => s.message.speech != null}>
+        <ActionBarPrimitive.StopSpeaking className="prosmet-message-action" aria-label="Остановить озвучивание"><VolumeXIcon /></ActionBarPrimitive.StopSpeaking>
+      </AuiIf>
+      <ActionBarPrimitive.FeedbackPositive className="prosmet-message-action" aria-label="Полезно"><ThumbsUpIcon /></ActionBarPrimitive.FeedbackPositive>
+      <ActionBarPrimitive.FeedbackNegative className="prosmet-message-action" aria-label="Не полезно"><ThumbsDownIcon /></ActionBarPrimitive.FeedbackNegative>
+      <ActionBarMorePrimitive.Root>
+        <ActionBarMorePrimitive.Trigger className="prosmet-message-action" aria-label="Дополнительные действия"><MoreHorizontalIcon /></ActionBarMorePrimitive.Trigger>
+        <ActionBarMorePrimitive.Content side="bottom" align="end">
+          <ActionBarMorePrimitive.Item asChild>
+            <ActionBarPrimitive.ExportMarkdown filename="prosmet-message.md"><DownloadIcon /> Экспортировать Markdown</ActionBarPrimitive.ExportMarkdown>
+          </ActionBarMorePrimitive.Item>
+        </ActionBarMorePrimitive.Content>
+      </ActionBarMorePrimitive.Root>
+      {typeof totalMs === "number" ? <span className="prosmet-message-timing" aria-label="Время ответа">{totalMs < 1000 ? `${Math.round(totalMs)}ms` : `${(totalMs / 1000).toFixed(2)}s`}</span> : null}
+    </ActionBarPrimitive.Root>
   );
 }
 
@@ -56,6 +124,7 @@ function Messages({ hasEstimate, onOpenEstimate }: Omit<Props, "mobile">) {
         {({ message }) => (
           <MessagePrimitive.Root className={`message ${message.role === "user" ? "user-message" : "assistant-message"}`}>
             <div className={message.role === "user" ? "user-bubble" : "assistant-copy"}><MessagePrimitive.Parts /></div>
+            <MessageActions />
           </MessagePrimitive.Root>
         )}
       </ThreadPrimitive.Messages>
