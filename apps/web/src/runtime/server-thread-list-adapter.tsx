@@ -4,9 +4,10 @@ import {
   type RemoteThreadListAdapter,
   type ThreadHistoryAdapter
 } from "@assistant-ui/react";
+import { createAssistantStream } from "assistant-stream";
 import { useMemo } from "react";
 
-type StoredMessage = { id: string; parent_id: string | null; format: string; content: unknown };
+type StoredMessage = { id: string; parent_id: string | null; format: string; content: Record<string, unknown> };
 
 const LOCAL_KEY = "prosmet.assistant.threads.v1";
 const DEFAULT_TITLE = "Новый чат";
@@ -51,6 +52,15 @@ async function api<T>(url: string, init?: RequestInit): Promise<T> {
 
 function unauthorized(error: unknown) {
   return typeof error === "object" && error !== null && "status" in error && (error as { status?: number }).status === 401;
+}
+
+function titleFromMessages(messages: readonly unknown[]) {
+  const firstUser = messages.find((message) => typeof message === "object" && message !== null && (message as { role?: unknown }).role === "user") as { content?: unknown } | undefined;
+  const text = Array.isArray(firstUser?.content)
+    ? firstUser.content.find((part) => typeof part === "object" && part !== null && (part as { type?: unknown }).type === "text") as { text?: unknown } | undefined
+    : undefined;
+  const value = typeof text?.text === "string" ? text.text.trim() : "";
+  return value ? value.slice(0, 50) : DEFAULT_TITLE;
 }
 
 export const serverThreadListAdapter: RemoteThreadListAdapter = {
@@ -119,6 +129,13 @@ export const serverThreadListAdapter: RemoteThreadListAdapter = {
     }
   },
 
+  async generateTitle(_remoteId, messages) {
+    const title = titleFromMessages(messages);
+    return createAssistantStream(async (controller) => {
+      controller.appendText(title);
+    });
+  },
+
   unstable_Provider({ children }) {
     const aui = useAui();
     const history = useMemo<ThreadHistoryAdapter>(() => ({
@@ -141,7 +158,7 @@ export const serverThreadListAdapter: RemoteThreadListAdapter = {
           async append(item) {
             const { remoteId } = await aui.threadListItem.initialize();
             if (!remoteId) return;
-            const row: StoredMessage = {
+            const row = {
               id: fmt.getId(item.message),
               parent_id: item.parentId,
               format: fmt.format,
