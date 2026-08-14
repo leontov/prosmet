@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  actions: write
+  actions: read
   contents: read
 
 concurrency:
@@ -14,32 +14,19 @@ concurrency:
 
 jobs:
   deploy:
-    name: Deploy exact pushed SHA
+    name: Verify production deployment for exact pushed SHA
     runs-on: ubuntu-latest
     timeout-minutes: 100
     steps:
       - name: Resolve exact deployment target
         id: target
-        env:
-          GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -Eeuo pipefail
           echo "branch=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
           echo "sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
 
-      - name: Start existing production deployment workflow
-        env:
-          GH_TOKEN: ${{ github.token }}
-          BRANCH: ${{ steps.target.outputs.branch }}
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          gh workflow run greenfield-deploy.yml \
-            --repo "$GITHUB_REPOSITORY" \
-            --ref "$BRANCH"
-
-      - name: Wait for deployment run of this exact SHA
+      - name: Wait for push-triggered production deployment
         env:
           GH_TOKEN: ${{ github.token }}
           BRANCH: ${{ steps.target.outputs.branch }}
@@ -55,6 +42,7 @@ jobs:
                 --repo "$GITHUB_REPOSITORY" \
                 --workflow greenfield-deploy.yml \
                 --branch "$BRANCH" \
+                --event push \
                 --limit 30 \
                 --json databaseId,headSha,status,conclusion,createdAt \
               | jq -r --arg sha "$SHA" '
@@ -66,7 +54,7 @@ jobs:
             )"
 
             if [ -n "$RUN_ID" ]; then
-              echo "Watching deployment run $RUN_ID for SHA $SHA"
+              echo "Watching push-triggered production run $RUN_ID for SHA $SHA"
               gh run watch "$RUN_ID" \
                 --repo "$GITHUB_REPOSITORY" \
                 --exit-status
@@ -76,5 +64,5 @@ jobs:
             sleep 5
           done
 
-          echo "Timed out waiting for greenfield-deploy.yml run for SHA $SHA" >&2
+          echo "Timed out waiting for push-triggered greenfield-deploy.yml run for SHA $SHA" >&2
           exit 1
