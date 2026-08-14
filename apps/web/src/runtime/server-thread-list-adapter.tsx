@@ -142,17 +142,18 @@ export const serverThreadListAdapter: RemoteThreadListAdapter = {
       async load() { return { messages: [] }; },
       async append() {},
       withFormat(fmt) {
+        type FormatEntry = Parameters<typeof fmt.decode>[0];
         return {
           async load() {
             const { remoteId } = aui.threadListItem.getState();
             if (!remoteId) return { messages: [] };
             try {
               const result = await api<{ messages: StoredMessage[] }>(`/api/threads/${encodeURIComponent(remoteId)}/messages`);
-              return { messages: result.messages.map((row) => fmt.decode(row)) };
+              return { messages: result.messages.map((row) => fmt.decode(row as FormatEntry)) };
             } catch (error) {
               if (!unauthorized(error)) throw error;
               const thread = localThreads().find((candidate) => candidate.id === remoteId);
-              return { messages: thread ? thread.messages.map((row) => fmt.decode(row)) : [] };
+              return { messages: thread ? thread.messages.map((row) => fmt.decode(row as FormatEntry)) : [] };
             }
           },
           async append(item) {
