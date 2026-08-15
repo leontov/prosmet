@@ -35,7 +35,7 @@ type Props = { mobile: boolean; hasEstimate: boolean; onOpenEstimate: () => void
 function Suggestion() {
   return (
     <SuggestionPrimitive.Trigger send asChild>
-      <button type="button" className="prosmet-suggestion-button">
+      <button type="button" className="prosmet-suggestion-button suggestion-card">
         <SparklesIcon className="suggestion-icon" />
         <span className="prosmet-suggestion-copy"><strong><SuggestionPrimitive.Title /></strong><small><SuggestionPrimitive.Description /></small></span>
         <ArrowUpIcon />
@@ -66,7 +66,12 @@ function ThreadHistory() {
 function Composer({ mobile }: { mobile: boolean }) {
   return (
     <ComposerPrimitive.Root className={mobile ? "mobile-reference-composer" : "desktop-composer"}>
-      <ComposerPrimitive.Input rows={1} placeholder={mobile ? "Спросить ProSmet…" : "Опишите, что нужно сделать…"} className="composer-input" />
+      <ComposerPrimitive.Input
+        id={mobile ? "mobile-message" : undefined}
+        rows={1}
+        placeholder={mobile ? "Спросить ProSmet…" : "Опишите, что нужно сделать…"}
+        className="composer-input"
+      />
       <div className="composer-actions">
         <AuiIf condition={(s) => s.composer.dictation == null}>
           <ComposerPrimitive.Dictate className="composer-action" aria-label="Диктовка"><Volume2Icon /></ComposerPrimitive.Dictate>
@@ -139,7 +144,10 @@ export function ChatSurface({ mobile, hasEstimate, onOpenEstimate }: Props) {
       <ThreadHistory />
       <ThreadPrimitive.Viewport className={mobile ? "mobile-reference-viewport" : "chat-viewport"} turnAnchor={mobile ? "bottom" : "top"}>
         <AuiIf condition={(s) => s.thread.isEmpty}>
-          <div className={mobile ? "mobile-reference-empty" : "desktop-welcome"}>
+          <div
+            className={mobile ? "mobile-reference-empty" : "desktop-welcome"}
+            data-testid={mobile ? "mobile-reference-start" : undefined}
+          >
             <div className={mobile ? "mobile-reference-title" : "desktop-welcome-title"}><div className="assistant-mark"><SparklesIcon /></div><h1>Чем я могу помочь сегодня?</h1><p>Опишите строительную задачу — ProSmet подготовит расчёт и документы.</p></div>
             <ThreadPrimitive.Suggestions>{() => <Suggestion />}</ThreadPrimitive.Suggestions>
           </div>
