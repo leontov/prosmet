@@ -8,9 +8,26 @@ const host = process.env.PROSMET_HOST || "127.0.0.1";
 const upstreamHost = "127.0.0.1";
 const store = createAssistantThreadStore();
 const maxBodyBytes = 2 * 1024 * 1024;
+const upstreamHealthTimeoutMs = 30_000;
 
 process.env.PORT = String(upstreamPort);
 await import("./server.mjs");
+
+async function waitForUpstream() {
+  const deadline = Date.now() + upstreamHealthTimeoutMs;
+  let lastError = null;
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(`http://${upstreamHost}:${upstreamPort}/api/health`);
+      if (response.ok) return;
+      lastError = new Error(`upstream health returned HTTP ${response.status}`);
+    } catch (error) {
+      lastError = error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`Upstream server did not become ready on ${upstreamHost}:${upstreamPort}: ${lastError instanceof Error ? lastError.message : "unknown error"}`);
+}
 
 async function readBody(request) {
   if (["GET", "HEAD"].includes(request.method)) return null;
@@ -96,12 +113,10 @@ async function proxy(request, response, body) {
     headers: Object.fromEntries(Object.entries(request.headers).filter(([key]) => !["host", "connection"].includes(key))),
     body
   });
-
   const headers = {};
   upstream.headers.forEach((value, key) => {
-    // Node's fetch automatically decodes compressed upstream bodies. Forwarding
-    // content-encoding/content-length here makes the browser decode the body a
-    // second time and produces ERR_CONTENT_DECODING_FAILED.
+    // Node fetch transparently decodes compressed responses. Do not forward
+    // headers that describe the pre-decoded wire representation.
     if (["transfer-encoding", "connection", "content-encoding", "content-length"].includes(key)) return;
     headers[key] = value;
   });
@@ -109,6 +124,8 @@ async function proxy(request, response, body) {
   if (!upstream.body) return response.end();
   Readable.fromWeb(upstream.body).pipe(response);
 }
+
+await waitForUpstream();
 
 const server = createServer(async (request, response) => {
   try {
