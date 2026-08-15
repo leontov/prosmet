@@ -9,6 +9,10 @@ permissions:
   actions: write
   contents: read
 
+env:
+  CURRENT_SHA: ${{ github.sha }}
+  CURRENT_RUN: ${{ github.run_id }}
+
 jobs:
   cancel-stale-production:
     runs-on: ubuntu-latest
@@ -17,15 +21,12 @@ jobs:
       - name: Cancel older production runs for previous SHAs
         env:
           GH_TOKEN: ${{ github.token }}
-          CURRENT_SHA: ${{ github.sha }}
-          CURRENT_RUN: ${{ github.run_id }}
         run: |
           set -Eeuo pipefail
           gh api --paginate \
             -H "Accept: application/vnd.github+json" \
             "/repos/${GITHUB_REPOSITORY}/actions/workflows/greenfield-deploy.yml/runs?branch=main&per_page=100" \
-            --jq ' .workflow_runs[] | select(.id != ($current_run|tonumber)) | select(.head_sha != $current_sha) | select(.status != "completed") | [.id, .status, .head_sha] | @tsv ' \
-            --jq --arg current_run "$CURRENT_RUN" --arg current_sha "$CURRENT_SHA" '' \
+            --jq '.workflow_runs[] | select(.id != (env.CURRENT_RUN | tonumber)) | select(.head_sha != env.CURRENT_SHA) | select(.status != "completed") | [.id, .status, .head_sha] | @tsv' \
             > stale-production-runs.tsv
 
           while IFS=$'\t' read -r run_id status head_sha; do
