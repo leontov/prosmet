@@ -26,8 +26,14 @@ jobs:
           gh api --paginate \
             -H "Accept: application/vnd.github+json" \
             "/repos/${GITHUB_REPOSITORY}/actions/workflows/greenfield-deploy.yml/runs?branch=main&per_page=100" \
-            --jq '.workflow_runs[] | select(.id != (env.CURRENT_RUN | tonumber)) | select(.head_sha != env.CURRENT_SHA) | select(.status != "completed") | [.id, .status, .head_sha] | @tsv' \
-            > stale-production-runs.tsv
+            | jq -r --arg current_run "$CURRENT_RUN" --arg current_sha "$CURRENT_SHA" '
+                .workflow_runs[]
+                | select((.id | tostring) != $current_run)
+                | select(.head_sha != $current_sha)
+                | select(.status != "completed")
+                | [.id, .status, .head_sha]
+                | @tsv
+              ' > stale-production-runs.tsv
 
           while IFS=$'\t' read -r run_id status head_sha; do
             [ -n "${run_id:-}" ] || continue
