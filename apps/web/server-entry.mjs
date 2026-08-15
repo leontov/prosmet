@@ -96,9 +96,14 @@ async function proxy(request, response, body) {
     headers: Object.fromEntries(Object.entries(request.headers).filter(([key]) => !["host", "connection"].includes(key))),
     body
   });
+
   const headers = {};
   upstream.headers.forEach((value, key) => {
-    if (key !== "transfer-encoding" && key !== "connection") headers[key] = value;
+    // Node's fetch automatically decodes compressed upstream bodies. Forwarding
+    // content-encoding/content-length here makes the browser decode the body a
+    // second time and produces ERR_CONTENT_DECODING_FAILED.
+    if (["transfer-encoding", "connection", "content-encoding", "content-length"].includes(key)) return;
+    headers[key] = value;
   });
   response.writeHead(upstream.status, headers);
   if (!upstream.body) return response.end();
