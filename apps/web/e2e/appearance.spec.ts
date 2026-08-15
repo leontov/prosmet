@@ -65,7 +65,7 @@ test.describe("ProSmet web appearance", () => {
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
       await page.goto("/app", { waitUntil: "networkidle" });
       await expect(page.getByTestId("desktop-shell")).toBeVisible();
-      await expect(page.getByRole("heading", { name: "Что нужно рассчитать?" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Чем я могу помочь сегодня?" })).toBeVisible();
       expect(await horizontalOverflow(page), `${viewport.label} viewport overflow`).toBeLessThanOrEqual(1);
 
       if (viewport.label === "primary" || viewport.label === "compact") {
