@@ -1,0 +1,36 @@
+name: Prosmet Production Run Watchdog
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  cancel-stale-production:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Cancel older production runs for previous SHAs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CURRENT_SHA: ${{ github.sha }}
+          CURRENT_RUN: ${{ github.run_id }}
+        run: |
+          set -Eeuo pipefail
+          gh api --paginate \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/${GITHUB_REPOSITORY}/actions/workflows/greenfield-deploy.yml/runs?branch=main&per_page=100" \
+            --jq '.workflow_runs[] | select(.id != ('"$CURRENT_RUN"')) | select(.head_sha != '"'"$CURRENT_SHA"'"') | select(.status != "completed") | [.id, .status, .head_sha] | @tsv' \
+            > stale-production-runs.tsv || true
+
+          while IFS=$'\t' read -r run_id status head_sha; do
+            [ -n "${run_id:-}" ] || continue
+            echo "Cancelling stale production run ${run_id} (${status}, ${head_sha})"
+            gh api --method POST \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/cancel" || true
+          done < stale-production-runs.tsv
