@@ -9,6 +9,8 @@ import { useMemo } from "react";
 
 type StoredMessage = { id: string; parent_id: string | null; format: string; content: Record<string, unknown> };
 
+type SessionResponse = { user?: { id?: string } | null };
+
 const LOCAL_KEY = "prosmet.assistant.threads.v1";
 const DEFAULT_TITLE = "Новый чат";
 
@@ -33,6 +35,17 @@ function fallbackInitialize(id?: string | null) {
     saveLocal(threads);
   }
   return remoteId;
+}
+
+async function hasServerSession() {
+  try {
+    const response = await fetch("/api/auth/session", { credentials: "same-origin", cache: "no-store" });
+    if (!response.ok) return false;
+    const session = await response.json() as SessionResponse;
+    return typeof session.user?.id === "string" && session.user.id.length > 0;
+  } catch {
+    return false;
+  }
 }
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
@@ -65,6 +78,9 @@ function titleFromMessages(messages: readonly unknown[]) {
 
 export const serverThreadListAdapter: RemoteThreadListAdapter = {
   async list() {
+    if (!(await hasServerSession())) {
+      return { threads: localThreads().filter((thread) => thread.status === "regular").map((thread) => ({ status: thread.status, remoteId: thread.id, title: thread.title })) };
+    }
     try {
       const result = await api<{ threads: Array<{ status: "regular" | "archived"; remoteId: string; title: string }> }>("/api/threads");
       return { threads: result.threads };
@@ -75,6 +91,7 @@ export const serverThreadListAdapter: RemoteThreadListAdapter = {
   },
 
   async initialize(localId) {
+    if (!(await hasServerSession())) return { remoteId: fallbackInitialize(localId) };
     try {
       const result = await api<{ remoteId: string }>("/api/threads", { method: "POST", body: JSON.stringify({ id: localId || undefined, title: DEFAULT_TITLE }) });
       return { remoteId: result.remoteId };
@@ -85,6 +102,10 @@ export const serverThreadListAdapter: RemoteThreadListAdapter = {
   },
 
   async rename(remoteId, title) {
+    if (!(await hasServerSession())) {
+      saveLocal(localThreads().map((thread) => thread.id === remoteId ? { ...thread, title: title.trim() || DEFAULT_TITLE } : thread));
+      return;
+    }
     try {
       await api(`/api/threads/${encodeURIComponent(remoteId)}`, { method: "PATCH", body: JSON.stringify({ title }) });
     } catch (error) {
@@ -94,6 +115,7 @@ export const serverThreadListAdapter: RemoteThreadListAdapter = {
   },
 
   async archive(remoteId) {
+    if (!(await hasServerSession())) return;
     try {
       await api(`/api/threads/${encodeURIComponent(remoteId)}`, { method: "PATCH", body: JSON.stringify({ status: "archived" }) });
     } catch (error) {
@@ -102,6 +124,7 @@ export const serverThreadListAdapter: RemoteThreadListAdapter = {
   },
 
   async unarchive(remoteId) {
+    if (!(await hasServerSession())) return;
     try {
       await api(`/api/threads/${encodeURIComponent(remoteId)}`, { method: "PATCH", body: JSON.stringify({ status: "regular" }) });
     } catch (error) {
@@ -110,6 +133,10 @@ export const serverThreadListAdapter: RemoteThreadListAdapter = {
   },
 
   async delete(remoteId) {
+    if (!(await hasServerSession())) {
+      saveLocal(localThreads().filter((thread) => thread.id !== remoteId));
+      return;
+    }
     try {
       await api(`/api/threads/${encodeURIComponent(remoteId)}`, { method: "DELETE" });
     } catch (error) {
@@ -119,6 +146,11 @@ export const serverThreadListAdapter: RemoteThreadListAdapter = {
   },
 
   async fetch(remoteId) {
+    if (!(await hasServerSession())) {
+      const thread = localThreads().find((candidate) => candidate.id === remoteId);
+      if (!thread) throw new Error("Чат не найден");
+      return { status: thread.status, remoteId: thread.id, title: thread.title };
+    }
     try {
       return await api<{ status: "regular" | "archived"; remoteId: string; title: string }>(`/api/threads/${encodeURIComponent(remoteId)}`);
     } catch (error) {
@@ -147,6 +179,10 @@ export const serverThreadListAdapter: RemoteThreadListAdapter = {
           async load() {
             const { remoteId } = aui.threadListItem.getState();
             if (!remoteId) return { messages: [] };
+            if (!(await hasServerSession())) {
+              const thread = localThreads().find((candidate) => candidate.id === remoteId);
+              return { messages: thread ? thread.messages.map((row) => fmt.decode(row as FormatEntry)) : [] };
+            }
             try {
               const result = await api<{ messages: StoredMessage[] }>(`/api/threads/${encodeURIComponent(remoteId)}/messages`);
               return { messages: result.messages.map((row) => fmt.decode(row as FormatEntry)) };
@@ -165,6 +201,14 @@ export const serverThreadListAdapter: RemoteThreadListAdapter = {
               format: fmt.format,
               content: fmt.encode(item)
             };
+            if (!(await hasServerSession())) {
+              const threads = localThreads();
+              const thread = threads.find((candidate) => candidate.id === remoteId);
+              if (!thread) return;
+              thread.messages = [...thread.messages.filter((message) => message.id !== row.id), row];
+              saveLocal(threads);
+              return;
+            }
             try {
               await api(`/api/threads/${encodeURIComponent(remoteId)}/messages`, { method: "POST", body: JSON.stringify({ message: row }) });
             } catch (error) {
