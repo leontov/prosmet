@@ -61,14 +61,19 @@ async function ownerId(request) {
 async function handleThreadRoute(request, response, url) {
   if (!url.pathname.startsWith("/api/threads")) return false;
   const userId = await ownerId(request);
-  if (!userId) {
-    sendJson(response, 401, { error: { code: "AUTH_REQUIRED", message: "Войдите в ProSmet для серверной истории чатов." } });
-    return true;
-  }
   const body = await readBody(request);
   const parts = url.pathname.split("/").filter(Boolean).slice(2);
   const threadId = parts[0] ? decodeURIComponent(parts[0]) : null;
   const messagesRoute = parts[1] === "messages";
+
+  if (!userId) {
+    if (request.method === "GET" && !threadId) {
+      return sendJson(response, 200, { threads: [], persistence: "sqlite", authenticated: false });
+    }
+    sendJson(response, 401, { error: { code: "AUTH_REQUIRED", message: "Войдите в ProSmet для серверной истории чатов." } });
+    return true;
+  }
+
   if (request.method === "GET" && !threadId) {
     return sendJson(response, 200, { threads: store.listThreads(userId).map((t) => ({ status: t.status, remoteId: t.id, title: t.title })), persistence: "sqlite" });
   }
@@ -115,8 +120,6 @@ async function proxy(request, response, body) {
   });
   const headers = {};
   upstream.headers.forEach((value, key) => {
-    // Node fetch transparently decodes compressed responses. Do not forward
-    // headers that describe the pre-decoded wire representation.
     if (["transfer-encoding", "connection", "content-encoding", "content-length"].includes(key)) return;
     headers[key] = value;
   });
