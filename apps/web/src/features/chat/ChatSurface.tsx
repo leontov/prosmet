@@ -35,7 +35,7 @@ type Props = { mobile: boolean; hasEstimate: boolean; onOpenEstimate: () => void
 function Suggestion() {
   return (
     <SuggestionPrimitive.Trigger send asChild>
-      <button type="button" className="prosmet-suggestion-button suggestion-card">
+      <button type="button" className="prosmet-suggestion-button suggestion-card mobile-reference-action">
         <SparklesIcon className="suggestion-icon" />
         <span className="prosmet-suggestion-copy"><strong><SuggestionPrimitive.Title /></strong><small><SuggestionPrimitive.Description /></small></span>
         <ArrowUpIcon />
@@ -67,7 +67,7 @@ function Composer({ mobile }: { mobile: boolean }) {
   return (
     <ComposerPrimitive.Root className={mobile ? "mobile-reference-composer" : "desktop-composer"}>
       <ComposerPrimitive.Input
-        id={mobile ? "mobile-message" : undefined}
+        id={mobile ? "mobile-message" : "desktop-message"}
         rows={1}
         placeholder={mobile ? "Спросить ProSmet…" : "Опишите, что нужно сделать…"}
         className="composer-input"
