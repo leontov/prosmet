@@ -20,6 +20,7 @@ import "./landing-samreshu-v2.css";
 
 type LeadState = { status: "idle" | "sending" | "sent" | "error"; message?: string };
 type Mode = "Смета" | "Расчёт" | "Отчёт";
+type PricePlan = { name: string; price: string; note: string; featured?: boolean; items: readonly string[] };
 
 const heroModes: Record<Mode, { prompt: string; answer: string; result: string }> = {
   Смета: { prompt: "Составь смету на механизированную штукатурку 180 м² в Лениногорске", answer: "Собрал работы, материалы и региональные цены. Показываю позиции, количества и итог.", result: "17 позиций · 289 640 ₽" },
@@ -42,13 +43,13 @@ const features = [
   ["Документы", "КП, договор, акт и экспорт строятся из одной утверждённой версии сметы."],
   ["Проекты", "История чатов, сметы, документы и факт объединены в рабочее пространство."],
   ["Автоматизация", "Повторяющиеся действия превращаются в готовые сценарии и задачи."],
-];
+] as const;
 
-const pricing = [
+const pricing: readonly PricePlan[] = [
   { name: "Бесплатный", price: "0 ₽", note: "3 сметы / месяц", items: ["Демо-чат", "Базовый расчёт", "PDF / XLSX", "Без команды"] },
   { name: "Pro", price: "2 000 ₽", note: "для регулярной работы", featured: true, items: ["Безлимитные сметы", "Расширенные справочники", "PDF / DOCX / XLSX", "100 запусков ИИ / день"] },
   { name: "Max", price: "20 000 ₽", note: "для команды", items: ["До 10 мест", "Приоритетная очередь", "Безлимитный ИИ", "Журнал аудита"] },
-] as const;
+];
 
 const faq = [
   ["Можно ли просто написать строительную задачу?", "Да. KolibriAI рассчитан на обычный язык: вы описываете объект и требуемый результат, агент задаёт необходимые уточнения и собирает расчёт."],
@@ -118,7 +119,7 @@ export function LandingPageProduction() {
 
         <section className="k-product-section k-product-dark"><div className="k-product-copy"><span>Интеграции</span><h2>Подключается к рабочему процессу, а не заменяет его.</h2><p>Таблицы, документы, Telegram, API и будущие коннекторы можно строить вокруг единой версии проекта.</p></div><div className="k-integration-list"><div>1С <small>финансы и первичка</small></div><div>МойСклад <small>материалы и остатки</small></div><div>Telegram <small>уведомления и задачи</small></div><div>API <small>свои системы</small></div></div></section>
 
-        <section className="kolibri-section" id="pricing"><div className="kolibri-section-title pricing-title"><div><span>Тарифы</span><h2>Начните с первой задачи.</h2></div><div className="kolibri-billing"><button type="button" className={!annual ? "active" : ""} onClick={() => setAnnual(false)}>Ежемесячно</button><button type="button" className={annual ? "active" : ""} onClick={() => setAnnual(true)}>Ежегодно −17%</button></div></div><div className="kolibri-pricing-grid">{pricing.map((plan) => { const numeric = Number(plan.price.replace(/\D/g, "")); const display = numeric === 0 ? "0 ₽" : `${annual ? Math.round(numeric * .83).toLocaleString("ru-RU") : numeric.toLocaleString("ru-RU")} ₽`; return <article className={plan.featured ? "featured" : ""} key={plan.name}><span className="kolibri-price-name">{plan.name}</span><strong>{display}</strong><small>{plan.note}</small><a className="kolibri-primary pricing" href="/app">Начать <ArrowRightIcon /></a><ul>{plan.items.map((item) => <li key={item}><CheckIcon />{item}</li>)}</ul></article>; })}</div></section>
+        <section className="kolibri-section" id="pricing"><div className="kolibri-section-title pricing-title"><div><span>Тарифы</span><h2>Начните с первой задачи.</h2></div><div className="kolibri-billing"><button type="button" className={!annual ? "active" : ""} onClick={() => setAnnual(false)}>Ежемесячно</button><button type="button" className={annual ? "active" : ""} onClick={() => setAnnual(true)}>Ежегодно −17%</button></div></div><div className="kolibri-pricing-grid">{pricing.map((plan) => { const numeric = Number(plan.price.replace(/\D/g, "")); const display = numeric === 0 ? "0 ₽" : `${annual ? Math.round(numeric * .83).toLocaleString("ru-RU") : numeric.toLocaleString("ru-RU")} ₽`; return <article className={plan.featured === true ? "featured" : ""} key={plan.name}><span className="kolibri-price-name">{plan.name}</span><strong>{display}</strong><small>{plan.note}</small><a className="kolibri-primary pricing" href="/app">Начать <ArrowRightIcon /></a><ul>{plan.items.map((item) => <li key={item}><CheckIcon />{item}</li>)}</ul></article>; })}</div></section>
 
         <section className="kolibri-section k-faq-section" id="faq"><div className="kolibri-section-title"><span>FAQ</span><h2>Частые вопросы.</h2></div><div className="k-faq-list">{faq.map(([question, answer], index) => <div key={question} className={faqOpen === index ? "open" : ""}><button type="button" onClick={() => setFaqOpen((v) => v === index ? null : index)}><span>{question}</span><ChevronDownIcon /></button>{faqOpen === index ? <p>{answer}</p> : null}</div>)}</div></section>
 
