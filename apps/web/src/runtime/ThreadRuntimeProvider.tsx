@@ -10,23 +10,25 @@ import {
   type ChatModelAdapter
 } from "@assistant-ui/react";
 import type { AgentResponse, ApiErrorBody, Estimate } from "@prosmet/contracts";
-import { createAssistantStream } from "assistant-stream";
 import { fetchStoredEstimate } from "../features/estimate/estimate-api";
 import { feedbackAdapter } from "./feedback-adapter";
 import { serverThreadListAdapter } from "./server-thread-list-adapter";
 
-type Props = {
-  children: ReactNode;
-  onEstimateReady: (estimate: Estimate) => void;
-};
-
+type Props = { children: ReactNode; onEstimateReady: (estimate: Estimate) => void };
 const EMPTY_AGENT_RESPONSE = "Агент вернул пустой ответ";
 const AGENT_RETRIES = 2;
 
 const PROSMET_SUGGESTIONS = [
-  { title: "Составить смету", label: "Новая строительная смета", prompt: "Составь строительную смету. Сначала уточни недостающие исходные данные, затем рассчитай объёмы, проверь цены и подготовь редактируемую смету." },
-  { title: "Рассчитать по замерам", label: "Объёмы работ и материалов", prompt: "Рассчитай объёмы работ и материалов по моим замерам, затем создай смету с ценами, источниками и итогами." },
-  { title: "Подготовить документы", label: "КП, договор и акт", prompt: "На основании сметы подготовь комплект строительных документов: коммерческое предложение, договор, акт и счёт." }
+  { title: "Локальная смета", label: "Новая строительная смета", prompt: "Составь локальную строительную смету. Уточни недостающие исходные данные, рассчитай объёмы, проверь цены и подготовь редактируемую смету." },
+  { title: "Объектная смета", label: "Сводный расчёт объекта", prompt: "Собери объектную смету по разделам, связав работы, материалы, оборудование и итоги." },
+  { title: "Акт КС-2", label: "Сформировать акт", prompt: "На основании утверждённой сметы подготовь акт КС-2 с текущими объёмами." },
+  { title: "Материалы", label: "Подбор и расчёт", prompt: "Подбери материалы для строительной задачи, укажи единицы, количества, цены и источники." },
+  { title: "Расчёт", label: "Объёмы и стоимость", prompt: "Рассчитай объёмы работ и материалов по моим замерам, затем выведи стоимость и итоги." },
+  { title: "Договор", label: "Договор подряда", prompt: "Подготовь проект договора подряда на основании утверждённой сметы и данных проекта." },
+  { title: "Смета ФЕР", label: "Нормативные расценки", prompt: "Составь смету с использованием нормативных расценок ФЕР/ТЕР/ГЭСН, явно укажи применённые позиции." },
+  { title: "График работ", label: "План выполнения", prompt: "Построй график строительных работ по разделам сметы, зависимостям и объёмам." },
+  { title: "Таблица", label: "Структурировать данные", prompt: "Преобразуй исходные данные в структурированную таблицу с колонками, единицами, количествами и итогами." },
+  { title: "PDF", label: "Подготовить документ", prompt: "Подготовь PDF-версию текущего результата и перечисли, какие данные вошли в документ." }
 ];
 
 function errorMessage(status: number, body: unknown) {
@@ -39,10 +41,7 @@ function errorMessage(status: number, body: unknown) {
 
 function timedTextResult(text: string, startedAt: number) {
   const totalStreamTime = Math.max(0, Date.now() - startedAt);
-  return {
-    content: [{ type: "text" as const, text }],
-    metadata: { timing: { streamStartTime: startedAt, firstTokenTime: totalStreamTime, totalStreamTime, totalChunks: 1, toolCallCount: 0 } }
-  };
+  return { content: [{ type: "text" as const, text }], metadata: { timing: { streamStartTime: startedAt, firstTokenTime: totalStreamTime, totalStreamTime, totalChunks: 1, toolCallCount: 0 } } };
 }
 
 function shouldRetryAgentResponse(status: number, body: unknown) {
@@ -51,9 +50,7 @@ function shouldRetryAgentResponse(status: number, body: unknown) {
   return apiError?.error?.message === EMPTY_AGENT_RESPONSE;
 }
 
-async function retryDelay(attempt: number) {
-  await new Promise((resolve) => window.setTimeout(resolve, 350 * attempt));
-}
+async function retryDelay(attempt: number) { await new Promise((resolve) => window.setTimeout(resolve, 350 * attempt)); }
 
 export function ThreadRuntimeProvider({ children, onEstimateReady }: Props) {
   const adapter = useMemo<ChatModelAdapter>(() => ({
@@ -91,11 +88,8 @@ export function ThreadRuntimeProvider({ children, onEstimateReady }: Props) {
     return new WebSpeechDictationAdapter({ language: "ru-RU", continuous: false, interimResults: true });
   }, []);
   const speechAdapter = useMemo(() => new WebSpeechSynthesisAdapter(), []);
-
   const runtime = useRemoteThreadListRuntime({
-    runtimeHook: () => useLocalRuntime(adapter, {
-      adapters: { feedback: feedbackAdapter, speech: speechAdapter, ...(dictationAdapter ? { dictation: dictationAdapter } : {}) }
-    }),
+    runtimeHook: () => useLocalRuntime(adapter, { adapters: { feedback: feedbackAdapter, speech: speechAdapter, ...(dictationAdapter ? { dictation: dictationAdapter } : {}) } }),
     adapter: serverThreadListAdapter
   });
   const aui = useAui({ suggestions: Suggestions(PROSMET_SUGGESTIONS) });
