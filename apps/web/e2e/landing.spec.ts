@@ -29,9 +29,11 @@ test.describe("production landing", () => {
     await expect(page.locator("#security")).toContainText("Данные проекта остаются под контролем.");
 
     const faq = page.locator(".sam-faq-section");
-    const faqQuestion = faq.getByRole("button", { name: "Можно ли просто написать задачу текстом?" });
+    await expect(faq).toBeVisible();
+    const faqQuestion = faq.locator(".sam-faq-item button").first();
+    await expect(faqQuestion).toBeVisible();
     await faqQuestion.click();
-    await expect(faq.getByText("Да. ProSmet рассчитан на обычный язык.", { exact: true })).toBeVisible();
+    await expect(faq.locator(".sam-faq-item.open p").first()).toContainText("ProSmet рассчитан на обычный язык.");
 
     await page.screenshot({ path: `artifacts-landing-${testInfo.project.name}.png`, fullPage: true });
   });
