@@ -14,10 +14,19 @@ import {
   SparklesIcon,
   WorkflowIcon,
   XIcon,
+  type LucideIcon,
 } from "lucide-react";
 import "./landing-samreshu.css";
 
 type LeadState = { status: "idle" | "sending" | "sent" | "error"; message?: string };
+type ResultItem = readonly [LucideIcon, string, string, string];
+type Plan = {
+  name: string;
+  price: string;
+  note: string;
+  featured?: boolean;
+  items: readonly string[];
+};
 
 const messages = [
   { role: "user", text: "Составь смету на штукатурку стен 180 м² в Лениногорске", meta: "" },
@@ -41,11 +50,17 @@ const integrations = [
   ["API", "свои системы"],
 ] as const;
 
-const plans = [
+const resultItems: readonly ResultItem[] = [
+  [FileSpreadsheetIcon, "Смета на штукатурку", "180 м² · Лениногорск", "17 позиций"],
+  [FileTextIcon, "Коммерческое предложение", "из утверждённой сметы", "DOCX"],
+  [FileCheck2Icon, "Договор", "суммы связаны", "DOCX"],
+];
+
+const plans: readonly Plan[] = [
   { name: "Бесплатный", price: "0 ₽", note: "для знакомства", items: ["Чат с ProSmet", "Базовые сметы", "Документы из расчёта", "PDF / XLSX"] },
   { name: "Pro", price: "2 490 ₽", note: "для регулярной работы", featured: true, items: ["Рабочая история", "Проекты и ревизии", "Расширенные документы", "Региональные источники цен"] },
   { name: "Команда", price: "7 499 ₽", note: "единое пространство", items: ["Командный доступ", "Общие проекты", "Интеграции", "Согласование"] },
-] as const;
+];
 
 export function LandingPageProduction() {
   const [navOpen, setNavOpen] = useState(false);
@@ -110,11 +125,7 @@ export function LandingPageProduction() {
               </div>
               <aside className="sam-result-column">
                 <div className="sam-result-top"><span>Результат</span><span className="sam-result-tag">ГОТОВО</span></div>
-                {[
-                  [FileSpreadsheetIcon, "Смета на штукатурку", "180 м² · Лениногорск", "17 позиций"],
-                  [FileTextIcon, "Коммерческое предложение", "из утверждённой сметы", "DOCX"],
-                  [FileCheck2Icon, "Договор", "суммы связаны", "DOCX"],
-                ].map(([Icon, title, text, tag]) => <div className="sam-result-card" key={String(title)}><div className="sam-result-icon"><Icon /></div><div><strong>{title as string}</strong><small>{text as string}</small></div><span>{tag as string}</span></div>)}
+                {resultItems.map(([Icon, title, text, tag]) => <div className="sam-result-card" key={title}><div className="sam-result-icon"><Icon /></div><div><strong>{title}</strong><small>{text}</small></div><span>{tag}</span></div>)}
                 <div className="sam-result-summary"><span>Предварительный итог</span><strong>289 640 ₽</strong><small>работы + материалы + расчётный запас</small></div>
               </aside>
             </div>
@@ -133,7 +144,7 @@ export function LandingPageProduction() {
 
         <section className="sam-section" id="pricing"><div className="sam-section-heading"><span>Тарифы</span><h2>Начните с реальной задачи.</h2><p>Откройте чат, дайте исходные данные и получите первый результат.</p></div><div className="sam-pricing-grid">{plans.map((plan) => <article className={plan.featured ? "sam-price featured" : "sam-price"} key={plan.name}><span className="sam-price-name">{plan.name}</span><strong>{plan.price}</strong><small>{plan.note}</small><a href="/app">Попробовать <ArrowRightIcon /></a><ul>{plan.items.map((item) => <li key={item}><CheckIcon />{item}</li>)}</ul></article>)}</div></section>
 
-        <section className="sam-faq-section"><div className="sam-section-heading"><span>FAQ</span><h2>Частые вопросы.</h2></div><div className="sam-faq">{[["Можно ли просто написать задачу текстом?","Да. ProSmet рассчитан на обычный язык."],["Что будет после расчёта?","Смета становится рабочей версией проекта."],["Можно ли работать с телефона?","Да. Для mobile есть отдельная композиция."],["Сохраняется ли история?","Для авторизованного пользователя история хранится на сервере." ]].map(([question, answer], index) => <div className={faq === index ? "sam-faq-item open" : "sam-faq-item"} key={question}><button type="button" onClick={() => setFaq((value) => value === index ? null : index)}><span>{question}</span><ChevronDownIcon /></button>{faq === index ? <p>{answer}</p> : null}</div>)}</div></section>
+        <section className="sam-faq-section"><div className="sam-section-heading"><span>FAQ</span><h2>Частые вопросы.</h2></div><div className="sam-faq">{[["Можно ли просто написать задачу текстом","Да. ProSmet рассчитан на обычный язык."],["Что будет после расчёта","Смета становится рабочей версией проекта."],["Можно ли работать с телефона","Да. Для mobile есть отдельная композиция."],["Сохраняется ли история","Для авторизованного пользователя история хранится на сервере."]].map(([question, answer], index) => <div className={faq === index ? "sam-faq-item open" : "sam-faq-item"} key={question}><button type="button" onClick={() => setFaq((value) => value === index ? null : index)}><span>{question}</span><ChevronDownIcon /></button>{faq === index ? <p>{answer}</p> : null}</div>)}</div></section>
 
         <section className="sam-final-cta"><div><span>ProSmet</span><h2>Дайте агенту одну настоящую задачу.</h2><p>Пусть он соберёт смету, документ или рабочий сценарий прямо сейчас.</p><a className="sam-primary" href="/app">Открыть ProSmet <ArrowRightIcon /></a></div><form onSubmit={submitLead} className="sam-lead-form"><input name="name" placeholder="Имя" required /><input name="contact" placeholder="Телефон или Telegram" required /><input name="company" placeholder="Компания" /><input name="website" tabIndex={-1} autoComplete="off" aria-hidden="true" className="sam-honeypot" /><button type="submit" disabled={lead.status === "sending"}>{lead.status === "sending" ? "Отправляем…" : "Записаться на демо"}</button>{lead.message ? <p className={lead.status === "error" ? "error" : "success"}>{lead.message}</p> : null}</form></section>
       </main>
